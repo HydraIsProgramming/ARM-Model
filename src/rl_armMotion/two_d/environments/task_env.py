@@ -152,32 +152,69 @@ class ArmTaskEnv(gym.Env):
         self.hold_counter = 0
         self.last_gradient = 0.0
 
-        # --- Physics constraints ---
-        # Gravity (m/s²)
-        self.gravity = 9.81
+        # ── Physics constants ──────────────────────────────────────────────────
+        # Standard gravitational acceleration (NIST, 2018 CODATA value).
+        self.gravity: float = 9.81  # m/s²
 
-        # Precomputed physical arrays (float64 for torque precision)
+        # Precomputed physical arrays in float64 for torque/energy precision.
         self._link_lengths = np.asarray(self.config.link_lengths, dtype=np.float64)
-        self._masses = np.asarray(self.config.masses, dtype=np.float64)
+        self._masses       = np.asarray(self.config.masses,       dtype=np.float64)
 
-        # Joint acceleration limit: reaches max speed in ~0.25 s (25 steps at dt=0.01)
-        self.max_joint_accel: float = 8.0  # rad/s²
-        self.max_delta_vel: float = self.max_joint_accel * self.dt  # rad/s per step
+        # ── A: Work done against gravity ───────────────────────────────────────
+        # Physical quantity: change in gravitational potential energy per step.
+        #   ΔPE = PE_new − PE_prev  where  PE = Σ m_k · g · y_com_k
+        # Scientific basis: Work-energy theorem.  When ΔPE > 0 the arm has lifted
+        # mass against gravity; the actuators must supply that energy.  ΔPE ≤ 0
+        # means the arm fell; no energy cost to penalise.
+        # Key property: this penalty is ZERO when the arm is stationary at the
+        # goal (horizontal position), so it never discourages holding the target.
+        # Ref: any classical mechanics text, e.g. Goldstein "Classical Mechanics".
+        #
+        # Coefficient sizing: total ΔPE for full vertical→horizontal swing ≈ 30 J
+        # over ~150 steps → ~0.20 J/step peak.  Coefficient 0.10 → max reward
+        # impact ~0.02 per step, well below primary distance penalty (−2·distance).
+        self.gravity_work_coeff: float = 0.10
+        self.prev_gravitational_pe: float = 0.0   # initialised properly in reset()
 
-        # Reward coefficients (kept small so physics penalties don't dominate)
-        # gravity_penalty_coeff: ~0.1 Nm penalty per step at full horizontal extension
-        self.gravity_penalty_coeff: float = 0.003
-        # accel_penalty_coeff: max ~0.1 per step at maximum acceleration on both joints
+        # ── C: Joint acceleration limit ────────────────────────────────────────
+        # Physical basis: real motor torque limits → finite joint acceleration.
+        # Estimated peak motor torque for this arm class: ~100 Nm.
+        # Shoulder inertia (uniform-rod + distal mass): I ≈ ml²/3 + M·l²
+        #   = 2.0·1.0²/3 + 1.5·1.0² ≈ 2.17 kg·m²
+        # Physical max α = τ/I ≈ 100/2.17 ≈ 46 rad/s².
+        # We use 8.0 rad/s² (~1/6 of max) as a safe collaborative-robot bound.
+        # Ref: ISO/TS 15066:2016 (collaborative robot speed/force limits).
+        self.max_joint_accel: float = 8.0   # rad/s²
+        self.max_delta_vel:   float = self.max_joint_accel * self.dt  # rad/s per step
+
+        # Penalty: normalised acceleration effort in [0, 1].
+        # 1.0 = maximum allowed acceleration commanded on every joint this step.
         self.accel_penalty_coeff: float = 0.05
-
-        # Episode energy accumulator (Joules) — tracked for info, no hard cutoff
-        self.episode_energy: float = 0.0
-        # Previous velocities for acceleration computation
         self.prev_velocities: np.ndarray = np.zeros(self.num_dof, dtype=np.float32)
 
-        # Jerk penalty: penalises abrupt changes in acceleration (smoothness)
-        # jerk = Δacceleration / dt = Δ(delta_vel) / dt²
-        # coefficient kept small — jerk is high during start/stop which is normal
+        # ── J: Mechanical energy budget ────────────────────────────────────────
+        # Physical quantity: instantaneous mechanical power × dt per step (Joules).
+        #   E_step = Σ |τ_gravity_i| · |ω_i| · dt
+        # Absolute values assume non-regenerative actuators — standard assumption
+        # for DC servo drives that dissipate braking energy as heat.
+        # Ref: Sciavicco & Siciliano, "Modelling and Control of Robot
+        #      Manipulators" (2000), §8.3 — actuator energy consumption.
+        #
+        # Coefficient sizing: max |τ| ≈ 30 Nm, max |ω| ≈ 2 rad/s, dt = 0.01 s
+        # → max E_step ≈ 0.6 J.  Coefficient 0.01 → max impact ~0.006 per step.
+        # Small by design: energy efficiency is a secondary objective.
+        self.energy_penalty_coeff: float = 0.01
+        self.episode_energy:       float = 0.0
+
+        # ── K: Jerk penalty ────────────────────────────────────────────────────
+        # Physical quantity: rate of change of joint acceleration, normalised to [0, 1].
+        # Normalisation: maximum possible |Δdelta_vel| in one step is 2·max_delta_vel
+        # (full direction reversal of the commanded acceleration increment).
+        # → jerk_norm = |delta_vel_t − delta_vel_{t-1}| / (2 · max_delta_vel)
+        # 0 = constant acceleration; 1 = instantaneous maximum direction reversal.
+        # Scientific basis: minimum-jerk criterion for smooth human-like arm motion.
+        # Ref: Flash & Hogan, "The coordination of arm movements: an experimentally
+        #      confirmed mathematical model", J. Neuroscience 5(7):1688-1703, 1985.
         self.jerk_penalty_coeff: float = 0.02
         self.prev_delta_vel: np.ndarray = np.zeros(self.num_dof, dtype=np.float32)
 
@@ -262,6 +299,49 @@ class ArmTaskEnv(gym.Env):
 
         return torques
 
+    def _compute_gravitational_pe(self, angles: np.ndarray) -> float:
+        """Gravitational potential energy of the arm (Joules), referenced at shoulder height.
+
+        PE = Σ_{k=0}^{n-1}  m_k · g · y_com_k
+
+        where y_com_k is the vertical (y) position of link k's centre of mass
+        above the shoulder joint origin.
+
+        Physical basis:
+            Work-energy theorem: W = ΔPE.  When ΔPE > 0 between two consecutive
+            steps the actuators have done positive work against gravity.  When
+            ΔPE ≤ 0 the arm has descended and no energy cost is incurred.
+            Using ΔPE rather than static torque magnitude means the penalty is
+            zero when the arm is stationary (including at the goal configuration),
+            correctly reflecting that holding a pose costs no energy in an ideal
+            system with static friction / no gravity compensation required.
+
+        Reference:
+            Goldstein, H., Poole, C., Safko, J. (2002). "Classical Mechanics"
+            (3rd ed.), §1.4 — potential energy of a system of particles.
+
+        Args:
+            angles: Joint angles in radians, shape (num_dof,).
+
+        Returns:
+            Gravitational potential energy in Joules.
+        """
+        l = self._link_lengths
+        m = self._masses
+        n = self.num_dof
+
+        cum_angles = np.cumsum(np.asarray(angles, dtype=np.float64))
+        sin_a = np.sin(cum_angles)
+
+        # y-coordinate of each joint (shoulder at y=0)
+        joint_y = np.zeros(n + 1)
+        joint_y[1:] = np.cumsum(l * sin_a)
+
+        # y-coordinate of each link's centre of mass (mid-point of uniform rod)
+        com_y = joint_y[:n] + 0.5 * l * sin_a
+
+        return float(self.gravity * np.dot(m, com_y))
+
     def reset(
         self, seed: Optional[int] = None, options: Optional[Dict[str, Any]] = None
     ) -> Tuple[np.ndarray, Dict]:
@@ -278,8 +358,10 @@ class ArmTaskEnv(gym.Env):
         self.hold_counter = 0
         self.last_gradient = 0.0
         self.prev_velocities = np.zeros(self.num_dof, dtype=np.float32)
-        self.prev_delta_vel = np.zeros(self.num_dof, dtype=np.float32)
-        self.episode_energy = 0.0
+        self.prev_delta_vel  = np.zeros(self.num_dof, dtype=np.float32)
+        self.episode_energy  = 0.0
+        # Initialise gravitational PE so the first step's ΔPE is computed correctly.
+        self.prev_gravitational_pe = self._compute_gravitational_pe(angles)
 
         self.controller.angles = angles.copy()
 
@@ -426,40 +508,68 @@ class ArmTaskEnv(gym.Env):
         progress = self.previous_total_error - total_error
         self.previous_total_error = total_error
 
-        # --- A: Gravity torques ---
+        # ── A: Gravity torques & work against gravity ──────────────────────────
+        # Torque formula: τ_i = -g · Σ_{k≥i} m_k · (x_com_k − x_joint_i)
+        # Ref: Spong, Hutchinson & Vidyasagar, "Robot Modeling and Control"
+        #      (2006), §6.5 — planar gravity torque for serial chain.
         gravity_torques = self._compute_gravity_torques(new_angles)
-        gravity_load = float(np.sum(np.abs(gravity_torques)))  # total static holding effort (Nm)
 
-        # --- J: Energy budget ---
-        # Mechanical power against gravity this step: |τ_i| × |ω_i| × dt (Joules)
-        step_energy = float(np.dot(np.abs(gravity_torques), np.abs(new_velocities))) * self.dt
+        # Work against gravity this step = max(0, ΔPE)  [Joules].
+        # ΔPE > 0: arm lifted → actuators spent energy.
+        # ΔPE ≤ 0: arm descended → no energy penalty (gravity does the work).
+        # This is the only physically correct formulation: it is zero when the
+        # arm is stationary at ANY configuration, including the goal, so it
+        # never penalises the agent for holding the target pose.
+        pe_new = self._compute_gravitational_pe(new_angles)
+        work_against_gravity = max(0.0, pe_new - self.prev_gravitational_pe)
+        self.prev_gravitational_pe = pe_new
+
+        # ── C: Acceleration effort (penalty for saturating acceleration limit) ─
+        # Normalised mean per-joint effort in [0, 1].
+        # 1.0 = every joint commanded at maximum allowed acceleration this step.
+        accel_effort = float(np.mean(np.abs(delta_vel) / max(self.max_delta_vel, 1e-8)))
+
+        # ── J: Mechanical energy budget ────────────────────────────────────────
+        # E_step = Σ |τ_gravity_i| · |ω_i| · dt   [Joules]
+        # Absolute-value product = non-regenerative actuator assumption:
+        # both lifting AND braking cost energy (braking energy dissipated as heat).
+        # Ref: Sciavicco & Siciliano, "Modelling and Control of Robot
+        #      Manipulators" (2000), §8.3.
+        step_energy = float(
+            np.dot(np.abs(gravity_torques), np.abs(new_velocities.astype(np.float64)))
+        ) * self.dt
         self.episode_energy += step_energy
 
-        # --- C: Acceleration effort ---
-        # Normalized per-joint: 1.0 = maximum allowed acceleration applied this step
-        accel_effort = float(np.sum(np.abs(delta_vel) / max(self.max_delta_vel, 1e-8))) / self.num_dof
-
-        # --- K: Jerk penalty ---
-        # Jerk = change in acceleration per unit time = Δ(delta_vel) / dt
-        # High jerk = jerky, abrupt motion; low jerk = smooth arc-like trajectory
-        jerk = (delta_vel - self.prev_delta_vel) / max(self.dt, 1e-8)
-        jerk_norm = float(np.mean(np.abs(jerk)) / max(self.max_joint_accel / self.dt, 1e-8))
-        jerk_norm = float(np.clip(jerk_norm, 0.0, 1.0))
+        # ── K: Jerk (rate of change of acceleration) ──────────────────────────
+        # Normalised to [0, 1]:
+        #   0 = acceleration held constant this step  (smooth motion)
+        #   1 = acceleration reversed from +max to -max in one step (max jerk)
+        # Derivation: max |Δdelta_vel| = 2 · max_delta_vel (full reversal),
+        # so jerk_norm = |delta_vel_t − delta_vel_{t-1}| / (2 · max_delta_vel).
+        # Ref: Flash & Hogan, J. Neuroscience 5(7):1688-1703 (1985) —
+        #      minimum-jerk model of human arm trajectories.
+        jerk_norm = float(np.clip(
+            np.mean(np.abs(delta_vel - self.prev_delta_vel))
+            / (2.0 * max(self.max_delta_vel, 1e-8)),
+            0.0, 1.0,
+        ))
         self.prev_delta_vel = delta_vel.copy()
 
-        # Reward shaping for fast learning and stable hold behavior.
+        # ── Reward ─────────────────────────────────────────────────────────────
         reward = (
-            -2.0 * goal_distance
-            -1.0 * orientation_error
-            -0.15 * velocity_norm
-            -0.20 * gradient_norm
-            -0.01 * float(np.linalg.norm(action))
-            # A: gravity load penalty — discourages high-effort configurations
-            -self.gravity_penalty_coeff * gravity_load
-            # J: energy cost — discourages unnecessary motion against gravity
-            -self.accel_penalty_coeff * accel_effort
-            # K: jerk penalty — encourages smooth arc-like trajectories
-            -self.jerk_penalty_coeff * jerk_norm
+            -2.0  * goal_distance       # primary: minimise distance to goal
+            -1.0  * orientation_error   # secondary: align end-effector orientation
+            -0.15 * velocity_norm       # damping: decelerate near goal
+            -0.20 * gradient_norm       # stability: smooth approach trajectory
+            -0.01 * float(np.linalg.norm(action))  # action regularisation
+            # A: penalise work done AGAINST gravity (zero when stationary/descending)
+            -self.gravity_work_coeff   * work_against_gravity
+            # C: penalise saturating the acceleration limit (motor current proxy)
+            -self.accel_penalty_coeff  * accel_effort
+            # J: penalise total mechanical energy exchange each step
+            -self.energy_penalty_coeff * step_energy
+            # K: penalise jerk — encourages minimum-jerk arc trajectories
+            -self.jerk_penalty_coeff   * jerk_norm
         )
 
         if progress > 0:
@@ -500,12 +610,13 @@ class ArmTaskEnv(gym.Env):
             "step": self.step_count,
             "best_distance": float(self.best_distance),
             # Physics metrics
-            "gravity_torques": gravity_torques.tolist(),
-            "gravity_load": float(gravity_load),
-            "accel_effort": float(accel_effort),
-            "jerk_norm": float(jerk_norm),
-            "step_energy": float(step_energy),
-            "episode_energy": float(self.episode_energy),
+            "gravity_torques":      gravity_torques.tolist(),          # Nm per joint
+            "work_against_gravity": float(work_against_gravity),       # J this step (A)
+            "gravitational_pe":     float(pe_new),                     # J absolute PE
+            "accel_effort":         float(accel_effort),               # [0,1] (C)
+            "step_energy":          float(step_energy),                # J this step (J)
+            "episode_energy":       float(self.episode_energy),        # J cumulative (J)
+            "jerk_norm":            float(jerk_norm),                  # [0,1] (K)
         }
 
         obs = self._get_observation(
