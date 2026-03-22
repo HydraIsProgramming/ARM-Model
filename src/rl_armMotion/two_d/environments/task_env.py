@@ -162,59 +162,118 @@ class ArmTaskEnv(gym.Env):
 
         # ── A: Work done against gravity ───────────────────────────────────────
         # Physical quantity: change in gravitational potential energy per step.
-        #   ΔPE = PE_new − PE_prev  where  PE = Σ m_k · g · y_com_k
-        # Scientific basis: Work-energy theorem.  When ΔPE > 0 the arm has lifted
-        # mass against gravity; the actuators must supply that energy.  ΔPE ≤ 0
-        # means the arm fell; no energy cost to penalise.
-        # Key property: this penalty is ZERO when the arm is stationary at the
-        # goal (horizontal position), so it never discourages holding the target.
-        # Ref: any classical mechanics text, e.g. Goldstein "Classical Mechanics".
+        #   ΔPE = PE_new − PE_prev   where   PE = Σ m_k · g · y_com_k
         #
-        # Coefficient sizing: total ΔPE for full vertical→horizontal swing ≈ 30 J
-        # over ~150 steps → ~0.20 J/step peak.  Coefficient 0.10 → max reward
-        # impact ~0.02 per step, well below primary distance penalty (−2·distance).
+        # Scientific basis (Work-energy theorem):
+        #   When ΔPE > 0 the arm has lifted mass against gravity and the
+        #   actuators must supply that energy.  ΔPE ≤ 0 means the arm
+        #   descended; gravity did the work — no actuator energy cost.
+        #
+        # Key design property: penalty is ZERO when the arm is stationary
+        # at ANY pose, including the goal (horizontal), so it never
+        # discourages the agent from holding the target configuration.
+        # This contrasts with penalising Σ|τ_i|, which is MAXIMUM at the
+        # horizontal goal and would actively work against task completion.
+        #
+        # Literature support:
+        #   - Goldstein, Poole & Safko, "Classical Mechanics" (3rd ed.),
+        #     §1.4 — gravitational PE of a system of particles.
+        #   - Zhang & Gao (2018), "Kuka Youbot Arm Path Planning Based on
+        #     Gravity," MEEES-18, Atlantis Press, pp. 426-429 — uses mgh
+        #     (gravitational PE) as a trajectory planning objective.
+        #   - "Optimization of energy consumption in industrial robots,
+        #     a review," ScienceDirect 2023 — notes PE-based cost functions
+        #     are valid secondary shaping terms (not sole energy proxies).
+        #   Note: ΔPE is used here as a secondary shaping term alongside
+        #   the mechanical energy budget (J) below, consistent with the
+        #   literature recommendation.
+        #
+        # Coefficient sizing: full vertical→horizontal swing ΔPE ≈ 30 J
+        # over ~150 steps → ~0.20 J/step peak.  Coefficient 0.10 →
+        # max reward impact ≈ 0.02/step (< 1% of primary distance reward).
         self.gravity_work_coeff: float = 0.10
         self.prev_gravitational_pe: float = 0.0   # initialised properly in reset()
 
         # ── C: Joint acceleration limit ────────────────────────────────────────
-        # Physical basis: real motor torque limits → finite joint acceleration.
-        # Estimated peak motor torque for this arm class: ~100 Nm.
-        # Shoulder inertia (uniform-rod + distal mass): I ≈ ml²/3 + M·l²
-        #   = 2.0·1.0²/3 + 1.5·1.0² ≈ 2.17 kg·m²
-        # Physical max α = τ/I ≈ 100/2.17 ≈ 46 rad/s².
-        # We use 8.0 rad/s² (~1/6 of max) as a safe collaborative-robot bound.
-        # Ref: ISO/TS 15066:2016 (collaborative robot speed/force limits).
+        # Physical basis: finite motor torque → finite joint acceleration.
+        #
+        # Real robot reference data (from published specs and literature):
+        #   • UR5 (5 kg payload):       ~5.24 rad/s²  (300 deg/s²)
+        #     Source: Universal Robots UR5 Technical Spec Sheet (Item 110105).
+        #   • KUKA LBR iiwa 14 R820 (14 kg payload):  2.0–5.0 rad/s² per joint
+        #     Source: ETA-IK, arXiv:2411.14381 (Fraunhofer, 2024).
+        #
+        # Our arm: link masses [2.0, 1.5] kg — significantly lighter than both
+        # reference robots.  Shoulder inertia estimate (uniform-rod + distal mass):
+        #   I ≈ m₁·l₁²/3 + m₂·l₁² = 2.0·1.0²/3 + 1.5·1.0² ≈ 2.17 kg·m²
+        # Physical max with 100 Nm motor: α_max = τ/I ≈ 100/2.17 ≈ 46 rad/s².
+        # We use 8.0 rad/s² (~1/6 of physical max), which is above the iiwa's
+        # 5 rad/s² but consistent with its lighter mass and a moderately fast
+        # collaborative operating mode.
+        #
+        # ISO/TS 15066:2016 governs collaborative robot contact force/pressure
+        # limits rather than acceleration directly; the 8.0 rad/s² bound is
+        # therefore application-appropriate for this arm class.
         self.max_joint_accel: float = 8.0   # rad/s²
         self.max_delta_vel:   float = self.max_joint_accel * self.dt  # rad/s per step
 
-        # Penalty: normalised acceleration effort in [0, 1].
-        # 1.0 = maximum allowed acceleration commanded on every joint this step.
+        # Penalty: normalised mean per-joint acceleration effort in [0, 1].
+        # 1.0 = every joint saturating its acceleration limit this step.
         self.accel_penalty_coeff: float = 0.05
         self.prev_velocities: np.ndarray = np.zeros(self.num_dof, dtype=np.float32)
 
         # ── J: Mechanical energy budget ────────────────────────────────────────
-        # Physical quantity: instantaneous mechanical power × dt per step (Joules).
+        # Physical quantity: instantaneous mechanical power × dt per step (J).
         #   E_step = Σ |τ_gravity_i| · |ω_i| · dt
-        # Absolute values assume non-regenerative actuators — standard assumption
-        # for DC servo drives that dissipate braking energy as heat.
-        # Ref: Sciavicco & Siciliano, "Modelling and Control of Robot
-        #      Manipulators" (2000), §8.3 — actuator energy consumption.
         #
-        # Coefficient sizing: max |τ| ≈ 30 Nm, max |ω| ≈ 2 rad/s, dt = 0.01 s
-        # → max E_step ≈ 0.6 J.  Coefficient 0.01 → max impact ~0.006 per step.
-        # Small by design: energy efficiency is a secondary objective.
+        # Validation:
+        #   Petrichenko et al. (2024), "Energy Consumption in Robotics: A
+        #   Simplified Modeling Approach," arXiv:2411.03194 (Fraunhofer IPK):
+        #   validates P = τᵀ·q̇ to within 3.5–4% of measured electrical power
+        #   on a Franka Emika Panda robot.
+        #
+        # Absolute-value justification (non-regenerative actuator assumption):
+        #   Peri et al. (2025), "Non-conflicting Energy Minimization in RL-
+        #   based Robot Control," arXiv:2509.01765: explicitly discusses taking
+        #   |τ·ω| to prevent negative power credits in actuators that cannot
+        #   recover braking energy (standard DC servo drives dissipate it as
+        #   heat).  Validated as the correct assumption for simulation.
+        #
+        # RL precedent:
+        #   Zhang et al. (2023), "Multi-Objective Optimal Trajectory Planning
+        #   for Robotic Arms Using Deep RL," Sensors 23(13):5974, DOI:
+        #   10.3390/s23135974: uses r_et = −w_e·Σ(Δθ_k·τ_k)², a discrete
+        #   approximation of ∫τ·ω·dt, as an energy reward term.
+        #
+        # Coefficient sizing: max |τ| ≈ 30 Nm, max |ω| = 2 rad/s, dt = 0.01 s
+        # → max E_step ≈ 0.6 J.  Coefficient 0.01 → max impact ≈ 0.006/step.
         self.energy_penalty_coeff: float = 0.01
         self.episode_energy:       float = 0.0
 
         # ── K: Jerk penalty ────────────────────────────────────────────────────
-        # Physical quantity: rate of change of joint acceleration, normalised to [0, 1].
-        # Normalisation: maximum possible |Δdelta_vel| in one step is 2·max_delta_vel
-        # (full direction reversal of the commanded acceleration increment).
-        # → jerk_norm = |delta_vel_t − delta_vel_{t-1}| / (2 · max_delta_vel)
-        # 0 = constant acceleration; 1 = instantaneous maximum direction reversal.
-        # Scientific basis: minimum-jerk criterion for smooth human-like arm motion.
-        # Ref: Flash & Hogan, "The coordination of arm movements: an experimentally
-        #      confirmed mathematical model", J. Neuroscience 5(7):1688-1703, 1985.
+        # Physical quantity: rate of change of acceleration, normalised to [0, 1].
+        #   jerk_norm = |Δdelta_vel| / (2 · max_delta_vel)
+        # where Δdelta_vel = delta_vel_t − delta_vel_{t−1}.
+        # Normalisation: 2·max_delta_vel is the maximum possible |Δdelta_vel|
+        # (full reversal from +max to −max acceleration in one step).
+        # 0 = constant acceleration this step; 1 = maximum direction reversal.
+        #
+        # Scientific basis — minimum-jerk criterion:
+        #   Flash & Hogan (1985), "The coordination of arm movements: an
+        #   experimentally confirmed mathematical model," J. Neuroscience
+        #   5(7):1688-1703.  Proves that human arm trajectories minimise the
+        #   integral of squared jerk: C = ½∫₀ᵀ(d³x/dt³)² dt.
+        #   Minimising jerk produces straight-line paths with bell-shaped
+        #   velocity profiles — the hallmark of natural arm motion.
+        #   Review: Todorov (2004), "Optimality principles in sensorimotor
+        #   control," Nature Neuroscience 7(9):907-915.
+        #
+        # RL application:
+        #   Kim et al. (2024), "Not Only Rewards But Also Constraints:
+        #   Applications on Legged Robot Locomotion," arXiv:2308.12517:
+        #   uses the second-order discrete action difference
+        #   ‖q_t − 2q_{t-1} + q_{t-2}‖² as a jerk-equivalent smoothness
+        #   term, citing prevention of motor vibration in real deployment.
         self.jerk_penalty_coeff: float = 0.02
         self.prev_delta_vel: np.ndarray = np.zeros(self.num_dof, dtype=np.float32)
 
