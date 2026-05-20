@@ -9,7 +9,7 @@ This environment defines a task where:
 - Workspace: 2D plane with origin at [0, 0] and shoulder base at [1.0, 0]
 """
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import gymnasium as gym
 import numpy as np
@@ -190,6 +190,14 @@ class ArmTaskEnv(gym.Env):
         self.hold_counter = 0
         self.last_gradient = 0.0
 
+        # Waypoint state. When the user calls set_waypoints() the goal_direction
+        # is switched to "WAYPOINTS" and self.waypoints holds an ordered list of
+        # 2D points. self.current_waypoint_index advances through this list
+        # whenever the active waypoint is reached; the episode terminates when
+        # the final waypoint's standard hold criterion is satisfied.
+        self.waypoints: Optional[List[np.ndarray]] = None
+        self.current_waypoint_index: int = 0
+
     def set_goal_tolerance(self, tolerance: float) -> None:
         """Update the position tolerance used for the goal-reached check.
 
@@ -207,6 +215,106 @@ class ArmTaskEnv(gym.Env):
             raise ValueError(f"goal_tolerance must be positive, got {tolerance}")
         self.height_tolerance = float(tolerance)
         self.goal_tolerance = self.height_tolerance
+
+    def set_waypoints(self, positions, tolerance: Optional[float] = None) -> None:
+        """Configure a sequence of 2D waypoints to be visited in order.
+
+        Each waypoint is an [x, y] point in the workspace frame. During an
+        episode the arm must reach the first waypoint, then the second, and
+        so on. Intermediate waypoints are considered reached when the
+        end-effector enters the position tolerance radius (touch-and-go);
+        only the **final** waypoint requires the full hold criterion
+        (position + orientation + velocity for hold_steps_required
+        consecutive steps). Episode termination occurs when the final
+        waypoint's hold criterion is met.
+
+        Calling this method switches the environment to waypoint mode by
+        setting ``goal_direction = "WAYPOINTS"`` and resets the current
+        waypoint index to zero. The first waypoint is applied as the active
+        goal immediately. The change persists across ``reset()``: a fresh
+        episode begins again at the first waypoint.
+
+        Parameters
+        ----------
+        positions : sequence of array-like, each of shape (2,)
+            Ordered list of waypoints. Must contain at least one waypoint.
+        tolerance : float, optional
+            If supplied, ``set_goal_tolerance(tolerance)`` is called so the
+            same tolerance applies to every waypoint. The adaptive
+            curriculum scheduler may subsequently shrink this value.
+        """
+        try:
+            positions_list = list(positions)
+        except TypeError as exc:
+            raise TypeError(
+                f"positions must be an iterable of 2D points, got {type(positions).__name__}"
+            ) from exc
+
+        if len(positions_list) < 1:
+            raise ValueError("waypoints list must contain at least one point")
+
+        waypoints: List[np.ndarray] = []
+        for i, raw_pos in enumerate(positions_list):
+            arr = np.asarray(raw_pos, dtype=np.float32).reshape(-1)
+            if arr.shape != (2,):
+                raise ValueError(
+                    f"waypoint {i} must have shape (2,), got shape {arr.shape}"
+                )
+            waypoints.append(arr.copy())
+
+        self.waypoints = waypoints
+        self.current_waypoint_index = 0
+        self.goal_direction = "WAYPOINTS"
+
+        if tolerance is not None:
+            self.set_goal_tolerance(tolerance)
+
+        self._apply_waypoint(0)
+
+    def _apply_waypoint(self, index: int) -> None:
+        """Activate the waypoint at ``index`` as the current goal.
+
+        Updates the goal-related attributes (position, height, axis, target
+        orientation) so that the existing reward and observation pipeline
+        seamlessly treats the new waypoint as the active goal. Does not
+        modify ``current_waypoint_index`` itself; the caller is responsible
+        for that bookkeeping so the relationship between index and applied
+        waypoint stays explicit.
+        """
+        if self.waypoints is None or not (0 <= index < len(self.waypoints)):
+            raise IndexError(
+                f"waypoint index {index} out of range for "
+                f"{0 if self.waypoints is None else len(self.waypoints)} waypoints"
+            )
+
+        pos = self.waypoints[index]
+        self.goal_position = pos.copy().astype(np.float32)
+        self.goal_height = float(pos[1])
+
+        delta = self.goal_position - self.shoulder_base_position
+        norm = float(np.linalg.norm(delta))
+        if norm > 1e-9:
+            self.goal_axis = (delta / norm).astype(np.float32)
+        else:
+            self.goal_axis = np.array([0.0, 1.0], dtype=np.float32)
+
+        self.target_orientation = float(
+            np.arctan2(self.goal_axis[1], self.goal_axis[0])
+        )
+
+    def clear_waypoints(self) -> None:
+        """Discard any waypoint sequence and return to the previous goal mode.
+
+        After this call ``waypoints`` is ``None``, ``current_waypoint_index``
+        is reset to 0, and ``goal_direction`` is set back to ``"HEIGHT"``.
+        Callers wishing to restore a specific direction or explicit-position
+        goal should call the corresponding setter (``_configure_goal``,
+        ``set_goal_position``) after this.
+        """
+        self.waypoints = None
+        self.current_waypoint_index = 0
+        if self.goal_direction == "WAYPOINTS":
+            self._configure_goal("HEIGHT")
 
     def set_goal_position(self, position) -> None:
         """Place the goal at an arbitrary 2D point in the workspace frame.
@@ -314,6 +422,13 @@ class ArmTaskEnv(gym.Env):
         self.best_total_error = float("inf")
         self.hold_counter = 0
         self.last_gradient = 0.0
+
+        # In waypoint mode, rewind to the first waypoint at the start of every
+        # episode so the agent always begins by attempting waypoint 0. The
+        # waypoint list itself persists across resets.
+        if self.goal_direction == "WAYPOINTS" and self.waypoints is not None:
+            self.current_waypoint_index = 0
+            self._apply_waypoint(0)
 
         self.controller.angles = angles.copy()
 
@@ -475,7 +590,53 @@ class ArmTaskEnv(gym.Env):
             reward += 10.0                              # strong constant pull to stay in goal
             reward += 2.0 * float(self.hold_counter)   # growing bonus for consecutive hold steps
 
-        terminated = self.hold_counter >= self.hold_steps_required
+        # --- Waypoint sequence handling ---
+        # In waypoint mode, intermediate waypoints use a touch-and-go criterion:
+        # entering the position tolerance radius is enough to advance to the
+        # next waypoint. Orientation and velocity criteria apply only to the
+        # final waypoint, via the standard hold mechanism. On a touch, award
+        # a transition bonus and update goal-dependent state to reflect the
+        # new active waypoint so the returned observation already targets it.
+        waypoint_advanced = False
+        if (
+            self.goal_direction == "WAYPOINTS"
+            and self.waypoints is not None
+            and self.current_waypoint_index < len(self.waypoints) - 1
+            and goal_distance < self.height_tolerance
+        ):
+            self.current_waypoint_index += 1
+            self._apply_waypoint(self.current_waypoint_index)
+            self.hold_counter = 0
+            reward += 25.0                              # waypoint transition bonus
+            waypoint_advanced = True
+
+        if waypoint_advanced:
+            # Recompute goal-dependent quantities against the new waypoint so
+            # the returned observation and info reflect the active goal rather
+            # than the one the agent just visited.
+            signed_height_error = self._compute_signed_goal_error(end_effector_pos)
+            goal_distance = self._compute_goal_distance(end_effector_pos)
+            signed_orientation_error, orientation_error = self._compute_orientation_error(new_angles)
+            in_goal_region = self._is_goal_reached(goal_distance, orientation_error, velocity_norm)
+            total_error = 2.0 * goal_distance + orientation_error
+            # Avoid a spurious progress jump on the transition step.
+            self.previous_total_error = total_error
+
+        # --- Termination ---
+        # In waypoint mode the success bonus and termination only fire on the
+        # final waypoint's hold criterion. Intermediate waypoints contribute
+        # the transition bonus above and do not terminate the episode.
+        if self.goal_direction == "WAYPOINTS" and self.waypoints is not None:
+            is_final_waypoint = (
+                self.current_waypoint_index == len(self.waypoints) - 1
+            )
+            terminated = (
+                is_final_waypoint
+                and self.hold_counter >= self.hold_steps_required
+            )
+        else:
+            terminated = self.hold_counter >= self.hold_steps_required
+
         if terminated:
             reward += 150.0
 
@@ -506,6 +667,15 @@ class ArmTaskEnv(gym.Env):
             "goal_reached": bool(terminated),
             "step": self.step_count,
             "best_distance": float(self.best_distance),
+            "waypoints": (
+                [w.tolist() for w in self.waypoints]
+                if self.waypoints is not None else None
+            ),
+            "current_waypoint_index": int(self.current_waypoint_index),
+            "num_waypoints": (
+                len(self.waypoints) if self.waypoints is not None else 0
+            ),
+            "waypoint_advanced": bool(waypoint_advanced),
         }
 
         obs = self._get_observation(
@@ -576,6 +746,14 @@ class ArmTaskEnv(gym.Env):
             "goal_reached": bool(self.hold_counter >= self.hold_steps_required),
             "step": self.step_count,
             "max_steps": self.max_episode_steps,
+            "waypoints": (
+                [w.tolist() for w in self.waypoints]
+                if self.waypoints is not None else None
+            ),
+            "current_waypoint_index": int(self.current_waypoint_index),
+            "num_waypoints": (
+                len(self.waypoints) if self.waypoints is not None else 0
+            ),
         }
 
 

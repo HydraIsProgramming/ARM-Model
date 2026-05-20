@@ -8,7 +8,7 @@ from collections import deque
 from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -117,6 +117,26 @@ class TrainingGUI:
         self.selected_arm_config = env.config
         self.selected_goal_direction = "EAST"
 
+        # Goal-mode state. The training GUI now supports three ways of choosing
+        # the agent's training target:
+        #   "Direction"    — pre-defined EAST/WEST/NORTH (legacy behaviour)
+        #   "Single Point" — user clicks once on the arm-visualisation canvas
+        #                    to place a single goal at an arbitrary (x, y)
+        #   "Waypoints"    — user clicks multiple times to place a sequence
+        #                    A -> B -> C -> ... that the agent must visit in
+        #                    order (intermediate waypoints require touch-and-
+        #                    go; the final waypoint requires the full hold)
+        self.GOAL_MODES = ["Direction", "Single Point", "Waypoints"]
+        self.goal_mode_var = tk.StringVar(value="Direction")
+        self.goal_mode_combo = None
+        self.clear_points_button = None
+        self.clicked_target: Optional[np.ndarray] = None
+        self.clicked_waypoints: List[np.ndarray] = []
+        # matplotlib connection id for the canvas click handler; None when
+        # the handler is not currently attached (Direction mode or training
+        # is in progress).
+        self.click_cid: Optional[int] = None
+
         self.create_window()
 
     def create_window(self) -> None:
@@ -211,7 +231,18 @@ class TrainingGUI:
         self.timesteps_entry = ttk.Entry(setup_frame, textvariable=self.timesteps_var, width=14)
         self.timesteps_entry.grid(row=1, column=1, sticky="ew", padx=2, pady=2)
 
-        ttk.Label(setup_frame, text="Goal Direction:").grid(row=2, column=0, sticky="w", padx=2, pady=2)
+        ttk.Label(setup_frame, text="Goal Mode:").grid(row=2, column=0, sticky="w", padx=2, pady=2)
+        self.goal_mode_combo = ttk.Combobox(
+            setup_frame,
+            textvariable=self.goal_mode_var,
+            values=self.GOAL_MODES,
+            state="readonly",
+            width=12,
+        )
+        self.goal_mode_combo.grid(row=2, column=1, sticky="ew", padx=2, pady=2)
+        self.goal_mode_combo.bind("<<ComboboxSelected>>", self._on_goal_mode_changed)
+
+        ttk.Label(setup_frame, text="Goal Direction:").grid(row=3, column=0, sticky="w", padx=2, pady=2)
         self.goal_direction_combo = ttk.Combobox(
             setup_frame,
             textvariable=self.goal_direction_var,
@@ -219,8 +250,20 @@ class TrainingGUI:
             state="readonly",
             width=12,
         )
-        self.goal_direction_combo.grid(row=2, column=1, sticky="ew", padx=2, pady=2)
+        self.goal_direction_combo.grid(row=3, column=1, sticky="ew", padx=2, pady=2)
         self.goal_direction_combo.bind("<<ComboboxSelected>>", self._on_goal_direction_changed)
+
+        # "Clear Points" only does anything in Single Point or Waypoints modes;
+        # it is grayed out in Direction mode but always present so the layout
+        # does not shift when the mode changes.
+        self.clear_points_button = ttk.Button(
+            setup_frame,
+            text="Clear Click Targets",
+            command=self._on_clear_points,
+            state=tk.DISABLED,
+        )
+        self.clear_points_button.grid(row=4, column=0, columnspan=2, sticky="ew", padx=2, pady=2)
+
         setup_frame.columnconfigure(1, weight=1)
 
         metrics_frame = ttk.LabelFrame(right_frame, text="Training Metrics", padding=5)
@@ -281,7 +324,133 @@ class TrainingGUI:
         entry_state = "normal" if enabled else "disabled"
         self.algorithm_combo.config(state=state)
         self.timesteps_entry.config(state=entry_state)
-        self.goal_direction_combo.config(state=state)
+        self.goal_mode_combo.config(state=state)
+        # Goal direction follows the mode: only enabled when mode == Direction
+        # and the user is not currently training.
+        mode = self.goal_mode_var.get()
+        if enabled and mode == "Direction":
+            self.goal_direction_combo.config(state="readonly")
+        else:
+            self.goal_direction_combo.config(state="disabled")
+        # Clear-points button only meaningful in click modes; always off while training.
+        if enabled and mode in {"Single Point", "Waypoints"}:
+            self.clear_points_button.config(state=tk.NORMAL)
+        else:
+            self.clear_points_button.config(state=tk.DISABLED)
+        # Canvas clicks are accepted only while NOT training and only in click modes.
+        if enabled and mode in {"Single Point", "Waypoints"}:
+            self._enable_canvas_clicks()
+        else:
+            self._disable_canvas_clicks()
+
+    def _on_goal_mode_changed(self, _event: Optional[tk.Event] = None) -> None:
+        """Switch between Direction, Single Point, and Waypoints goal modes.
+
+        Side effects: enables/disables the relevant widgets (the Goal
+        Direction dropdown is only meaningful in Direction mode; the Clear
+        Points button is only meaningful in click modes), attaches or
+        detaches the canvas click handler, and refreshes the arm-pose
+        preview so the user sees the visual state of their chosen mode
+        immediately.
+        """
+        mode = self.goal_mode_var.get()
+        if mode == "Direction":
+            self.goal_direction_combo.config(state="readonly")
+            self.clear_points_button.config(state=tk.DISABLED)
+            self._disable_canvas_clicks()
+        else:
+            self.goal_direction_combo.config(state="disabled")
+            self.clear_points_button.config(state=tk.NORMAL)
+            self._enable_canvas_clicks()
+
+        # Refresh the preview so the user can see what the chosen mode looks
+        # like (no goal yet for Single Point / Waypoints if they haven't
+        # clicked, or the existing direction goal otherwise).
+        self._on_goal_direction_changed()
+
+    def _enable_canvas_clicks(self) -> None:
+        """Connect the matplotlib click handler if not already attached."""
+        if self.click_cid is None and self.canvas_arm is not None:
+            self.click_cid = self.canvas_arm.mpl_connect(
+                "button_press_event", self._on_canvas_click
+            )
+
+    def _disable_canvas_clicks(self) -> None:
+        """Disconnect the matplotlib click handler if currently attached."""
+        if self.click_cid is not None and self.canvas_arm is not None:
+            try:
+                self.canvas_arm.mpl_disconnect(self.click_cid)
+            except Exception:
+                pass
+            self.click_cid = None
+
+    def _on_canvas_click(self, event) -> None:
+        """Convert a click on the arm-visualisation canvas into a goal position.
+
+        Only acts on clicks inside the arm-pose axes. Rejects clicks outside
+        the arm's reachable workspace (the distance from the shoulder must
+        not exceed the sum of link lengths). In Single Point mode a click
+        replaces any existing target. In Waypoints mode a click appends to
+        the ordered waypoint list.
+        """
+        if self.training_active:
+            return
+        if event.inaxes is not self.ax_arm:
+            return
+        if event.xdata is None or event.ydata is None:
+            return
+
+        point = np.array([float(event.xdata), float(event.ydata)], dtype=np.float32)
+
+        shoulder = np.asarray(self.default_shoulder, dtype=float)
+        reach = float(np.sum(self.arm_visualizer.link_lengths))
+        distance_from_shoulder = float(np.linalg.norm(point - shoulder))
+        if distance_from_shoulder > reach:
+            self.status_text.config(
+                text=(
+                    f"Click outside reachable workspace (distance "
+                    f"{distance_from_shoulder:.2f} m exceeds reach "
+                    f"{reach:.2f} m)"
+                ),
+                fg="red",
+            )
+            return
+
+        mode = self.goal_mode_var.get()
+        if mode == "Single Point":
+            self.clicked_target = point
+            self.status_text.config(
+                text=(
+                    f"Single goal set at ({point[0]:.2f}, {point[1]:.2f}) m"
+                ),
+                fg="blue",
+            )
+        elif mode == "Waypoints":
+            self.clicked_waypoints.append(point)
+            self.status_text.config(
+                text=(
+                    f"Waypoint {len(self.clicked_waypoints)} added at "
+                    f"({point[0]:.2f}, {point[1]:.2f}) m"
+                ),
+                fg="blue",
+            )
+        else:
+            return
+
+        # Re-render with the new target(s) visible.
+        self._on_goal_direction_changed()
+
+    def _on_clear_points(self) -> None:
+        """Discard all click-set targets in the current mode."""
+        if self.training_active:
+            return
+        self.clicked_target = None
+        self.clicked_waypoints = []
+        self.status_text.config(
+            text="Click targets cleared. Click the arm canvas to set a new goal.",
+            fg="black",
+        )
+        self._on_goal_direction_changed()
 
     def _update_default_goal_target(self, direction: str) -> None:
         """Update default directional target using current arm reach."""
@@ -457,7 +626,34 @@ class TrainingGUI:
     def _training_loop(self) -> None:
         """Background training thread execution."""
         try:
-            training_env = ArmTaskEnv(goal_direction=self.selected_goal_direction)
+            mode = self.goal_mode_var.get()
+            if mode == "Single Point":
+                if self.clicked_target is None:
+                    self.metrics_queue.put({
+                        "type": "training_error",
+                        "error": (
+                            "Single Point mode requires a clicked target. "
+                            "Click on the arm visualisation panel to place one."
+                        ),
+                    })
+                    return
+                training_env = ArmTaskEnv()
+                training_env.set_goal_position(self.clicked_target)
+            elif mode == "Waypoints":
+                if not self.clicked_waypoints:
+                    self.metrics_queue.put({
+                        "type": "training_error",
+                        "error": (
+                            "Waypoints mode requires at least one clicked "
+                            "waypoint. Click the arm canvas to add points."
+                        ),
+                    })
+                    return
+                training_env = ArmTaskEnv()
+                training_env.set_waypoints(self.clicked_waypoints)
+            else:
+                training_env = ArmTaskEnv(goal_direction=self.selected_goal_direction)
+
             self.trainer = RLTrainerWithMetrics(
                 env=training_env,
                 total_timesteps=self.total_timesteps,
@@ -636,37 +832,118 @@ class TrainingGUI:
             self.ax_arm.scatter(shoulder[0], shoulder[1], c="green", s=100, label="Shoulder")
             self.ax_arm.scatter(ee[0], ee[1], c="red", s=120, marker="*", label="End-effector")
 
-            if goal_direction == "HEIGHT":
-                self.ax_arm.axhline(
-                    goal_height,
-                    color="orange",
-                    linestyle="--",
-                    linewidth=1.5,
-                    label="Goal Height",
-                )
+            # In click modes (Single Point / Waypoints) the user-clicked
+            # targets are the source of truth and replace the direction-based
+            # goal visualisation; otherwise fall back to the legacy direction-
+            # based rendering.
+            mode = self.goal_mode_var.get() if self.goal_mode_var is not None else "Direction"
+
+            if mode == "Single Point":
+                # Show the clicked target (red X) if one has been placed.
+                target = self.clicked_target
+                if target is not None:
+                    self.ax_arm.scatter(
+                        target[0], target[1], c="red", s=180, marker="X",
+                        edgecolors="black", linewidths=1.5, zorder=10,
+                        label="Goal (clicked)",
+                    )
+                    self.ax_arm.plot(
+                        [shoulder[0], target[0]], [shoulder[1], target[1]],
+                        color="red", linestyle="--", linewidth=1.0, alpha=0.6,
+                    )
+                else:
+                    # Hint the user that they need to click.
+                    self.ax_arm.text(
+                        shoulder[0], shoulder[1] - 0.3,
+                        "Click on the canvas to set a single goal",
+                        ha="center", va="center", color="gray", fontsize=9, style="italic",
+                    )
+
+            elif mode == "Waypoints":
+                # Show the full waypoint sequence with the active one highlighted.
+                # During training the env reports current_waypoint_index in the
+                # payload; before training we treat waypoint 0 as the active one.
+                current_idx = int(payload.get("current_waypoint_index", 0))
+                waypoints = self.clicked_waypoints
+                if waypoints:
+                    wp_arr = np.asarray(waypoints, dtype=float)
+                    # Connecting line through the sequence
+                    if len(waypoints) >= 2:
+                        self.ax_arm.plot(
+                            wp_arr[:, 0], wp_arr[:, 1],
+                            color="gray", linestyle="--", linewidth=0.8, alpha=0.5,
+                            zorder=5,
+                        )
+                    # Markers
+                    for i, wp in enumerate(waypoints):
+                        if i < current_idx:
+                            colour = "green"        # already visited
+                        elif i == current_idx:
+                            colour = "red"          # active waypoint
+                        else:
+                            colour = "lightgray"    # pending
+                        label = (
+                            "Active waypoint" if (i == current_idx and i == 0)
+                            else None
+                        )
+                        self.ax_arm.scatter(
+                            wp[0], wp[1], c=colour, s=160, marker="X",
+                            edgecolors="black", linewidths=1.5, zorder=10,
+                            label=label,
+                        )
+                        self.ax_arm.annotate(
+                            f"{i+1}",
+                            (wp[0], wp[1]),
+                            textcoords="offset points",
+                            xytext=(8, 8),
+                            fontsize=10, fontweight="bold",
+                        )
+                else:
+                    self.ax_arm.text(
+                        shoulder[0], shoulder[1] - 0.3,
+                        "Click on the canvas to add waypoints (A -> B -> C ...)",
+                        ha="center", va="center", color="gray", fontsize=9, style="italic",
+                    )
+
             else:
-                self.ax_arm.scatter(
-                    goal_position[0],
-                    goal_position[1],
-                    c="orange",
-                    s=100,
-                    marker="X",
-                    label=f"Goal ({goal_direction})",
-                )
-                self.ax_arm.plot(
-                    [shoulder[0], goal_position[0]],
-                    [shoulder[1], goal_position[1]],
-                    color="orange",
-                    linestyle="--",
-                    linewidth=1.2,
-                    alpha=0.7,
-                )
+                # Legacy Direction mode rendering.
+                if goal_direction == "HEIGHT":
+                    self.ax_arm.axhline(
+                        goal_height,
+                        color="orange",
+                        linestyle="--",
+                        linewidth=1.5,
+                        label="Goal Height",
+                    )
+                else:
+                    self.ax_arm.scatter(
+                        goal_position[0],
+                        goal_position[1],
+                        c="orange",
+                        s=100,
+                        marker="X",
+                        label=f"Goal ({goal_direction})",
+                    )
+                    self.ax_arm.plot(
+                        [shoulder[0], goal_position[0]],
+                        [shoulder[1], goal_position[1]],
+                        color="orange",
+                        linestyle="--",
+                        linewidth=1.2,
+                        alpha=0.7,
+                    )
 
             reach = float(np.sum(self.arm_visualizer.link_lengths)) + 0.4
             self.ax_arm.set_xlim(shoulder[0] - reach, shoulder[0] + reach)
             self.ax_arm.set_ylim(shoulder[1] - reach, shoulder[1] + reach)
             self.ax_arm.set_aspect("equal")
-            self.ax_arm.set_title(f"Policy Execution ({goal_direction})")
+            title_suffix = (
+                f"Waypoints ({int(payload.get('current_waypoint_index', 0))+1}/"
+                f"{len(self.clicked_waypoints)})"
+                if mode == "Waypoints" and self.clicked_waypoints
+                else (mode if mode != "Direction" else goal_direction)
+            )
+            self.ax_arm.set_title(f"Policy Execution ({title_suffix})")
             self.ax_arm.set_xlabel("X (m)")
             self.ax_arm.set_ylabel("Y (m)")
             self.ax_arm.grid(True, alpha=0.3)
