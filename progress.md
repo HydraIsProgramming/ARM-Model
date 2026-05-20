@@ -127,30 +127,49 @@ The annotated bibliography report `RL_ArmMotion_Physics_Reference_Report.pdf` su
 
 ---
 
-## 7. The Single Most Important Next Step — Fischer 2021 Integration
+## 7. Fischer 2021 Integration — Status
 
-The user's intent, stated explicitly in earlier sessions, is to implement the methodology of Fischer et al. (2021). The paper PDF is at `docs/references/Fischer_2021_ScientificReports_RL_biomechanical_arm.pdf`. A summary of the paper appears as Section T of the reference report and as Section 10 of the progress report.
+The user's intent, stated explicitly in earlier sessions, is to implement the methodology of Fischer et al. (2021). The paper PDF is at `docs/references/Fischer_2021_ScientificReports_RL_biomechanical_arm.pdf`. **Five of the six methodological pillars are now implemented.** A condensed implementation report is at `docs/Fischer_Implementation_Report.pdf`.
 
 ### 7.1 What Fischer et al. (2021) Did
 
 Fischer et al. trained a 7-DOF biomechanical upper-extremity model in MuJoCo using **Soft Actor-Critic (SAC)**. They used **adaptive curriculum learning**: the goal-tolerance radius starts at 60 cm and is shrunk progressively to 2 cm as the agent's success rate improves. They initialised the policy with a **motor-babbling** phase. They validated emergent behaviour against two biological benchmarks: **Fitts' Law** (R² = 0.9986) and the **2/3 Power Law** (R = 0.84).
 
-### 7.2 What Has Been Adopted So Far
+### 7.2 Completed Integration Steps
 
-The reward function (Section 5 above) is in part informed by the same biomechanical literature Fischer cites. That foundation is in place. **Nothing else from Fischer is yet implemented.**
+All work was committed on the branch `claude/fischer-integration`, with a pre-work save point preserved at tag `save-point-2026-05-05`. Each step is a separate, reviewable commit. The current branch HEAD is `5f37a26` (Step 5).
 
-### 7.3 Concrete Next-Step Plan
+| Step | Commit | What was added |
+|------|--------|----------------|
+| 1 | `77b7180` | SAC made the default algorithm in the training GUI and `RLTrainerWithMetrics`. Per-hyperparameter inline citations to Fischer 2021 added in `sac_agent.py`. `ArmTaskEnv.__init__` extended with optional `goal_tolerance`, `orientation_tolerance_deg`, `hold_velocity_tolerance` parameters; new method `set_goal_tolerance()` for runtime updates. Historical defaults preserved exactly. |
+| 2 | `9d31252` | **New module** `src/rl_armMotion/two_d/training/curriculum_callback.py` with `AdaptiveCurriculumCallback`: starts at 0.60 m, decays by ×0.80 each time the rolling 50-episode success rate exceeds 80 %, floors at 0.02 m, with a 20-episode cooldown. Auto-attaches when the algorithm is SAC. Curriculum state surfaced in the trainer's metrics dict. Motor babbling added via `learning_starts = 5000` in `SACAgent.DEFAULT_HYPERPARAMS`. |
+| 3 | `6f995f0` | **New module** `src/rl_armMotion/two_d/validation/fitts_law.py` exposing `FittsLawCondition`, `FittsLawTrial`, `FittsLawResult`, `FittsLawValidator`. Sweeps a 6 × 6 (D, W) grid by default, fits MT = a + b · log₂(2D/W) by closed-form OLS, reports R². JSON serialisation and matplotlib plot included. New `ArmTaskEnv.set_goal_position()` and the `EXPLICIT` goal mode added in the same commit. |
+| 4 | `5e6b467` | **New module** `src/rl_armMotion/two_d/validation/power_law.py` exposing `PowerLawTrial`, `PowerLawResult`, `PowerLawValidator`. Logs per-step end-effector positions, computes V and C by central differences per trial, fits `log V = α + β · log C` by OLS and reports Pearson R. The synthetic-ellipse benchmark recovers slope = −1/3 to seven decimal places (analytic answer). |
+| 5 | `5f37a26` | **New module** `src/rl_armMotion/two_d/utils/muscle_model.py` with `HillTypeMuscle` and `MuscleParameters` (canonical Hill 1938 model with Thelen Gaussian force-length and hyperbolic/exponential-eccentric force-velocity, Zajac 1989 defaults). New `ArmController.apply_muscle_activation()` method routes the existing kinematic controller through the muscle model via Euler integration. New `7dof_fischer` preset in `ArmConfiguration` with biomechanically-realistic upper-extremity proportions per Winter (2009). |
+| — | `7431988` | Unified GUI launcher at `src/rl_armMotion/two_d/gui/__main__.py` so `python -m rl_armMotion.two_d.gui` opens both GUIs from a single command. Fischer-aligned defaults (SAC, 100k steps, `./project_assets/outputs/fischer_session`). README updated in follow-on commit `5c4b822`. |
 
-A natural sequence — each step is a separate, reviewable commit on a new branch (e.g. `claude/fischer-integration`):
+Total addition: approximately 2,500 lines of Python source across 17 file changes, plus 74 dedicated smoke tests. The pre-existing 49-test regression suite continues to pass without modification.
 
-1. **Switch primary algorithm to SAC.** A `SAC` wrapper is already present at `src/rl_armMotion/two_d/models/agents/sac_agent.py`. Wire it into `training_gui.py` as the default, and add a SAC-specific trainer config.
-2. **Implement adaptive goal-tolerance curriculum.** Add a `goal_tolerance` attribute to `ArmTaskEnv` that starts at 0.6 m (60 cm in workspace units, scaled to the 2-DOF arm's reach) and decays whenever the rolling success rate over the last *N* episodes exceeds a threshold (Fischer used 80 %). Log the current tolerance in the info dict.
-3. **Add a motor-babbling pre-training phase.** Before policy learning, run *N* episodes of uniformly random actions and store the (s, a, r, s′) tuples in the SAC replay buffer.
-4. **Implement Fitts' Law validation.** Run a grid of goal-distance × goal-tolerance combinations, log mean movement time per combination, fit MT = a + b·log₂(2D/W), and verify R² approaches Fischer's 0.9986.
-5. **Implement 2/3 Power Law validation.** Log end-effector velocity and curvature on each step; fit `log V = α + β·log C` over the trajectory and verify β ≈ –1/3 (equivalently R between V^(1/3) and curvature ≈ 0.84).
-6. **(Optional, large)** Migrate to a 3-DOF or 7-DOF arm. The 3-D scaffold in `three_d/` is the natural place.
+### 7.3 Phase 6 — Muscle Wiring + Reward Review (Planned Future Work)
 
-Each of these can be implemented on top of the existing 2-DOF `ArmTaskEnv` without rewriting the foundation. Steps 1–5 should be feasible without leaving Python + Stable-Baselines3 + Gymnasium.
+The Hill-type muscle model from Step 5 is a standalone module and an opt-in wrapper on `ArmController`. The training environment `ArmTaskEnv.step` still uses direct velocity-command actuation. Phase 6 will route the env's step function through the muscle model, changing the action space from `[-1, 1]` velocity commands to `[0, 1]` muscle activations.
+
+**This is the single coupled decision point with the reward function.** Fischer's published reward is much simpler than ours (distance penalty + small effort cost + sparse success bonus, three terms total) because his muscle dynamics physically smooth the motion. Our 10-term shaped reward includes velocity-norm and gradient-norm penalties (P3, P4) and a proximity-bonus ramp (B2) that do the smoothing the muscles would do in Fischer's setup. When we wire the muscles in, the natural reward decision is:
+
+- **Option A** — keep our shaped reward unchanged. Lowest risk on convergence. Undermines the "emergence from muscle dynamics" scientific claim.
+- **Option B** — switch to Fischer's three-term reward. Strongest scientific claim. Higher risk on convergence; may need extensive hyperparameter tuning.
+- **Option C** (recommended) — hybrid: keep distance + effort + sparse success, drop the velocity/gradient/proximity shaping. Sparse enough for the emergence claim, dense enough to be tractable on 2-DOF.
+
+The decision should be made *when the muscle wiring is implemented*, with actual training runs available for comparison. The validators (Fitts' Law, 2/3 Power Law) **must be re-run after the muscle wiring lands**, regardless of which reward option is chosen — the numbers will change.
+
+Architectural note: the current code is already prepared for this. The muscle model is standalone and pluggable, the `7dof_fischer` preset is data-ready, the validators read end-effector positions from a generic `info["end_effector_position"]` key that does not depend on actuation mode. No rework of Steps 1–5 is required.
+
+### 7.4 Items Not Planned
+
+| Item | Why not planned |
+|------|-----------------|
+| MuJoCo XML musculoskeletal model | Requires MuJoCo XML expertise + anatomically correct geometric specification. Multi-week effort, separate from the CP493 scope. The Hill-type equations in Step 5 are mathematically identical to MuJoCo's, so the actuation physics is in place; only the multi-body simulation substrate is missing. |
+| Multi-muscle-per-joint anatomical geometry with angle-dependent moment arms | Requires anatomy data tables and a moment-arm interpolation framework. Best done after the MuJoCo substrate is in place. |
 
 ---
 
