@@ -132,6 +132,15 @@ class TrainingGUI:
         self.clear_points_button = None
         self.clicked_target: Optional[np.ndarray] = None
         self.clicked_waypoints: List[np.ndarray] = []
+
+        # Actuation mode (Phase 6). Default "velocity" matches the historical
+        # action space (direct velocity commands in [-1, 1]). "muscle"
+        # switches to the Hill-type antagonist-pair action space ([0, 1]
+        # extensor/flexor activations per joint) and routes the env's step
+        # through Hill-type muscle dynamics following Fischer et al. (2021).
+        self.ACTUATION_MODES = ["velocity", "muscle"]
+        self.actuation_mode_var = tk.StringVar(value="velocity")
+        self.actuation_mode_combo = None
         # matplotlib connection id for the canvas click handler; None when
         # the handler is not currently attached (Direction mode or training
         # is in progress).
@@ -253,6 +262,16 @@ class TrainingGUI:
         self.goal_direction_combo.grid(row=3, column=1, sticky="ew", padx=2, pady=2)
         self.goal_direction_combo.bind("<<ComboboxSelected>>", self._on_goal_direction_changed)
 
+        ttk.Label(setup_frame, text="Actuation:").grid(row=4, column=0, sticky="w", padx=2, pady=2)
+        self.actuation_mode_combo = ttk.Combobox(
+            setup_frame,
+            textvariable=self.actuation_mode_var,
+            values=self.ACTUATION_MODES,
+            state="readonly",
+            width=12,
+        )
+        self.actuation_mode_combo.grid(row=4, column=1, sticky="ew", padx=2, pady=2)
+
         # "Clear Points" only does anything in Single Point or Waypoints modes;
         # it is grayed out in Direction mode but always present so the layout
         # does not shift when the mode changes.
@@ -262,7 +281,7 @@ class TrainingGUI:
             command=self._on_clear_points,
             state=tk.DISABLED,
         )
-        self.clear_points_button.grid(row=4, column=0, columnspan=2, sticky="ew", padx=2, pady=2)
+        self.clear_points_button.grid(row=5, column=0, columnspan=2, sticky="ew", padx=2, pady=2)
 
         setup_frame.columnconfigure(1, weight=1)
 
@@ -339,6 +358,8 @@ class TrainingGUI:
         self.algorithm_combo.config(state=state)
         self.timesteps_entry.config(state=entry_state)
         self.goal_mode_combo.config(state=state)
+        if self.actuation_mode_combo is not None:
+            self.actuation_mode_combo.config(state=state)
         # Goal direction follows the mode: only enabled when mode == Direction
         # and the user is not currently training.
         mode = self.goal_mode_var.get()
@@ -782,6 +803,10 @@ class TrainingGUI:
         """Background training thread execution."""
         try:
             mode = self.goal_mode_var.get()
+            actuation = self.actuation_mode_var.get().strip().lower()
+            if actuation not in self.ACTUATION_MODES:
+                actuation = "velocity"
+
             if mode == "Single Point":
                 if self.clicked_target is None:
                     self.metrics_queue.put({
@@ -792,7 +817,7 @@ class TrainingGUI:
                         ),
                     })
                     return
-                training_env = ArmTaskEnv()
+                training_env = ArmTaskEnv(actuation_mode=actuation)
                 training_env.set_goal_position(self.clicked_target)
             elif mode == "Waypoints":
                 if not self.clicked_waypoints:
@@ -804,10 +829,13 @@ class TrainingGUI:
                         ),
                     })
                     return
-                training_env = ArmTaskEnv()
+                training_env = ArmTaskEnv(actuation_mode=actuation)
                 training_env.set_waypoints(self.clicked_waypoints)
             else:
-                training_env = ArmTaskEnv(goal_direction=self.selected_goal_direction)
+                training_env = ArmTaskEnv(
+                    goal_direction=self.selected_goal_direction,
+                    actuation_mode=actuation,
+                )
 
             self.trainer = RLTrainerWithMetrics(
                 env=training_env,
