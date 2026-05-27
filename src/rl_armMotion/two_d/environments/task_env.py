@@ -51,6 +51,13 @@ class ArmTaskEnv(gym.Env):
     DEFAULT_ORIENTATION_TOLERANCE_DEG: float = 10.0
     DEFAULT_HOLD_VELOCITY_TOLERANCE: float = 0.30
 
+    # Actuation-mode constants. Phase 6 of the Fischer integration adds an
+    # opt-in muscle-driven actuation path; the historical default is the
+    # direct velocity-command actuation that the existing 49 regression tests
+    # were written against.
+    ACTUATION_VELOCITY: str = "velocity"
+    ACTUATION_MUSCLE: str = "muscle"
+
     def __init__(
         self,
         render_mode: Optional[str] = None,
@@ -60,6 +67,9 @@ class ArmTaskEnv(gym.Env):
         goal_tolerance: Optional[float] = None,
         orientation_tolerance_deg: Optional[float] = None,
         hold_velocity_tolerance: Optional[float] = None,
+        actuation_mode: str = "velocity",
+        muscle_moment_arm: float = 0.05,
+        muscle_params=None,
     ):
         """Construct the 2-DOF goal-reaching environment.
 
@@ -75,12 +85,46 @@ class ArmTaskEnv(gym.Env):
         hold_velocity_tolerance : float, optional
             Maximum joint-velocity norm permitted while satisfying the hold
             condition. Defaults to 0.30 rad/s.
+        actuation_mode : str, default "velocity"
+            Selects how the policy's action vector is interpreted.
+
+            ``"velocity"`` (default, backward-compatible) — actions are
+            normalised joint-velocity commands in [-1, 1], applied
+            directly via Euler integration. This is the original
+            behaviour against which the existing 49 regression tests
+            were written.
+
+            ``"muscle"`` — actions are antagonist-pair muscle activations
+            in [0, 1] (two muscles per joint: extensor and flexor). On
+            each step, each pair's net torque is computed from the
+            Hill-type force-length-velocity-activation product of
+            :class:`rl_armMotion.two_d.utils.muscle_model.HillTypeMuscle`,
+            and Euler-integrated against the joint inertia. This is the
+            actuation model used by Fischer et al. (2021).
+        muscle_moment_arm : float, default 0.05
+            Effective moment arm in metres at which each muscle force acts
+            on its joint. Used only in muscle mode. The default 5 cm is a
+            reasonable order of magnitude for upper-extremity flexor
+            muscles (Murray, Buchanan, & Delp, 1995, J. Biomech. 28:513).
+        muscle_params : MuscleParameters, optional
+            Override the default Hill-type muscle parameters for every
+            muscle in the environment. Used only in muscle mode. Defaults
+            to the canonical literature values (F_max=100 N, L_opt=0.10 m,
+            v_max=10 L/s).
         """
         self.render_mode = render_mode
         self.use_2dof = use_2dof
         self.goal_direction = str(goal_direction).strip().upper()
         if self.goal_direction not in {"HEIGHT", "EAST", "WEST", "NORTH"}:
             self.goal_direction = "HEIGHT"
+
+        # Actuation-mode validation. Anything other than the two known
+        # strings falls back to the historical velocity-mode default so the
+        # constructor never raises for a typo from a Gymnasium wrapper.
+        mode = str(actuation_mode).strip().lower()
+        if mode not in {self.ACTUATION_VELOCITY, self.ACTUATION_MUSCLE}:
+            mode = self.ACTUATION_VELOCITY
+        self.actuation_mode = mode
 
         # Load 2-DOF arm configuration with constraints
         self.config = ArmConfiguration.get_preset("2dof_simple")
@@ -99,13 +143,41 @@ class ArmTaskEnv(gym.Env):
         # Arm controller for dynamics
         self.controller = ArmController(self.config)
 
-        # Action space: normalized velocity command for each joint
-        self.action_space = spaces.Box(
-            low=-1.0,
-            high=1.0,
-            shape=(self.num_dof,),
-            dtype=np.float32,
-        )
+        # Muscle-mode set-up. Each joint gets an antagonist pair of Hill-
+        # type muscles (an extensor and a flexor) so the agent has
+        # independent control over positive and negative torque. The
+        # action vector in muscle mode has length 2 * num_dof and is
+        # bounded to [0, 1] (activation).
+        self.muscle_moment_arm = float(muscle_moment_arm)
+        self._muscles = None
+        if self.actuation_mode == self.ACTUATION_MUSCLE:
+            from rl_armMotion.two_d.utils.muscle_model import HillTypeMuscle
+            # Two muscles per joint (extensor, flexor). All share the same
+            # parameters by default; users wanting heterogeneous muscles
+            # can subclass or post-construct.
+            self._muscles = [
+                (HillTypeMuscle(muscle_params), HillTypeMuscle(muscle_params))
+                for _ in range(self.num_dof)
+            ]
+
+        # Action space depends on actuation mode.
+        #   velocity mode : action[j]   in [-1, 1] (signed velocity command)
+        #   muscle   mode : action[2*j], action[2*j+1] in [0, 1] (extensor,
+        #                   flexor activations for joint j)
+        if self.actuation_mode == self.ACTUATION_MUSCLE:
+            self.action_space = spaces.Box(
+                low=0.0,
+                high=1.0,
+                shape=(2 * self.num_dof,),
+                dtype=np.float32,
+            )
+        else:
+            self.action_space = spaces.Box(
+                low=-1.0,
+                high=1.0,
+                shape=(self.num_dof,),
+                dtype=np.float32,
+            )
 
         # Observation space
         max_reach = float(np.sum(self.config.link_lengths))
@@ -522,21 +594,85 @@ class ArmTaskEnv(gym.Env):
             raise RuntimeError("Environment must be reset before stepping")
 
         angles = self.state[: self.num_dof].copy()
+        current_velocities = self.state[self.num_dof :].copy()
 
         action = np.asarray(action, dtype=np.float32)
         action = np.clip(action, self.action_space.low, self.action_space.high)
 
-        # Convert normalized action to physical joint velocity command.
-        joint_velocity_cmd = action * np.asarray(self.config.velocity_limits, dtype=np.float32)
+        if self.actuation_mode == self.ACTUATION_MUSCLE:
+            # ---------- Muscle-driven actuation (Fischer 2021 style) ----------
+            # The action vector has length 2 * num_dof. For joint j:
+            #   action[2*j]     = extensor activation in [0, 1]
+            #   action[2*j + 1] = flexor   activation in [0, 1]
+            # Net joint torque is computed from a Hill-type antagonist
+            # pair and Euler-integrated against joint inertia (plus joint
+            # damping) to produce the next angular velocity and angle.
+            new_velocities = np.zeros_like(current_velocities)
+            new_angles = np.zeros_like(angles)
+            for j in range(self.num_dof):
+                ext, flex = self._muscles[j]
+                a_ext = float(action[2 * j])
+                a_flex = float(action[2 * j + 1])
+                omega_j = float(current_velocities[j])
+                theta_j = float(angles[j])
 
-        new_angles = angles + joint_velocity_cmd * self.dt
-        new_angles = np.clip(
-            new_angles,
-            self.config.joint_limits_min,
-            self.config.joint_limits_max,
-        ).astype(np.float32)
+                ma = self.muscle_moment_arm
+                # Both muscles operate near optimal length; velocity in
+                # muscle frame is shortening = positive. As the joint
+                # extends (theta_j increasing), the extensor shortens
+                # (negative velocity in muscle frame, concentric weak)
+                # and the flexor lengthens (positive velocity, eccentric
+                # strong). The Hill model handles the f_V curve for us.
+                L_opt_ext = ext.params.optimal_length
+                L_opt_flex = flex.params.optimal_length
+                ext_velocity = -ma * omega_j / max(L_opt_ext, 1e-9)
+                flex_velocity = +ma * omega_j / max(L_opt_flex, 1e-9)
 
-        new_velocities = joint_velocity_cmd  # already float32 (float32 * float32)
+                f_ext = ext.force(a_ext, L_opt_ext, ext_velocity)
+                f_flex = flex.force(a_flex, L_opt_flex, flex_velocity)
+
+                # Extensor torque is +ve (drives theta upward), flexor is -ve.
+                muscle_torque = ma * (f_ext - f_flex)
+                # Add joint damping opposing motion (same as the velocity-
+                # mode controller's implicit damping via velocity limits).
+                damping_torque = -float(self.config.damping) * omega_j
+                net_torque = muscle_torque + damping_torque
+
+                inertia = float(self.config.inertias[j])
+                if inertia <= 0.0:
+                    inertia = 1e-3  # safety; should not occur with valid configs
+
+                ang_accel = net_torque / inertia
+                new_omega = omega_j + ang_accel * self.dt
+                new_omega = float(np.clip(
+                    new_omega,
+                    -float(self.config.velocity_limits),
+                    +float(self.config.velocity_limits),
+                ))
+                new_velocities[j] = new_omega
+                new_angles[j] = theta_j + new_omega * self.dt
+
+            new_angles = np.clip(
+                new_angles,
+                self.config.joint_limits_min,
+                self.config.joint_limits_max,
+            ).astype(np.float32)
+            new_velocities = new_velocities.astype(np.float32)
+
+        else:
+            # ---------- Velocity-command actuation (legacy default) ----------
+            # Convert normalized action to physical joint velocity command.
+            joint_velocity_cmd = action * np.asarray(
+                self.config.velocity_limits, dtype=np.float32
+            )
+            new_angles = angles + joint_velocity_cmd * self.dt
+            new_angles = np.clip(
+                new_angles,
+                self.config.joint_limits_min,
+                self.config.joint_limits_max,
+            ).astype(np.float32)
+            new_velocities = joint_velocity_cmd
+
         self.state = np.concatenate([new_angles, new_velocities])  # preserves float32
         self.controller.angles = new_angles
 
@@ -676,6 +812,7 @@ class ArmTaskEnv(gym.Env):
                 len(self.waypoints) if self.waypoints is not None else 0
             ),
             "waypoint_advanced": bool(waypoint_advanced),
+            "actuation_mode": self.actuation_mode,
         }
 
         obs = self._get_observation(
@@ -754,6 +891,7 @@ class ArmTaskEnv(gym.Env):
             "num_waypoints": (
                 len(self.waypoints) if self.waypoints is not None else 0
             ),
+            "actuation_mode": self.actuation_mode,
         }
 
 
