@@ -315,6 +315,20 @@ class TrainingGUI:
         )
         self.save_button.pack(fill=tk.X, pady=2)
 
+        # Run-validators button: runs Fitts' Law and 2/3 Power Law harnesses
+        # against the most recent trained model and writes JSON + PNG output
+        # to a user-chosen directory (default = the model's save dir).
+        # Disabled until a training run has completed.
+        self.run_validators_button = ttk.Button(
+            control_frame,
+            text="Run Fischer Validators",
+            command=self._on_run_validators,
+            state=tk.DISABLED,
+        )
+        self.run_validators_button.pack(fill=tk.X, pady=2)
+        self.validators_thread: Optional[threading.Thread] = None
+        self.last_save_dir: Optional[str] = None
+
         self._on_goal_direction_changed()
         self._schedule_metrics_check()
 
@@ -556,6 +570,7 @@ class TrainingGUI:
         self.training_button.config(state=tk.DISABLED)
         self.stop_button.config(state=tk.NORMAL)
         self.save_button.config(state=tk.DISABLED)
+        self.run_validators_button.config(state=tk.DISABLED)
         self._set_setup_controls_enabled(False)
         self.status_text.config(text=f"Training {algorithm} ({goal_direction}) in progress...", fg="blue")
 
@@ -592,7 +607,7 @@ class TrainingGUI:
 
         save_dir = filedialog.askdirectory(
             title="Select directory to save model",
-            initialdir=self.save_dir,
+            initialdir=self.last_save_dir or self.save_dir,
         )
 
         if not save_dir:
@@ -604,6 +619,7 @@ class TrainingGUI:
 
             save_paths = self.trainer.save_model_and_results(save_dir)
             self._save_plots(save_dir)
+            self.last_save_dir = save_dir
 
             self.status_text.config(
                 text=f"Model saved to {save_dir}",
@@ -622,6 +638,145 @@ class TrainingGUI:
         except Exception as exc:
             self.status_text.config(text="Save failed", fg="red")
             messagebox.showerror("Error", f"Failed to save model:\n{str(exc)}")
+
+    def _on_run_validators(self) -> None:
+        """Run the Fitts' Law and 2/3 Power Law validation harnesses on the
+        most recent trained model and save JSON results plus PNG plots to a
+        user-chosen directory.
+
+        The harnesses execute in a background thread so the GUI stays
+        responsive. Progress is reported via the status bar; the final
+        result (success or error) is shown in a message box.
+        """
+        if self.trainer is None or getattr(self.trainer, "trainer", None) is None:
+            messagebox.showerror("Error", "No trained model available")
+            return
+        if getattr(self.trainer.trainer, "model", None) is None:
+            messagebox.showerror("Error", "Trainer has no model attribute")
+            return
+        if self.validators_thread is not None and self.validators_thread.is_alive():
+            messagebox.showinfo(
+                "Validators already running",
+                "A validator run is already in progress. Please wait.",
+            )
+            return
+
+        output_dir = filedialog.askdirectory(
+            title="Choose directory to save validator results",
+            initialdir=self.last_save_dir or self.save_dir,
+        )
+        if not output_dir:
+            return
+
+        # Disable the button and start the worker thread.
+        self.run_validators_button.config(state=tk.DISABLED)
+        self.status_text.config(
+            text="Running Fischer validators (this may take ~1 minute)...",
+            fg="blue",
+        )
+        self.last_save_dir = output_dir
+
+        self.validators_thread = threading.Thread(
+            target=self._validators_worker,
+            args=(output_dir,),
+            daemon=True,
+        )
+        self.validators_thread.start()
+
+    def _validators_worker(self, output_dir: str) -> None:
+        """Background-thread body that actually runs the two validators."""
+        from rl_armMotion.two_d.validation import (
+            FittsLawValidator,
+            PowerLawValidator,
+        )
+
+        try:
+            model = self.trainer.trainer.model
+            # Use a fresh env so the validators do not interfere with the
+            # trainer's in-memory env state.
+            env = ArmTaskEnv()
+            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            output_path = Path(output_dir)
+            output_path.mkdir(parents=True, exist_ok=True)
+
+            # --- Fitts' Law sweep -----------------------------------------
+            fl = FittsLawValidator(model=model, env=env)
+            fl_result = fl.run(
+                n_trials_per_condition=10,
+                max_steps_per_trial=200,
+                seed=42,
+            )
+            fl_json = output_path / f"fitts_law_{timestamp}.json"
+            fl_png = output_path / f"fitts_law_{timestamp}.png"
+            fl_result.save_json(str(fl_json))
+            fl_result.plot(
+                save_path=str(fl_png),
+                show=False,
+                title=f"Fitts' Law - {self.selected_algorithm}",
+            )
+            fl_summary = fl_result.regression_summary()
+
+            # --- 2/3 Power Law sweep --------------------------------------
+            pl = PowerLawValidator(model=model, env=env)
+            pl_result = pl.run(
+                n_trials=20,
+                max_steps_per_trial=200,
+                seed=42,
+            )
+            pl_json = output_path / f"power_law_{timestamp}.json"
+            pl_png = output_path / f"power_law_{timestamp}.png"
+            pl_result.save_json(str(pl_json))
+            pl_result.plot(
+                save_path=str(pl_png),
+                show=False,
+                title=f"2/3 Power Law - {self.selected_algorithm}",
+            )
+            pl_summary = pl_result.regression_summary()
+
+            # Schedule GUI updates on the main thread.
+            self.root.after(
+                0,
+                self._on_validators_complete,
+                fl_summary, pl_summary,
+                str(fl_json), str(fl_png), str(pl_json), str(pl_png),
+            )
+        except Exception as exc:
+            err_msg = f"{type(exc).__name__}: {exc}"
+            self.root.after(0, self._on_validators_error, err_msg)
+
+    def _on_validators_complete(
+        self,
+        fl_summary: str,
+        pl_summary: str,
+        fl_json: str,
+        fl_png: str,
+        pl_json: str,
+        pl_png: str,
+    ) -> None:
+        """Main-thread callback when the validators finish successfully."""
+        self.run_validators_button.config(state=tk.NORMAL)
+        self.status_text.config(text="Fischer validators completed", fg="green")
+        messagebox.showinfo(
+            "Validators Complete",
+            "Fitts' Law:\n"
+            f"  {fl_summary}\n\n"
+            "Two-thirds Power Law:\n"
+            f"  {pl_summary}\n\n"
+            "Saved files:\n"
+            f"- {fl_json}\n"
+            f"- {fl_png}\n"
+            f"- {pl_json}\n"
+            f"- {pl_png}",
+        )
+
+    def _on_validators_error(self, error: str) -> None:
+        """Main-thread callback when the validators raise an exception."""
+        self.run_validators_button.config(state=tk.NORMAL)
+        self.status_text.config(text="Validators failed", fg="red")
+        messagebox.showerror(
+            "Validators Error",
+            f"Failed to run validators:\n{error}",
+        )
 
     def _training_loop(self) -> None:
         """Background training thread execution."""
@@ -965,6 +1120,45 @@ class TrainingGUI:
             )
             goal_pos_text = f"[{goal_pos[0]:.3f}, {goal_pos[1]:.3f}]"
 
+            # Curriculum block (Fischer et al. 2021 adaptive curriculum).
+            # Only rendered if the trainer reports curriculum is enabled.
+            curriculum = metrics.get("curriculum", {}) or {}
+            if curriculum.get("enabled", False):
+                cur_tol = curriculum.get("current_tolerance")
+                init_tol = curriculum.get("initial_tolerance")
+                min_tol = curriculum.get("min_tolerance")
+                sr = curriculum.get("recent_success_rate")
+                sr_text = f"{sr * 100:.1f}%" if isinstance(sr, (int, float)) else "N/A"
+                stage = curriculum.get("curriculum_stage", 0)
+                wfilled = curriculum.get("window_filled", 0)
+                wsize = curriculum.get("window_size", 0)
+                ep_since = curriculum.get("episodes_since_last_decay", 0)
+                curriculum_text = (
+                    f"\n"
+                    f"Curriculum (Fischer 2021):\n"
+                    f"  Stage:           {stage}\n"
+                    f"  Goal Tolerance:  {cur_tol:.3f}m"
+                    f" (init {init_tol:.2f}m -> min {min_tol:.2f}m)\n"
+                    f"  Window Filled:   {wfilled}/{wsize}\n"
+                    f"  Success Rate:    {sr_text}\n"
+                    f"  Since Decay:     {ep_since} ep\n"
+                )
+            else:
+                curriculum_text = ""
+
+            # Waypoint progress block, only rendered if the env reports
+            # waypoint state in this update.
+            num_wp = metrics.get("num_waypoints", 0)
+            if num_wp and num_wp > 0:
+                cur_wp = metrics.get("current_waypoint_index", 0)
+                waypoint_text = (
+                    f"\n"
+                    f"Waypoint Progress:\n"
+                    f"  Active:          {cur_wp + 1}/{num_wp}\n"
+                )
+            else:
+                waypoint_text = ""
+
             text = (
                 f"Algorithm:         {metrics.get('algorithm', self.selected_algorithm)}\n"
                 f"Episode:           {self.episode_counter}\n"
@@ -987,6 +1181,8 @@ class TrainingGUI:
                 f" ({metrics.get('hold_progress', 0) * 100:.1f}%)\n"
                 f"  In Goal Region:  {'Yes' if metrics.get('in_goal_region', False) else 'No'}\n"
                 f"  Gradient Norm:   {metrics.get('gradient_norm', 0):.3f}\n"
+                f"{curriculum_text}"
+                f"{waypoint_text}"
                 f"\n"
                 f"Optimizer Metrics:\n"
                 f"  Policy/Actor:    {metrics.get('policy_loss', 0):.4f}\n"
@@ -1007,6 +1203,7 @@ class TrainingGUI:
         self.training_button.config(state=tk.NORMAL)
         self.stop_button.config(state=tk.DISABLED)
         self.save_button.config(state=tk.NORMAL)
+        self.run_validators_button.config(state=tk.NORMAL)
         self._set_setup_controls_enabled(True)
         self.status_text.config(text="Training completed successfully", fg="green")
 
@@ -1023,6 +1220,9 @@ class TrainingGUI:
         self.training_button.config(state=tk.NORMAL)
         self.stop_button.config(state=tk.DISABLED)
         self.save_button.config(state=tk.NORMAL if self.trainer is not None else tk.DISABLED)
+        self.run_validators_button.config(
+            state=tk.NORMAL if self.trainer is not None else tk.DISABLED
+        )
         self._set_setup_controls_enabled(True)
         self.status_text.config(text="Training stopped", fg="orange")
 

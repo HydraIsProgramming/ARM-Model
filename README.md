@@ -47,6 +47,17 @@ Train an RL policy that makes the arm:
   - live arm pose visualization
   - metrics panel (success rate, distance, hold progress, gradient)
   - model and training artifact saving
+  - **Goal mode selector** with three modes:
+    - **Direction** — legacy `EAST` / `WEST` / `NORTH` preset dropdown
+    - **Single Point** — click anywhere on the arm canvas to place one goal
+    - **Waypoints** — click multiple times to build an ordered sequence
+      (`A → B → C → ...`); intermediate waypoints advance on touch, the
+      final waypoint requires the standard hold criterion
+  - Click-set targets persist across resets; out-of-reach clicks are
+    rejected with a friendly status-bar message
+  - Adaptive-curriculum progress (Fischer et al. 2021) surfaced in the
+    metrics panel: current goal tolerance, curriculum stage, rolling
+    success rate, episodes since last decay
 
 ### Interactive Arm GUI
 - File: `src/rl_armMotion/two_d/gui/app.py`
