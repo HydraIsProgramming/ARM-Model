@@ -221,12 +221,24 @@ class FittsLawResult:
         save_path : path-like, optional
             If given, the figure is written to this file (PNG suggested).
         show : bool, default False
-            If True, call ``plt.show()`` after drawing.
+            If True, route through pyplot to display interactively. Only safe
+            to set in the main thread; the default False path uses Agg
+            directly and is thread-safe.
         title : str, optional
             Override the default figure title.
+
+        Notes
+        -----
+        With ``show=False`` this method uses ``matplotlib.figure.Figure``
+        and ``matplotlib.backends.backend_agg.FigureCanvasAgg`` directly,
+        bypassing ``pyplot`` entirely. That path is thread-safe and is
+        the one the training-GUI "Run Fischer Validators" worker takes,
+        which previously crashed macOS Tk by touching pyplot state from a
+        non-main thread.
         """
         try:
-            import matplotlib.pyplot as plt
+            from matplotlib.figure import Figure
+            from matplotlib.backends.backend_agg import FigureCanvasAgg
         except ImportError as exc:
             raise ImportError(
                 "matplotlib is required for FittsLawResult.plot; "
@@ -242,7 +254,12 @@ class FittsLawResult:
         mts_v = mts[valid]
         stds_v = stds[valid]
 
-        fig, ax = plt.subplots(figsize=(7, 5))
+        # Use Figure() directly with FigureCanvasAgg so we never touch the
+        # pyplot global state. Safe to call from any thread.
+        fig = Figure(figsize=(7, 5))
+        canvas = FigureCanvasAgg(fig)
+        ax = fig.add_subplot(111)
+
         ax.errorbar(
             ids_v, mts_v, yerr=np.where(np.isfinite(stds_v), stds_v, 0.0),
             fmt="o", color="black", ecolor="gray", capsize=3,
@@ -271,9 +288,11 @@ class FittsLawResult:
             fig.savefig(save_path, dpi=200)
 
         if show:
+            # Caller explicitly asked for interactive display, route through
+            # pyplot. Only call from the main thread on macOS.
+            import matplotlib.pyplot as plt
+            plt.figure(fig.number) if hasattr(fig, "number") else None
             plt.show()
-        else:
-            plt.close(fig)
 
 
 # ---------------------------------------------------------------------------

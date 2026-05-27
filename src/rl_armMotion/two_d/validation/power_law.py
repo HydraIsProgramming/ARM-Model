@@ -195,9 +195,17 @@ class PowerLawResult:
         show: bool = False,
         title: Optional[str] = None,
     ) -> None:
-        """Produce the standard log V vs log C scatter + regression plot."""
+        """Produce the standard log V vs log C scatter + regression plot.
+
+        Thread-safe path. With ``show=False`` (the default and the value
+        used by the training-GUI worker thread), the routine uses
+        ``matplotlib.figure.Figure`` plus ``FigureCanvasAgg`` directly and
+        never touches ``pyplot``; the previous implementation crashed
+        macOS Tk by calling ``plt.subplots()`` from a non-main thread.
+        """
         try:
-            import matplotlib.pyplot as plt
+            from matplotlib.figure import Figure
+            from matplotlib.backends.backend_agg import FigureCanvasAgg
         except ImportError as exc:
             raise ImportError(
                 "matplotlib is required for PowerLawResult.plot; "
@@ -207,7 +215,10 @@ class PowerLawResult:
         log_c = np.asarray(self.log_curvature, dtype=float)
         log_v = np.asarray(self.log_velocity, dtype=float)
 
-        fig, ax = plt.subplots(figsize=(7, 5))
+        fig = Figure(figsize=(7, 5))
+        canvas = FigureCanvasAgg(fig)
+        ax = fig.add_subplot(111)
+
         ax.scatter(
             log_c, log_v, s=8, c="black", alpha=0.4,
             label=f"Per-step samples (n = {len(log_c)})",
@@ -245,9 +256,8 @@ class PowerLawResult:
             fig.savefig(save_path, dpi=200)
 
         if show:
+            import matplotlib.pyplot as plt
             plt.show()
-        else:
-            plt.close(fig)
 
 
 # ---------------------------------------------------------------------------
