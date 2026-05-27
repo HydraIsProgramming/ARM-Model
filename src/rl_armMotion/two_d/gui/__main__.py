@@ -275,6 +275,15 @@ class LauncherApp:
             )
             log_file = open(log_path, "w", buffering=1)  # line-buffered
 
+            # start_new_session=True puts the child in its own process
+            # group and session. On POSIX systems this prevents SIGHUP from
+            # propagating to the child when the launcher's controlling
+            # terminal dies or when the launcher itself is signalled — the
+            # child survives independently. Without this, the harness
+            # terminating the launcher background task (or the user closing
+            # the launcher window via the dock) would silently kill any
+            # spawned training subprocess mid-run, producing a 0-byte log
+            # and no Python traceback.
             popen = subprocess.Popen(
                 cmd,
                 env=child_env,
@@ -282,6 +291,7 @@ class LauncherApp:
                 stderr=subprocess.STDOUT,
                 stdin=subprocess.DEVNULL,
                 close_fds=True,
+                start_new_session=True,
             )
         except OSError as exc:
             self.status_var.set(f"Failed to launch {label}: {exc}")
