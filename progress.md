@@ -137,7 +137,7 @@ Fischer et al. trained a 7-DOF biomechanical upper-extremity model in MuJoCo usi
 
 ### 7.2 Completed Integration Steps
 
-All work was committed on the branch `claude/fischer-integration`, with a pre-work save point preserved at tag `save-point-2026-05-05`. Each step is a separate, reviewable commit. The current branch HEAD is `5f37a26` (Step 5).
+All work was committed on the branch `claude/fischer-integration`, with a pre-work save point preserved at tag `save-point-2026-05-05`. Each step is a separate, reviewable commit. The current branch HEAD reflects Phase 6 completion (`6f82b08` as of this writing).
 
 | Step | Commit | What was added |
 |------|--------|----------------|
@@ -146,23 +146,22 @@ All work was committed on the branch `claude/fischer-integration`, with a pre-wo
 | 3 | `6f995f0` | **New module** `src/rl_armMotion/two_d/validation/fitts_law.py` exposing `FittsLawCondition`, `FittsLawTrial`, `FittsLawResult`, `FittsLawValidator`. Sweeps a 6 × 6 (D, W) grid by default, fits MT = a + b · log₂(2D/W) by closed-form OLS, reports R². JSON serialisation and matplotlib plot included. New `ArmTaskEnv.set_goal_position()` and the `EXPLICIT` goal mode added in the same commit. |
 | 4 | `5e6b467` | **New module** `src/rl_armMotion/two_d/validation/power_law.py` exposing `PowerLawTrial`, `PowerLawResult`, `PowerLawValidator`. Logs per-step end-effector positions, computes V and C by central differences per trial, fits `log V = α + β · log C` by OLS and reports Pearson R. The synthetic-ellipse benchmark recovers slope = −1/3 to seven decimal places (analytic answer). |
 | 5 | `5f37a26` | **New module** `src/rl_armMotion/two_d/utils/muscle_model.py` with `HillTypeMuscle` and `MuscleParameters` (canonical Hill 1938 model with Thelen Gaussian force-length and hyperbolic/exponential-eccentric force-velocity, Zajac 1989 defaults). New `ArmController.apply_muscle_activation()` method routes the existing kinematic controller through the muscle model via Euler integration. New `7dof_fischer` preset in `ArmConfiguration` with biomechanically-realistic upper-extremity proportions per Winter (2009). |
-| — | `7431988` | Unified GUI launcher at `src/rl_armMotion/two_d/gui/__main__.py` so `python -m rl_armMotion.two_d.gui` opens both GUIs from a single command. Fischer-aligned defaults (SAC, 100k steps, `./project_assets/outputs/fischer_session`). README updated in follow-on commit `5c4b822`. |
+| 6 | `ce2d617` | **Phase 6 — Muscle-driven env actuation.** `ArmTaskEnv` gains an opt-in `actuation_mode` constructor parameter (default `"velocity"`, alternative `"muscle"`). In muscle mode the action space is `[0, 1]^(2 * num_dof)` (antagonist extensor/flexor pair per joint). Each step computes the Hill-type force for each muscle, integrates the net torque against joint inertia with damping, and clips to velocity and joint limits. Composes cleanly with every existing feature (curriculum, waypoints, goal modes). Surfaced in the training GUI via a new `Actuation:` dropdown (commit `8489c8d`). |
+| L | `7431988` | Unified GUI launcher at `src/rl_armMotion/two_d/gui/__main__.py` so `python -m rl_armMotion.two_d.gui` opens both GUIs from a single command. Fischer-aligned defaults (SAC, 100k steps, `./project_assets/outputs/fischer_session`). README updated in follow-on commit `5c4b822`. |
+| W | `0600202` | Click-to-pick goal training: new "Goal Mode" dropdown supporting Direction (legacy), Single Point (one click → arbitrary 2D goal), and Waypoints (multiple clicks → ordered sequence A → B → C with touch-and-go advancement on intermediate waypoints and full-hold criterion on the final). |
+| P | `cc2c1d7` | Tier-1 GUI polish: curriculum progress (current tolerance, stage, success rate, window fill) surfaced in the training GUI metrics panel; new "Run Fischer Validators" button runs Fitts' Law + 2/3 Power Law on the most recent trained model with JSON and PNG output to a user-chosen directory. |
 
-Total addition: approximately 2,500 lines of Python source across 17 file changes, plus 74 dedicated smoke tests. The pre-existing 49-test regression suite continues to pass without modification.
+Total addition: approximately **3,100 lines of Python source across 22 file changes**, plus **117 dedicated smoke tests**. The pre-existing 49-test regression suite continues to pass without modification.
 
-### 7.3 Phase 6 — Muscle Wiring + Reward Review (Planned Future Work)
+### 7.3 Phase 6 — Muscle Wiring (DONE, commit `ce2d617`)
 
-The Hill-type muscle model from Step 5 is a standalone module and an opt-in wrapper on `ArmController`. The training environment `ArmTaskEnv.step` still uses direct velocity-command actuation. Phase 6 will route the env's step function through the muscle model, changing the action space from `[-1, 1]` velocity commands to `[0, 1]` muscle activations.
+Phase 6 is complete. The muscle-driven actuation mode is opt-in via the `actuation_mode="muscle"` constructor parameter on `ArmTaskEnv`. Historical velocity-mode behaviour is preserved as the default, so the existing tests and any pre-Phase-6 trained model continue to work unchanged. The user can A/B compare velocity-mode vs muscle-mode training from the GUI by toggling the new "Actuation:" dropdown.
 
-**This is the single coupled decision point with the reward function.** Fischer's published reward is much simpler than ours (distance penalty + small effort cost + sparse success bonus, three terms total) because his muscle dynamics physically smooth the motion. Our 10-term shaped reward includes velocity-norm and gradient-norm penalties (P3, P4) and a proximity-bonus ramp (B2) that do the smoothing the muscles would do in Fischer's setup. When we wire the muscles in, the natural reward decision is:
+The reward function was **not** changed in Phase 6: the existing 10-term shaped reward continues to be used in both modes. This was a deliberate choice (Option A from the earlier reward-review analysis) because:
 
-- **Option A** — keep our shaped reward unchanged. Lowest risk on convergence. Undermines the "emergence from muscle dynamics" scientific claim.
-- **Option B** — switch to Fischer's three-term reward. Strongest scientific claim. Higher risk on convergence; may need extensive hyperparameter tuning.
-- **Option C** (recommended) — hybrid: keep distance + effort + sparse success, drop the velocity/gradient/proximity shaping. Sparse enough for the emergence claim, dense enough to be tractable on 2-DOF.
-
-The decision should be made *when the muscle wiring is implemented*, with actual training runs available for comparison. The validators (Fitts' Law, 2/3 Power Law) **must be re-run after the muscle wiring lands**, regardless of which reward option is chosen — the numbers will change.
-
-Architectural note: the current code is already prepared for this. The muscle model is standalone and pluggable, the `7dof_fischer` preset is data-ready, the validators read end-effector positions from a generic `info["end_effector_position"]` key that does not depend on actuation mode. No rework of Steps 1–5 is required.
+- Switching to Fischer's sparse three-term reward at the same time as changing the action space would confound two changes in a single experiment.
+- The user can now train one velocity-mode baseline and one muscle-mode policy with the same reward, run both through the Fitts' Law and Power Law validators, and have a clean controlled comparison of "does adding muscle dynamics alone affect the emergent behaviour?"
+- If a reward-shape change is later desired, it is a one-paragraph patch (Option B or C from the analysis); it should be done **after** the velocity-vs-muscle baseline comparison is in hand.
 
 ### 7.4 Items Not Planned
 
