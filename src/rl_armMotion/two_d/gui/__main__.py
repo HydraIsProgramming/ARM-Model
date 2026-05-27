@@ -227,15 +227,59 @@ class LauncherApp:
         self._spawn(cmd, label=f"Training GUI ({algorithm}, {timesteps} steps)")
 
     def _spawn(self, cmd: List[str], label: str) -> None:
-        """Launch a child process detached from the launcher's event loop."""
+        """Launch a child process detached from the launcher's event loop.
+
+        Two reliability features sit on top of the basic Popen call:
+
+        1. Thread-cap env vars. macOS in particular is prone to OpenMP /
+           Apple-Accelerate shared-memory crashes when SAC + Stable-
+           Baselines3 + PyTorch + NumPy fight for the same parallel
+           thread pool ("OMP: Error #179: Function Can't open SHM2
+           failed"). Setting OMP_NUM_THREADS, MKL_NUM_THREADS,
+           VECLIB_MAXIMUM_THREADS, and OPENBLAS_NUM_THREADS to 1 before
+           the subprocess imports any numerical library forces serial
+           BLAS, which is slightly slower per step but does not crash.
+           Existing values set by the user are preserved so this is a
+           default rather than a hard override.
+
+        2. Log redirection. The launcher itself has no terminal on macOS
+           (it is a windowed Tk app), so a spawned subprocess that
+           crashes leaves no trace. We redirect each child's stdout and
+           stderr to a timestamped file under
+           ./project_assets/outputs/training_logs/ so that any Python
+           traceback or numerical library warning is preserved for
+           post-mortem diagnosis.
+        """
         try:
-            # Inherit the launcher's environment so PYTHONPATH and the
-            # active venv carry through unchanged.
+            # ---- thread-cap env vars (defensive against OMP SHM crashes)
+            child_env = os.environ.copy()
+            for var in (
+                "OMP_NUM_THREADS",
+                "MKL_NUM_THREADS",
+                "VECLIB_MAXIMUM_THREADS",
+                "OPENBLAS_NUM_THREADS",
+                "NUMEXPR_NUM_THREADS",
+            ):
+                child_env.setdefault(var, "1")
+
+            # ---- log-file redirection
+            log_dir = Path("./project_assets/outputs/training_logs")
+            log_dir.mkdir(parents=True, exist_ok=True)
+            label_slug = (
+                label.lower()
+                .replace(" ", "_").replace("(", "").replace(")", "")
+                .replace(",", "")
+            )
+            log_path = log_dir / (
+                f"{datetime.now().strftime('%Y%m%d-%H%M%S')}_{label_slug}.log"
+            )
+            log_file = open(log_path, "w", buffering=1)  # line-buffered
+
             popen = subprocess.Popen(
                 cmd,
-                env=os.environ.copy(),
-                stdout=None,
-                stderr=None,
+                env=child_env,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
                 stdin=subprocess.DEVNULL,
                 close_fds=True,
             )
@@ -247,7 +291,7 @@ class LauncherApp:
         timestamp = datetime.now().strftime("%H:%M:%S")
         self.status_var.set(
             f"[{timestamp}] {label} launched (PID {popen.pid}). "
-            f"Total live: {self._count_live()}"
+            f"Log: {log_path.name}. Total live: {self._count_live()}"
         )
 
     def _count_live(self) -> int:
