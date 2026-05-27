@@ -133,11 +133,13 @@ story.append(para(
     "validation harnesses, and Hill-type muscle dynamics on a 7-DOF arm."))
 story.append(para(
     "All six components have been integrated into the existing 2-DOF training pipeline for this CP493 "
-    "project as additive contributions across six commits totalling approximately 2,500 lines of Python "
-    "and 74 dedicated smoke tests. No existing module was broken; the pre-existing 49-test regression "
-    "suite continues to pass. Three platform-specific items (MuJoCo XML model file, multi-muscle "
-    "anatomical geometry, and full N-DOF wiring of the 7-DOF arm into the training environment) are "
-    "explicitly out of scope and are documented in Section 6."))
+    "project as additive contributions across nine commits totalling approximately 3,100 lines of Python "
+    "and 100+ dedicated smoke tests. No existing module was broken; the pre-existing 49-test regression "
+    "suite continues to pass. The final piece, the Hill-type muscle-driven actuation mode (Phase 6, "
+    "commit ce2d617), was added as an opt-in actuation_mode constructor parameter on ArmTaskEnv so the "
+    "velocity-mode pipeline remains the default and fully backward-compatible. Two platform-specific "
+    "items (MuJoCo XML musculoskeletal model file and multi-muscle-per-joint anatomical geometry with "
+    "angle-dependent moment arms) are explicitly out of scope and are documented in Section 6."))
 story.append(PageBreak())
 
 # ─── 2. METHODOLOGICAL MAPPING ──────────────────────────────────────────────
@@ -164,9 +166,12 @@ pillars_data = [
     ["5", "Two-thirds Power Law validation",
      "PowerLawValidator with central-difference V and C",
      "5e6b467", "Done"],
-    ["6", "Hill-type muscle dynamics + 7-DOF arm",
+    ["6a", "Hill-type muscle dynamics + 7-DOF arm",
      "HillTypeMuscle module + 7dof_fischer preset",
      "5f37a26", "Done"],
+    ["6b", "Muscle-driven env actuation (Phase 6)",
+     "ArmTaskEnv actuation_mode = 'muscle' (opt-in)",
+     "ce2d617", "Done"],
 ]
 story.append(make_table(pillars_data, [0.3*inch, 1.6*inch, 2.4*inch, 0.7*inch, 0.5*inch], font_size=9))
 story.append(SP(0.05))
@@ -249,6 +254,32 @@ story.append(bul("New ArmConfiguration preset <i>7dof_fischer</i> with biomechan
 story.append(bul("Verified by 20 smoke tests. Confirmed: f_L peaks exactly at L_opt, f_V is exactly 1.0 "
                  "at isometric and 0.0 at v_max, eccentric force exceeds isometric and asymptotes "
                  "correctly to 1.5 x F_max, force is exactly linear in activation."))
+
+story.append(subsection("Step 6 — Muscle-driven env actuation, Phase 6 (commit ce2d617)"))
+story.append(bul("Routes <i>ArmTaskEnv.step</i> through the Hill-type muscle model added in Step 5. "
+                 "Exposed via a new constructor parameter <i>actuation_mode</i> with two values: "
+                 "<i>velocity</i> (the original behaviour, kept as default for backward compatibility) "
+                 "and <i>muscle</i> (the Fischer-style biomechanical actuation)."))
+story.append(bul("In muscle mode the action space is <b>[0, 1]<sup>2*num_dof</sup></b> (extensor and "
+                 "flexor activations per joint, antagonist-pair model). For each joint, both muscles' "
+                 "fibre velocity and length are mapped from the current joint state via the configurable "
+                 "<i>muscle_moment_arm</i> (default 5 cm per Murray, Buchanan, &amp; Delp 1995), the "
+                 "Hill-type force is computed for each muscle, the net torque is Euler-integrated "
+                 "against the joint inertia with damping, and the resulting velocity is clipped to the "
+                 "configured limits."))
+story.append(bul("Composes cleanly with every other feature: the adaptive curriculum scheduler still "
+                 "controls goal tolerance, the waypoint mode still routes the muscle-driven agent through "
+                 "an ordered point sequence, and the directional and EXPLICIT goal modes work unchanged."))
+story.append(bul("Surfaced in the training GUI as a new <i>Actuation:</i> dropdown alongside "
+                 "<i>Goal Mode</i> and <i>Goal Direction</i>; users can A/B-compare velocity-mode and "
+                 "muscle-mode training without writing Python."))
+story.append(bul("Verified by 14 muscle-mode smoke tests. Confirmed: default constructor preserves "
+                 "velocity-mode behaviour exactly (no regression in the 49-test pre-existing suite), "
+                 "muscle-mode action space is the expected (4,) in [0, 1], antagonist pairs are "
+                 "constructed per joint, extensor activation drives joint extension and flexor activation "
+                 "drives flexion (opposite signs), out-of-bounds actions are clipped, unknown "
+                 "actuation_mode strings fall back to velocity, and the muscle-mode env composes with "
+                 "waypoint mode."))
 story.append(PageBreak())
 
 # ─── 4. VERIFICATION ────────────────────────────────────────────────────────
@@ -263,13 +294,16 @@ story.append(para(
 story.append(SP(0.05))
 test_data = [
     ["Step", "Module", "Smoke tests"],
-    ["1", "ArmTaskEnv tolerance + SAC default",       "7"],
-    ["2", "Curriculum + motor babbling",              "12"],
-    ["3", "Fitts' Law harness",                       "14"],
-    ["4", "Two-thirds Power Law harness",             "13"],
-    ["5", "Hill-type muscle + 7-DOF preset",          "20"],
-    ["L", "Unified GUI launcher",                     "8"],
-    ["",  "TOTAL",                                    "74"],
+    ["1",  "ArmTaskEnv tolerance + SAC default",        "7"],
+    ["2",  "Curriculum + motor babbling",               "12"],
+    ["3",  "Fitts' Law harness",                        "14"],
+    ["4",  "Two-thirds Power Law harness",              "13"],
+    ["5",  "Hill-type muscle + 7-DOF preset",           "20"],
+    ["6",  "Muscle-driven actuation (Phase 6)",         "14"],
+    ["L",  "Unified GUI launcher",                      "8"],
+    ["W",  "Waypoint + click-to-pick training",         "22"],
+    ["P",  "Curriculum panel + Run Validators button",  "7"],
+    ["",   "TOTAL",                                     "117"],
 ]
 story.append(make_table(test_data, [0.5*inch, 3.5*inch, 1.0*inch], font_size=10))
 story.append(SP(0.05))
@@ -295,7 +329,11 @@ stats_data = [
     ["7431988", "Unified GUI launcher",                                 "291"],
     ["5c4b822", "README documentation update for the launcher",         "32"],
     ["5f37a26", "Step 5: Hill-type muscle dynamics + 7-DOF preset",     "474"],
-    ["",        "TOTAL across 17 file changes",                         "2,513"],
+    ["0600202", "Click-to-pick + waypoint training mode",               "487"],
+    ["cc2c1d7", "Curriculum panel + Run Validators button",             "212"],
+    ["ce2d617", "Phase 6: muscle-driven env actuation mode",            "339"],
+    ["8489c8d", "GUI exposure of the new actuation_mode parameter",     "32"],
+    ["",        "TOTAL across 22 file changes",                         "3,583"],
 ]
 story.append(make_table(stats_data, [0.7*inch, 4.2*inch, 1.0*inch], font_size=10))
 story.append(SP(0.05))
@@ -309,32 +347,35 @@ story.append(bul("<i>validation/fitts_law.py</i>         (Step 3)"))
 story.append(bul("<i>validation/power_law.py</i>         (Step 4)"))
 story.append(bul("<i>utils/muscle_model.py</i>           (Step 5)"))
 story.append(bul("<i>gui/__main__.py</i>                  (launcher)"))
+story.append(bul("<i>scripts/train_fischer_session.py</i> (Phase 6 / training-run automation)"))
 
 story.append(subsection("Modified modules"))
-story.append(bul("<i>environments/task_env.py</i>     (Steps 1, 3)"))
-story.append(bul("<i>gui/training_gui.py</i>          (Step 1)"))
+story.append(bul("<i>environments/task_env.py</i>     (Steps 1, 3; click-to-pick; Phase 6)"))
+story.append(bul("<i>gui/training_gui.py</i>          (Step 1; click-to-pick; Run Validators; Phase 6)"))
 story.append(bul("<i>models/agents/sac_agent.py</i>   (Steps 1, 2)"))
 story.append(bul("<i>training/ppo_trainer_wrapper.py</i> (Step 2)"))
 story.append(bul("<i>utils/arm_kinematics.py</i>      (Step 5)"))
 story.append(bul("<i>utils/__init__.py</i>            (Step 5)"))
 story.append(bul("<i>config/arm_config.py</i>         (Step 5)"))
-story.append(bul("<i>README.md</i>                     (launcher)"))
+story.append(bul("<i>README.md</i>                     (launcher; click-to-pick)"))
 story.append(PageBreak())
 
 # ─── 6. SCOPE: WHAT WAS NOT DONE ────────────────────────────────────────────
 story.append(section("6", "Out of Scope"))
 story.append(HR(0.6, BLACK, 10, 4))
 story.append(para(
-    "Three components require platform-specific work or large-scale refactoring and are explicitly "
-    "deferred. Each is described below with the reason."))
+    "Following the completion of Phase 6 (the muscle-driven actuation mode, commit ce2d617), three "
+    "components of the full Fischer 2021 setup remain out of scope. Each requires platform-specific "
+    "work or large-scale refactoring and is described below with the reason."))
 
-story.append(subsection("6.1  Wiring 7-DOF arm into the training environment"))
+story.append(subsection("6.1  Wiring the 7-DOF arm into the training environment"))
 story.append(para(
-    "The <i>7dof_fischer</i> preset is data only. <i>ArmTaskEnv</i> currently asserts <i>dof == 2</i> "
-    "and the observation space is 2-DOF-specific. Generalising requires re-deriving the observation "
-    "space, re-checking the reward function, and re-validating the harnesses for higher-dimensional "
-    "end-effector positions. Approximately one day of careful refactoring; deferred to keep the "
-    "current work additive and avoid breaking the existing 2-DOF tests."))
+    "The <i>7dof_fischer</i> preset added in Step 5 is data only. <i>ArmTaskEnv</i> currently asserts "
+    "<i>dof == 2</i> and the observation space is 2-DOF-specific. Generalising requires re-deriving "
+    "the observation space, re-checking the reward function, and re-validating the harnesses for "
+    "higher-dimensional end-effector positions. Approximately one day of careful refactoring; the "
+    "Phase 6 muscle wiring delivered the Fischer biomechanical actuation law on the 2-DOF arm, so the "
+    "RL methodology is fully expressed; the 7-DOF wiring would only change the arm geometry."))
 
 story.append(subsection("6.2  MuJoCo XML musculoskeletal model"))
 story.append(para(
