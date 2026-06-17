@@ -358,12 +358,29 @@ class ArmTaskEnv(gym.Env):
                 f"waypoint index {index} out of range for "
                 f"{0 if self.waypoints is None else len(self.waypoints)} waypoints"
             )
+        self._set_explicit_goal_state(self.waypoints[index])
 
-        pos = self.waypoints[index]
-        self.goal_position = pos.copy().astype(np.float32)
+    def _set_explicit_goal_state(self, position: np.ndarray) -> None:
+        """Update goal_position / goal_height / goal_axis / target_orientation.
+
+        Shared by ``set_goal_position`` (EXPLICIT mode) and ``_apply_waypoint``
+        (WAYPOINTS mode). Does NOT touch ``goal_direction`` — the caller
+        owns that, because the two modes mean different things downstream
+        (see _compute_goal_distance and the waypoint advancement block in
+        step()).
+
+        The position is copied so external mutation of the caller's array
+        cannot leak in. ``goal_axis`` is recomputed as the unit vector from
+        the shoulder base to the goal; if the goal coincides with the
+        shoulder it falls back to the +y axis to avoid divide-by-zero, and
+        ``target_orientation`` is computed from the resulting axis so the
+        orientation-error term in the reward remains well-defined.
+        """
+        pos = np.asarray(position, dtype=np.float32).reshape(-1)
+        self.goal_position = pos.copy()
         self.goal_height = float(pos[1])
 
-        delta = self.goal_position - self.shoulder_base_position
+        delta = pos - self.shoulder_base_position
         norm = float(np.linalg.norm(delta))
         if norm > 1e-9:
             self.goal_axis = (delta / norm).astype(np.float32)
@@ -415,23 +432,8 @@ class ArmTaskEnv(gym.Env):
                 f"goal position must have shape (2,), got shape {pos.shape}"
             )
 
-        self.goal_position = pos.copy()
-        self.goal_height = float(pos[1])
         self.goal_direction = "EXPLICIT"
-
-        # Recompute the goal axis as a unit vector from the shoulder base to
-        # the goal. If the goal coincides with the shoulder, fall back to the
-        # +y axis to avoid a divide-by-zero.
-        delta = pos - self.shoulder_base_position
-        norm = float(np.linalg.norm(delta))
-        if norm > 1e-9:
-            self.goal_axis = (delta / norm).astype(np.float32)
-        else:
-            self.goal_axis = np.array([0.0, 1.0], dtype=np.float32)
-
-        # Target orientation aligns with the goal direction so the orientation
-        # term of the reward remains compatible with EXPLICIT goals.
-        self.target_orientation = float(np.arctan2(self.goal_axis[1], self.goal_axis[0]))
+        self._set_explicit_goal_state(pos)
 
     @staticmethod
     def _angle_normalize(angle: float) -> float:
