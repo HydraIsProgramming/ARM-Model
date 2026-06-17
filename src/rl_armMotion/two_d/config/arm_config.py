@@ -3,7 +3,7 @@
 import json
 import numpy as np
 from dataclasses import dataclass, asdict, field
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 from pathlib import Path
 
 

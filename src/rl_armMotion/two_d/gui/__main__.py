@@ -31,7 +31,7 @@ import tkinter as tk
 from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, ttk
-from typing import List, Optional
+from typing import List
 
 
 # Default training-GUI parameters. Match the values shown in the project

@@ -255,9 +255,12 @@ class FittsLawResult:
         stds_v = stds[valid]
 
         # Use Figure() directly with FigureCanvasAgg so we never touch the
-        # pyplot global state. Safe to call from any thread.
+        # pyplot global state. Safe to call from any thread. The
+        # FigureCanvasAgg constructor binds itself to fig.canvas as a side
+        # effect, which is what fig.savefig() needs further down — we do not
+        # need to keep a separate reference.
         fig = Figure(figsize=(7, 5))
-        canvas = FigureCanvasAgg(fig)
+        FigureCanvasAgg(fig)
         ax = fig.add_subplot(111)
 
         ax.errorbar(

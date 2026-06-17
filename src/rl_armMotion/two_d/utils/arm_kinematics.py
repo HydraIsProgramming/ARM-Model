@@ -2,7 +2,7 @@
 
 import numpy as np
 import json
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple
 from pathlib import Path
 from dataclasses import dataclass
 from rl_armMotion.two_d.config import ArmConfiguration

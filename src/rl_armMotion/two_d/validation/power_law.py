@@ -215,8 +215,10 @@ class PowerLawResult:
         log_c = np.asarray(self.log_curvature, dtype=float)
         log_v = np.asarray(self.log_velocity, dtype=float)
 
+        # FigureCanvasAgg binds itself to fig.canvas as a side effect;
+        # we do not need to keep a separate reference.
         fig = Figure(figsize=(7, 5))
-        canvas = FigureCanvasAgg(fig)
+        FigureCanvasAgg(fig)
         ax = fig.add_subplot(111)
 
         ax.scatter(
