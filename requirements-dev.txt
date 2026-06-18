@@ -1,7 +1,23 @@
+# =============================================================================
+# RL Arm Motion — Development Dependencies
+# =============================================================================
+# Includes everything in requirements.txt plus tools the maintainer uses for
+# running tests, linting, and interactive exploration. End users (e.g. a
+# reviewer running the project for the first time) do not need this file —
+# they should use plain requirements.txt.
+#
+# Install:    pip install -r requirements-dev.txt
+# =============================================================================
+
 # Production dependencies
 -r requirements.txt
 
-# Development dependencies
+# --- Testing --------------------------------------------------------------
 pytest>=7.4.0
 pytest-cov>=4.1.0
+
+# --- Static analysis ------------------------------------------------------
+pyflakes>=3.0.0
+
+# --- Interactive exploration ----------------------------------------------
 ipython>=8.15.0
