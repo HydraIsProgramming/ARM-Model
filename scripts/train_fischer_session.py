@@ -62,6 +62,19 @@ def parse_args() -> argparse.Namespace:
         help="Goal direction for the training task (default: EAST).",
     )
     parser.add_argument(
+        "--actuation-mode",
+        type=str,
+        default="velocity",
+        choices=["velocity", "muscle"],
+        help=(
+            "Actuation mode for the training environment. velocity (default) "
+            "issues direct joint-velocity commands in [-1, 1] per joint; "
+            "muscle issues Hill-type antagonist-pair activations in [0, 1] "
+            "per joint, following the Fischer et al. (2021) biomechanical "
+            "actuation model."
+        ),
+    )
+    parser.add_argument(
         "--fitts-trials",
         type=int,
         default=10,
@@ -102,11 +115,15 @@ def main() -> int:
             f.write(line + "\n")
 
     log(f"Starting Fischer session: algorithm={args.algorithm}, "
-        f"timesteps={args.timesteps:,}, direction={args.goal_direction}")
+        f"timesteps={args.timesteps:,}, direction={args.goal_direction}, "
+        f"actuation={args.actuation_mode}")
     log(f"Save dir: {save_dir}")
 
     # --- TRAIN ---------------------------------------------------------
-    env = ArmTaskEnv(goal_direction=args.goal_direction)
+    env = ArmTaskEnv(
+        goal_direction=args.goal_direction,
+        actuation_mode=args.actuation_mode,
+    )
     trainer = RLTrainerWithMetrics(
         env=env,
         total_timesteps=args.timesteps,
@@ -132,7 +149,10 @@ def main() -> int:
 
     # --- VALIDATE: FITTS' LAW -----------------------------------------
     log(f"Running Fitts' Law sweep ({args.fitts_trials} trials per condition)...")
-    fl = FittsLawValidator(model=trainer.trainer.model, env=ArmTaskEnv())
+    fl = FittsLawValidator(
+        model=trainer.trainer.model,
+        env=ArmTaskEnv(actuation_mode=args.actuation_mode),
+    )
     t0 = time.time()
     fl_result = fl.run(
         n_trials_per_condition=args.fitts_trials,
@@ -154,7 +174,10 @@ def main() -> int:
 
     # --- VALIDATE: 2/3 POWER LAW --------------------------------------
     log(f"Running 2/3 Power Law sweep ({args.power_trials} trials)...")
-    pl = PowerLawValidator(model=trainer.trainer.model, env=ArmTaskEnv())
+    pl = PowerLawValidator(
+        model=trainer.trainer.model,
+        env=ArmTaskEnv(actuation_mode=args.actuation_mode),
+    )
     t0 = time.time()
     pl_result = pl.run(
         n_trials=args.power_trials,
