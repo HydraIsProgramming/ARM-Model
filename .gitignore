@@ -1,4 +1,37 @@
+# --- Virtual environments ---
 /venv
+
+# --- Legacy / experimental scripts kept out of the repo ---
 /weng_gait_env.py
 /weng_gait_trainer.py
 /compare_algorithms.py
+
+# --- Claude Code internal worktrees ---
+# Claude Code uses isolated git worktrees to make changes; these directories
+# are working-copy state, never source code. Ignoring them prevents the
+# "submodule has modified content" dialog in GitHub Desktop.
+.claude/worktrees/
+
+# --- Python / packaging ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# --- Operating system ---
+.DS_Store
+Thumbs.db
+
+# --- Editor / IDE ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- Pytest / coverage ---
+.pytest_cache/
+.coverage
+htmlcov/
