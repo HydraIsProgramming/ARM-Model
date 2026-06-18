@@ -1,0 +1,21 @@
+[2026-06-18T15:22:17] Starting Fischer session: algorithm=SAC, timesteps=200,000, direction=EAST, actuation=muscle
+[2026-06-18T15:22:17] Save dir: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/fischer_muscle_200k
+[2026-06-18T15:35:06] Training complete in 767.7s
+[2026-06-18T15:35:06] Episodes: 253
+[2026-06-18T15:35:06] Best reward: 26671.34
+[2026-06-18T15:35:06] Mean reward (100ep): 25342.25
+[2026-06-18T15:35:06] Final goal tolerance: 0.384
+[2026-06-18T15:35:06] Curriculum stage: 2
+[2026-06-18T15:35:06] Saved: {'model': '/Users/ranjotsandhu/Documents/Project/project_assets/outputs/fischer_muscle_200k/sac_model', 'history': '/Users/ranjotsandhu/Documents/Project/project_assets/outputs/fischer_muscle_200k/training_history.csv', 'stats': '/Users/ranjotsandhu/Documents/Project/project_assets/outputs/fischer_muscle_200k/training_stats.json'}
+[2026-06-18T15:35:06] Running Fitts' Law sweep (10 trials per condition)...
+[2026-06-18T15:35:18] Fitts sweep complete in 11.7s
+[2026-06-18T15:35:18] Fitts: MT = +0.0004 + +0.0448 * ID, R^2 = 0.5824 (n_conditions = 21, trials_per_condition = 10)
+[2026-06-18T15:35:18] Saved: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/fischer_muscle_200k/fitts_law.json
+[2026-06-18T15:35:18] Saved: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/fischer_muscle_200k/fitts_law.png
+[2026-06-18T15:35:18] Running 2/3 Power Law sweep (20 trials)...
+[2026-06-18T15:35:19] Power Law sweep complete in 0.8s
+[2026-06-18T15:35:19] Power Law: log V = -0.4622 + -0.3885 * log C, R = -0.4404, R^2 = 0.1939 (n_samples = 3583, n_trials = 0/20)
+[2026-06-18T15:35:19] Saved: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/fischer_muscle_200k/power_law.json
+[2026-06-18T15:35:19] Saved: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/fischer_muscle_200k/power_law.png
+[2026-06-18T15:35:19] Session complete. Total wall time: 0:13:01.448271
+[2026-06-18T15:35:19] ============================================================

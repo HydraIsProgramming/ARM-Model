@@ -181,6 +181,7 @@ A launcher window opens. Click **Start Training GUI** → set `Actuation:` to `m
 | Reward System Specification (11-page PDF) | [`docs/Reward_System_Report.pdf`](docs/Reward_System_Report.pdf) |
 | CP493 Progress Report (PDF) | [`docs/CP493_Progress_Report_Ranjot_Sandhu.pdf`](docs/CP493_Progress_Report_Ranjot_Sandhu.pdf) |
 | Annotated academic reference report (PDF) | [`docs/references/RL_ArmMotion_Physics_Reference_Report.pdf`](docs/references/RL_ArmMotion_Physics_Reference_Report.pdf) |
+| Empirical results from the 2026-06-18 muscle-mode training run | [`RESULTS.md`](RESULTS.md) |
 | Project handoff document | [`progress.md`](progress.md) |
 | Standalone install guide | [`INSTALL.md`](INSTALL.md) |
 
