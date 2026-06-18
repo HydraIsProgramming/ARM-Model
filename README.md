@@ -70,15 +70,119 @@ Train an RL policy that makes the arm:
 
 ## 3. Installation
 
-```bash
-# from project root
-python3 -m venv venv
-source venv/bin/activate
+The full install takes about 5–10 minutes on a fresh machine, mostly waiting for the PyTorch download. A standalone version of these instructions also lives in [`INSTALL.md`](INSTALL.md) for users who prefer a dedicated guide.
 
+### 3.1 Prerequisites
+
+| Requirement | Notes |
+|-------------|-------|
+| **Python 3.10 or newer** | Tested on Python 3.10. Versions 3.11 and 3.12 should also work. Pre-installed on macOS 12+ and most modern Linux distributions; on Windows, install from [python.org](https://www.python.org/downloads/). |
+| **`pip` and `venv`** | Ship with any standard Python install. |
+| **Tkinter** | Bundled with Python on Windows and macOS. **Linux users only** need to install it separately — see §3.2. |
+| **About 3 GB of disk space** | Mostly PyTorch and its dependencies. |
+| **Git** | To clone the repository. |
+
+### 3.2 Tkinter on Linux
+
+Tkinter powers the training GUI but is not pip-installable. On most Linux distributions it must be installed separately at the OS level:
+
+```bash
+# Ubuntu / Debian
+sudo apt install python3-tk
+
+# Fedora / RHEL
+sudo dnf install python3-tkinter
+
+# Arch
+sudo pacman -S tk
+```
+
+Windows and macOS users skip this step — Tkinter is included with the standard Python installers.
+
+### 3.3 Clone the repository
+
+```bash
+git clone <repo-url>      # replace <repo-url> with the actual GitHub URL
+cd Project                # or whatever directory contains README.md
+```
+
+### 3.4 Create a virtual environment
+
+A virtual environment keeps this project's dependencies isolated from your system Python.
+
+```bash
+# Create the environment
+python3 -m venv venv
+
+# Activate it (choose the line that matches your OS / shell)
+source venv/bin/activate          # macOS / Linux
+# venv\Scripts\activate.bat       # Windows cmd.exe
+# venv\Scripts\Activate.ps1       # Windows PowerShell
+```
+
+You should see `(venv)` appear at the start of your shell prompt — that means the environment is active.
+
+### 3.5 Install dependencies
+
+```bash
+# Upgrade pip to the latest version
 pip install --upgrade pip
+
+# Install third-party libraries (numpy, gymnasium, stable-baselines3, PyTorch,
+# matplotlib, reportlab, etc.). This is the longest step (~5 minutes plus
+# the PyTorch download).
 pip install -r requirements.txt
+
+# Register THIS project as a Python package so imports like
+# `from rl_armMotion.two_d.environments.task_env import ArmTaskEnv` resolve.
 pip install -e .
 ```
+
+If `pip install -r requirements.txt` fails on PyTorch, follow the platform-specific install command at <https://pytorch.org/get-started/locally/> first, then re-run `pip install -r requirements.txt`.
+
+### 3.6 Verify the install
+
+```bash
+# Confirm the package imports
+python -c "from rl_armMotion.two_d.environments.task_env import ArmTaskEnv; e = ArmTaskEnv(); print('OK:', e.action_space)"
+
+# Run the test suite
+pip install pytest      # or: pip install -r requirements-dev.txt
+pytest project_assets/tests -v
+```
+
+Expected output: **49 passed, 1 failed**. The single failing test (`test_joint_limits_enforced`) is a known pre-existing float32-vs-float64 unit-in-the-last-place precision issue in the test itself and does **not** indicate a problem with the install.
+
+### 3.7 Quick launch (recommended first run)
+
+```bash
+python -m rl_armMotion.two_d.gui
+```
+
+A launcher window opens. Click **Start Training GUI** → set `Actuation:` to `muscle` for Fischer-style smooth motion → click **Start Training**. See §4 for full launch options.
+
+### 3.8 Troubleshooting
+
+| Symptom | Cause and fix |
+|---------|---------------|
+| `ModuleNotFoundError: No module named 'rl_armMotion'` | The `pip install -e .` step in §3.5 was skipped or the venv isn't active. Re-activate the venv and run it. |
+| `ModuleNotFoundError: No module named 'tkinter'` (Linux) | Tkinter is not installed at the OS level. Run the relevant command from §3.2. |
+| `pip install` errors out on `torch` | PyTorch's standard wheels do not match your platform. Install PyTorch first via the platform-specific command at <https://pytorch.org/get-started/locally/>, then re-run `pip install -r requirements.txt`. |
+| Training crashes mid-run with no traceback | Check `project_assets/outputs/training_logs/` for a timestamped log file — the launcher automatically captures stdout and stderr from every spawned subprocess. |
+| `OMP: Error #179: Function Can't open SHM2 failed` (macOS) | The launcher already sets `OMP_NUM_THREADS=1` and related variables to prevent this. If you still see it, set those variables manually in your shell before invoking Python. |
+| Validators button crash on macOS | Pre-existing matplotlib threading bug fixed in commit `da8812e`. Make sure you are on the latest commit of the `claude/fischer-integration` branch. |
+
+### 3.9 Documents and deliverables shipped with the project
+
+| Document | Path |
+|----------|------|
+| Fischer Implementation Report (10-page PDF) | [`docs/Fischer_Implementation_Report.pdf`](docs/Fischer_Implementation_Report.pdf) |
+| Fischer Implementation Presentation (20-slide PPTX) | [`docs/Fischer_Implementation_Presentation.pptx`](docs/Fischer_Implementation_Presentation.pptx) |
+| Reward System Specification (11-page PDF) | [`docs/Reward_System_Report.pdf`](docs/Reward_System_Report.pdf) |
+| CP493 Progress Report (PDF) | [`docs/CP493_Progress_Report_Ranjot_Sandhu.pdf`](docs/CP493_Progress_Report_Ranjot_Sandhu.pdf) |
+| Annotated academic reference report (PDF) | [`docs/references/RL_ArmMotion_Physics_Reference_Report.pdf`](docs/references/RL_ArmMotion_Physics_Reference_Report.pdf) |
+| Project handoff document | [`progress.md`](progress.md) |
+| Standalone install guide | [`INSTALL.md`](INSTALL.md) |
 
 ## 4. How To Run
 
