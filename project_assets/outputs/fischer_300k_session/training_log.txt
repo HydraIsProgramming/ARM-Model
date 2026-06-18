@@ -1,0 +1,4 @@
+[2026-05-27T10:55:27] Starting Fischer session: algorithm=SAC, timesteps=300,000, direction=EAST
+[2026-05-27T10:55:27] Save dir: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/fischer_300k_session
+[2026-05-27T11:16:39] Starting Fischer session: algorithm=SAC, timesteps=300,000, direction=EAST
+[2026-05-27T11:16:39] Save dir: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/fischer_300k_session

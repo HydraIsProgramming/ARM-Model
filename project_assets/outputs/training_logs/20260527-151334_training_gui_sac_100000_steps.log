@@ -1,0 +1,4 @@
+/Users/ranjotsandhu/Documents/Project/src/rl_armMotion/two_d/validation/fitts_law.py:245: UserWarning: Starting a Matplotlib GUI outside of the main thread will likely fail.
+  fig, ax = plt.subplots(figsize=(7, 5))
+/Users/ranjotsandhu/Documents/Project/src/rl_armMotion/two_d/validation/power_law.py:210: UserWarning: Starting a Matplotlib GUI outside of the main thread will likely fail.
+  fig, ax = plt.subplots(figsize=(7, 5))

@@ -36,6 +36,13 @@
       "runtimeExecutable": "python",
       "runtimeArgs": ["-m", "rl_armMotion.three_d.gui.training_gui"],
       "port": 0
+    },
+    {
+      "name": "eileens-toffee",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "5181"],
+      "port": 5181,
+      "cwd": "../Eileens-English-Toffee"
     }
   ]
 }
