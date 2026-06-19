@@ -1,0 +1,43 @@
+{
+  "timestamp": "2026-06-18T19:30:58",
+  "model": "./project_assets/outputs/fischer_muscle_500k/sac_model.zip",
+  "actuation_mode": "muscle",
+  "goal_direction": "EAST",
+  "n_episodes": 30,
+  "max_steps": 1000,
+  "dt": 0.01,
+  "trained_policy": {
+    "task_metrics": {
+      "n_episodes": 30,
+      "success_rate": 0.0,
+      "n_reached": 0,
+      "mean_final_distance": 0.46970222588599825,
+      "median_final_distance": 0.46970222588599836,
+      "min_final_distance": 0.46970222588599836,
+      "mean_episode_length": 1000.0
+    },
+    "smoothness_metrics": {
+      "mean_rms_jerk": 366.2713822552209,
+      "median_rms_jerk": 366.27138225522083,
+      "mean_log_dimensionless_jerk": -22.3319279175904,
+      "n_valid": 30
+    }
+  },
+  "random_baseline": {
+    "task_metrics": {
+      "n_episodes": 30,
+      "success_rate": 0.0,
+      "n_reached": 0,
+      "mean_final_distance": 2.449632997456742,
+      "median_final_distance": 2.4983059490487136,
+      "min_final_distance": 0.8843864831749274,
+      "mean_episode_length": 1000.0
+    },
+    "smoothness_metrics": {
+      "mean_rms_jerk": 1126.55627377213,
+      "median_rms_jerk": 1140.091522285623,
+      "mean_log_dimensionless_jerk": -24.86061803705327,
+      "n_valid": 30
+    }
+  }
+}
