@@ -1,12 +1,76 @@
-"""Task-specific environment for 2-DOF robotic arm with workspace setup.
+"""Task-specific environment for the 2-DOF robotic arm reinforcement learning project.
 
-This environment defines a task where:
-- Shoulder joint is fixed at position [1.0, 0] meters from workspace origin
-- Initial configuration: Arm pointing vertically downward (shoulder -90°, elbow 0°)
-- Goal configuration can be:
-  - legacy height goal (reach shoulder height + orientation hold)
-  - directional far-point goal (EAST, WEST, NORTH)
-- Workspace: 2D plane with origin at [0, 0] and shoulder base at [1.0, 0]
+This module is the heart of the project — it defines the Gymnasium-compatible
+environment in which the RL policy is trained and evaluated. Every training
+run, every validator harness, and every GUI simulation steps through this env.
+
+Physical setup
+--------------
+- Shoulder joint is fixed at workspace coordinates [1.0, 0] meters
+- Two links: upper arm (1.0 m) + forearm (0.8 m), max reach 1.8 m from shoulder
+- Initial pose: arm hangs straight down (shoulder = -90 deg, elbow = 0 deg)
+- Workspace is the 2-D plane; the origin is at [0, 0]
+
+Goal modes (the agent's task)
+-----------------------------
+The env supports several mutually exclusive goal modes, selected via
+`goal_direction` or via calls to `set_goal_position` / `set_waypoints`:
+
+  - "HEIGHT"      legacy: hold the end-effector at the shoulder height line
+  - "EAST"        reach the rightmost edge of the workspace and hold
+  - "WEST"        reach the leftmost edge
+  - "NORTH"       reach straight up
+  - "EXPLICIT"    user supplied an arbitrary (x, y) goal via set_goal_position
+                  (used by the Fitts' Law validator to place targets at any
+                  point in the workspace)
+  - "WAYPOINTS"   user supplied an ordered list of (x, y) waypoints via
+                  set_waypoints; intermediate waypoints advance on touch,
+                  the final waypoint requires the full hold criterion
+
+Actuation modes (how the policy's actions are interpreted)
+----------------------------------------------------------
+Two actuation modes, selected via the `actuation_mode` constructor parameter:
+
+  - "velocity" (default, legacy)
+      action[j] in [-1, 1] is interpreted as a normalised joint-velocity
+      command. Step physics: angle <- angle + action * velocity_limit * dt
+      followed by joint-limit clipping. Simple kinematic Euler.
+
+  - "muscle"   (Phase 6 of the Fischer 2021 integration)
+      action[2j], action[2j+1] in [0, 1] are interpreted as the (extensor,
+      flexor) activations of an antagonist muscle pair at joint j. Step
+      physics: Hill-type force per muscle -> net torque via configurable
+      moment arm -> Euler integration against joint inertia with damping.
+      Smoothness emerges from the muscle force-velocity curve, not from
+      reward shaping. This is the actuation model Fischer et al. (2021)
+      used in their MuJoCo musculoskeletal arm.
+
+Observation space (11-dim, both actuation modes)
+------------------------------------------------
+[sin(theta_0), cos(theta_0),     joint 0 angle as unit-circle coords (continuous)
+ sin(theta_1), cos(theta_1),     joint 1 angle as unit-circle coords
+ vel_0_norm, vel_1_norm,         joint velocities normalised to velocity_limits
+ signed_goal_error,              signed scalar error along goal axis (metres)
+ signed_orientation_error,       signed end-effector orientation error (rad)
+ gradient_norm,                  rate-of-change of total error in [0, 1]
+ in_goal_region_flag,            1 if currently in goal region, else 0
+ hold_progress]                  fraction of required hold steps completed
+
+Reward (computed in step(), see commentary inline)
+--------------------------------------------------
+A 10-term shaped reward: five continuous penalties (distance, orientation,
+velocity-norm, gradient-norm, action-norm) + four shaping bonuses (progress,
+proximity ramp, in-goal constant, hold-growth) + a +150 terminal bonus on
+successful hold completion. See docs/Reward_System_Report.pdf for the
+complete formulation and rationale.
+
+Fischer 2021 integration
+------------------------
+The full Fischer 2021 RL methodology is implemented around this env:
+SAC with the curriculum callback (see training/curriculum_callback.py)
+adjusts the goal tolerance during training via set_goal_tolerance();
+the Fitts' Law and 2/3 Power Law harnesses (see validation/) evaluate
+trained policies against the canonical biological motion benchmarks.
 """
 
 from typing import Any, Dict, List, Optional, Tuple
@@ -706,27 +770,53 @@ class ArmTaskEnv(gym.Env):
         progress = self.previous_total_error - total_error
         self.previous_total_error = total_error
 
-        # Reward shaping for fast learning and stable hold behavior.
+        # ------------------------------------------------------------------
+        # REWARD COMPUTATION
+        # ------------------------------------------------------------------
+        # The reward is a 10-term shaped reward designed to give SAC a strong
+        # learning gradient on this goal-reaching task. The five continuous
+        # penalty terms below are paid every step; the four shaping bonuses
+        # that follow only fire under specific conditions; the terminal +150
+        # bonus fires once on successful hold completion (further down).
+        #
+        # The full theoretical breakdown of every term is in
+        # docs/Reward_System_Report.pdf; the labels P1..P5 / B1..B4 below
+        # match the labels used in that document.
+        # ------------------------------------------------------------------
         reward = (
-            -2.0 * goal_distance
-            -1.0 * orientation_error
-            -0.15 * velocity_norm
-            -0.20 * gradient_norm
-            -0.01 * float(np.linalg.norm(action))
+            -2.0  * goal_distance                       # P1 distance penalty (primary signal)
+            -1.0  * orientation_error                   # P2 orientation-error penalty
+            -0.15 * velocity_norm                       # P3 velocity-norm penalty (smoothness)
+            -0.20 * gradient_norm                       # P4 error-gradient penalty (anti-overshoot)
+            -0.01 * float(np.linalg.norm(action))       # P5 action-norm penalty (small effort cost)
         )
 
+        # B1 — Progress bonus. Standard potential-based reward shaping (Ng,
+        # Harada & Russell, 1999): rewarding step-to-step improvement leaves
+        # the optimal policy invariant but accelerates convergence.
         if progress > 0:
             reward += 1.5 * progress
 
-        # Proximity bonus: ramps up as arm enters 3x tolerance radius, peaks inside goal region.
+        # B2 — Proximity bonus. Smoothly ramps up as the arm enters a three-
+        # times-tolerance radius around the goal. Makes the reward landscape
+        # locally convex near the goal so the policy can find the last few
+        # centimetres of approach without depending on a stochastic visit to
+        # the sparse success region.
         proximity_threshold = 3.0 * self.height_tolerance
         if goal_distance < proximity_threshold:
             proximity_bonus = 4.0 * (1.0 - goal_distance / proximity_threshold)
             reward += proximity_bonus
 
+        # B3 + B4 — In-goal constant and hold-growth bonuses. These fire
+        # together every step the arm satisfies the full in-goal criterion
+        # (position + orientation + velocity all within tolerance). The
+        # constant B3 pulls the policy to stay in the goal region; the
+        # linearly-growing B4 makes it strictly better to remain than to
+        # leave and re-enter, encouraging the policy to settle and hold
+        # rather than dither at the boundary.
         if in_goal_region:
-            reward += 10.0                              # strong constant pull to stay in goal
-            reward += 2.0 * float(self.hold_counter)   # growing bonus for consecutive hold steps
+            reward += 10.0                              # B3 in-goal constant
+            reward += 2.0 * float(self.hold_counter)    # B4 hold-growth bonus
 
         # --- Waypoint sequence handling ---
         # In waypoint mode, intermediate waypoints use a touch-and-go criterion:
@@ -775,6 +865,11 @@ class ArmTaskEnv(gym.Env):
         else:
             terminated = self.hold_counter >= self.hold_steps_required
 
+        # Terminal +150 success bonus. Large relative to the per-step
+        # penalties (which rarely exceed about |-5| at peak goal distance),
+        # so successful hold completion is the dominant trajectory-level
+        # signal. Fires exactly once per episode, on the step that triggers
+        # termination.
         if terminated:
             reward += 150.0
 

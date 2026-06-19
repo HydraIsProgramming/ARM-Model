@@ -65,20 +65,41 @@ def parse_args() -> argparse.Namespace:
 def jerk_metrics(positions: np.ndarray, dt: float) -> dict:
     """Compute jerk metrics from a position trajectory.
 
-    Jerk = time derivative of acceleration. For human-like motion, jerk
-    should be small and continuous. We report:
-      - rms_jerk: root-mean-square jerk magnitude over the trajectory
-      - peak_jerk: maximum jerk magnitude
-      - log_dimensionless_jerk: a unit-free smoothness measure used in
-        biomechanics (Hogan & Sternad, 2009). More negative = smoother.
-        Formula: -log(integral of |jerk|^2 dt times T^5 / vpeak^2).
+    Jerk is the third time derivative of position (the rate of change of
+    acceleration). For biological reaching motions, jerk should be small
+    in magnitude and continuous in time — humans do not flick their hands
+    suddenly. We report three metrics:
+
+      rms_jerk
+          Root-mean-square jerk magnitude over the trajectory, in m/s^3.
+          Intuitive units; lower means smoother.
+
+      peak_jerk
+          Maximum instantaneous jerk magnitude in the trajectory.
+          Helpful for spotting transient discontinuities.
+
+      log_dimensionless_jerk
+          The unit-free smoothness measure of Hogan and Sternad (2009),
+          widely used in biomechanics. Higher (less negative) values mean
+          smoother motion. Formula (our sign convention):
+              LDJ = -log( integral(|jerk|^2 dt) * T^5 / vpeak^2 )
+          where T is the trajectory duration and vpeak is the peak
+          tangential speed. The normalisation by T^5 / vpeak^2 makes the
+          metric invariant to the trajectory's duration and amplitude,
+          so two reaches of different distances are still comparable.
+
+    Derivatives are computed by np.gradient (centred differences in the
+    interior, forward / backward at the boundaries). For very short
+    trajectories (< 5 samples) we return NaNs rather than risk numerical
+    nonsense.
     """
     if positions.shape[0] < 5:
         return {"rms_jerk": float("nan"), "peak_jerk": float("nan"),
                 "log_dimensionless_jerk": float("nan")}
     x = positions[:, 0]
     y = positions[:, 1]
-    # Use np.gradient for stable derivatives at boundaries
+    # Three successive numerical derivatives: position -> velocity ->
+    # acceleration -> jerk. np.gradient handles the boundaries cleanly.
     vx = np.gradient(x, dt)
     vy = np.gradient(y, dt)
     ax = np.gradient(vx, dt)

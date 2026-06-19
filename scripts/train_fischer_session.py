@@ -109,8 +109,33 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    """End-to-end Fischer 2021 training session.
+
+    Order of operations:
+      1. Parse CLI flags (algorithm, timestep budget, actuation mode,
+         goal direction or explicit waypoints, validator parameters,
+         save directory).
+      2. Construct the Gymnasium environment with the requested
+         actuation and goal mode.
+      3. Wrap the env in the RLTrainerWithMetrics, which auto-attaches
+         the AdaptiveCurriculumCallback for SAC (so motor babbling +
+         curriculum decay both happen during training without any
+         further setup).
+      4. Train.
+      5. Save the trained model, training history CSV, and stats JSON.
+      6. Run the Fitts' Law validator against the trained policy.
+      7. Run the 2/3 Power Law validator against the trained policy.
+      8. Save JSON + PNG outputs for both validators.
+      9. Log the regression summary lines so the saved training_log.txt
+         is self-documenting.
+
+    All output paths are absolute and reported in the log so the run is
+    fully reproducible.
+    """
     args = parse_args()
 
+    # Local imports so a quick --help does not require torch / SB3 to be on
+    # the path (useful when triaging a misconfigured environment).
     from rl_armMotion.two_d.environments.task_env import ArmTaskEnv
     from rl_armMotion.two_d.training.ppo_trainer_wrapper import RLTrainerWithMetrics
     from rl_armMotion.two_d.validation import FittsLawValidator, PowerLawValidator
@@ -122,6 +147,13 @@ def main() -> int:
     log_path = save_dir / "training_log.txt"
 
     def log(msg: str) -> None:
+        """Append a timestamped line to both stdout and the training log file.
+
+        Using both makes the script equally usable interactively (you see the
+        log scroll on stdout) and as a background task (the log file persists
+        if the process is detached, and is the only artefact if the parent
+        terminal goes away).
+        """
         line = f"[{datetime.now().isoformat(timespec='seconds')}] {msg}"
         print(line, flush=True)
         with log_path.open("a") as f:
@@ -150,19 +182,34 @@ def main() -> int:
     log(f"Save dir: {save_dir}")
 
     # --- TRAIN ---------------------------------------------------------
+    # The env is the central object — both the trainer and the validators
+    # need a copy of it. We construct it once here with the requested
+    # actuation mode (velocity or muscle) and goal mode (direction-based
+    # via goal_direction, or arbitrary waypoint sequence via set_waypoints).
     env = ArmTaskEnv(
         goal_direction=args.goal_direction,
         actuation_mode=args.actuation_mode,
     )
     if waypoints is not None:
+        # Override the directional goal with a sequence of explicit waypoints.
+        # The agent must visit them in order; intermediate waypoints advance
+        # on touch, the final waypoint requires the full hold criterion.
         env.set_waypoints(waypoints)
         log(f"Waypoint mode active: {len(waypoints)} waypoints, "
             f"current_waypoint_index=0 at every episode reset")
+
+    # RLTrainerWithMetrics wraps Stable-Baselines3 with two things:
+    #   1. A live metrics stream usable by the training GUI (we ignore it
+    #      here because we are headless, but it is also the same data
+    #      that ends up in the saved training_history.csv).
+    #   2. Auto-attach of the AdaptiveCurriculumCallback when the algorithm
+    #      is SAC — which is the default. The callback shrinks the goal
+    #      tolerance during training following Fischer's protocol; see
+    #      curriculum_callback.py for details.
     trainer = RLTrainerWithMetrics(
         env=env,
         total_timesteps=args.timesteps,
         algorithm=args.algorithm,
-        # default: curriculum auto-enabled for SAC, motor babbling via SAC defaults
     )
 
     t0 = time.time()

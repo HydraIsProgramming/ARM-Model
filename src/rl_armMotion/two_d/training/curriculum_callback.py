@@ -164,23 +164,52 @@ class AdaptiveCurriculumCallback(BaseCallback):
     # Internal logic
     # ------------------------------------------------------------------ #
     def _maybe_advance_curriculum(self) -> None:
-        """Shrink tolerance if the recent success rate exceeds the threshold."""
+        """Shrink tolerance if the recent success rate exceeds the threshold.
+
+        This method implements the central decision rule of the Fischer 2021
+        adaptive curriculum. It is called once per environment step and
+        decides whether to leave the current goal tolerance in place or
+        decay it. Four preconditions must all hold before a decay fires:
+
+          1. The rolling window has filled up (we need ``window_size``
+             completed episodes before the success-rate estimate is
+             statistically meaningful).
+          2. The cooldown since the last decay has elapsed (prevents two
+             back-to-back decays on the same successful window — would let
+             the curriculum oscillate).
+          3. The current tolerance is still above the precision floor (no
+             point decaying once we've reached the target).
+          4. The rolling success rate equals or exceeds the threshold
+             (Fischer's 80% — the empirical signal that the agent has
+             mastered the current stage).
+
+        When all four hold, the tolerance is multiplied by the decay factor
+        (clamped to the minimum), the env's set_goal_tolerance is called so
+        the next episode's goal-region check uses the new value, the stage
+        counter increments, and the cooldown resets.
+        """
+        # Precondition 1: enough data to estimate the success rate.
         if len(self._episode_results) < self.window_size:
             return
+        # Precondition 2: cooldown between consecutive decays.
         if self._episodes_since_last_decay < self.min_episodes_before_decay:
             return
+        # Precondition 3: already at the precision floor.
         if self.current_tolerance <= self.min_tolerance:
             return
 
+        # Precondition 4: the agent is succeeding often enough.
         success_rate = sum(self._episode_results) / float(len(self._episode_results))
         if success_rate < self.success_rate_threshold:
             return
 
+        # All four preconditions hold — apply one decay step.
         new_tolerance = max(
             self.current_tolerance * self.decay_factor,
             self.min_tolerance,
         )
         if new_tolerance >= self.current_tolerance:
+            # Guard against zero-effect decays (e.g., if decay_factor == 1.0).
             return
 
         self.current_tolerance = float(new_tolerance)
