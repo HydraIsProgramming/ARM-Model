@@ -1007,11 +1007,36 @@ class ArmControllerGUI:
 
             if self.sim_env is not None:
                 self.sim_env.close()
-            self.sim_env = ArmTaskEnv()
 
-            trainer = RLTrainer(env=self.sim_env, algorithm=self.sim_algorithm)
-            trainer.load(self.sim_model_path)
-            self.sim_model = trainer.model
+            # Detect actuation mode from the trained model's action space so
+            # the simulation env matches what the policy was trained against.
+            # A muscle-mode SAC model has action_space Box(0, 1, (4,)) — four
+            # extensor + flexor activations per joint. A velocity-mode model
+            # has action_space Box(-1, 1, (2,)) — two normalised joint
+            # velocity commands. Without this auto-detect, loading a muscle-
+            # mode model into a default velocity-mode env throws
+            # "Action spaces do not match" from Stable-Baselines3.
+            from stable_baselines3 import SAC, PPO, A2C
+            alg_class_map = {"SAC": SAC, "PPO": PPO, "A2C": A2C}
+            alg_class = alg_class_map.get(self.sim_algorithm, SAC)
+            inspect_model = alg_class.load(self.sim_model_path)
+            ac_shape = inspect_model.action_space.shape
+            ac_low_min = float(inspect_model.action_space.low.min())
+            if ac_shape == (4,) and ac_low_min == 0.0:
+                detected_actuation = "muscle"
+            elif ac_shape == (2,) and ac_low_min == -1.0:
+                detected_actuation = "velocity"
+            else:
+                raise ValueError(
+                    f"Cannot determine actuation mode from model action space "
+                    f"{inspect_model.action_space}. Expected Box(0,1,(4,)) for "
+                    f"muscle mode or Box(-1,1,(2,)) for velocity mode."
+                )
+
+            self.sim_env = ArmTaskEnv(actuation_mode=detected_actuation)
+            inspect_model.set_env(self.sim_env)
+            self.sim_model = inspect_model
+            print(f"✓ Detected {detected_actuation}-mode model, env constructed to match")
 
             self.sim_obs, _ = self.sim_env.reset()
             state_info = self.sim_env.get_state_info()
