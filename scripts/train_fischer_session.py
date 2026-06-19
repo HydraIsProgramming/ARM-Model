@@ -75,6 +75,19 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--waypoints",
+        type=str,
+        default=None,
+        help=(
+            'Optional waypoint sequence as "x1,y1;x2,y2;x3,y3". If supplied, '
+            'overrides --goal-direction and trains in waypoint mode. The '
+            'agent must visit the waypoints in order; intermediate waypoints '
+            'advance on touch (position within tolerance), the final '
+            'waypoint requires the full hold criterion. Example: '
+            '"2.0,-0.5;1.5,0.8;2.4,0.3" trains a reach-pull-place sequence.'
+        ),
+    )
+    parser.add_argument(
         "--fitts-trials",
         type=int,
         default=10,
@@ -114,9 +127,26 @@ def main() -> int:
         with log_path.open("a") as f:
             f.write(line + "\n")
 
+    # Parse waypoints (if any) before logging so the log records them.
+    waypoints = None
+    if args.waypoints:
+        try:
+            waypoints = [
+                [float(x) for x in pair.split(",")]
+                for pair in args.waypoints.split(";")
+            ]
+            assert all(len(wp) == 2 for wp in waypoints), "each waypoint must have x,y"
+            assert len(waypoints) >= 1, "need at least one waypoint"
+        except Exception as exc:
+            raise ValueError(
+                f"could not parse --waypoints {args.waypoints!r}: {exc}. "
+                f"Expected format: 'x1,y1;x2,y2;x3,y3'"
+            ) from exc
+
     log(f"Starting Fischer session: algorithm={args.algorithm}, "
         f"timesteps={args.timesteps:,}, direction={args.goal_direction}, "
-        f"actuation={args.actuation_mode}")
+        f"actuation={args.actuation_mode}"
+        + (f", waypoints={waypoints}" if waypoints else ""))
     log(f"Save dir: {save_dir}")
 
     # --- TRAIN ---------------------------------------------------------
@@ -124,6 +154,10 @@ def main() -> int:
         goal_direction=args.goal_direction,
         actuation_mode=args.actuation_mode,
     )
+    if waypoints is not None:
+        env.set_waypoints(waypoints)
+        log(f"Waypoint mode active: {len(waypoints)} waypoints, "
+            f"current_waypoint_index=0 at every episode reset")
     trainer = RLTrainerWithMetrics(
         env=env,
         total_timesteps=args.timesteps,
