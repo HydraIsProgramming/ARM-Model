@@ -15,7 +15,33 @@ from rl_armMotion.two_d.training.curriculum_callback import AdaptiveCurriculumCa
 
 
 class RLTrainerWithMetrics:
-    """Wrapper around RLTrainer that streams metrics for GUI visualization."""
+    """Wrapper around RLTrainer that streams metrics for GUI visualisation
+    and auto-attaches the Fischer 2021 adaptive curriculum when training
+    with SAC.
+
+    This class is the bridge between the bare Stable-Baselines3 trainer
+    and the rest of the Fischer integration. Two responsibilities:
+
+    1. Metrics pipeline. During training, an internal SB3 callback
+       (TrainingGUICallback, defined further down in this file) inspects
+       each rollout, extracts per-episode reward / loss / entropy /
+       distance-to-goal / curriculum stage, and pushes the snapshot
+       through the optional metrics_queue or metrics_callback so the
+       training GUI can refresh its live plots. Headless callers (such
+       as the train_fischer_session.py script) leave both queue and
+       callback unset and the metrics simply accumulate in memory for
+       the final training_history.csv export.
+
+    2. Curriculum auto-attach. If the algorithm is SAC and the caller
+       does not explicitly disable it, this wrapper attaches an
+       AdaptiveCurriculumCallback (from training/curriculum_callback.py)
+       alongside the metrics callback. The curriculum starts the goal
+       tolerance at 0.60 m and shrinks it multiplicatively each time the
+       rolling 50-episode success rate exceeds 80 %, following the
+       Fischer protocol. Callers wanting to opt out pass
+       use_curriculum=False; callers wanting to tune the curriculum
+       defaults pass curriculum_kwargs={'initial_tolerance': ..., ...}.
+    """
 
     SUPPORTED_ALGORITHMS = ("PPO", "SAC", "A2C")
 
