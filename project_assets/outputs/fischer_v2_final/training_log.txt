@@ -1,0 +1,22 @@
+[2026-06-21T10:05:19] Starting Fischer session: algorithm=SAC, timesteps=500,000, direction=EAST, actuation=muscle, waypoints=[[2.3, -1.0], [1.0, 1.5], [2.5, 0.0]]
+[2026-06-21T10:05:19] Save dir: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/fischer_v2_final
+[2026-06-21T10:05:19] Waypoint mode active: 3 waypoints, current_waypoint_index=0 at every episode reset
+[2026-06-21T11:04:27] Training complete in 3547.2s
+[2026-06-21T11:04:27] Episodes: 500
+[2026-06-21T11:04:27] Best reward: 1202.27
+[2026-06-21T11:04:27] Mean reward (100ep): 729.62
+[2026-06-21T11:04:27] Final goal tolerance: 0.6
+[2026-06-21T11:04:27] Curriculum stage: 0
+[2026-06-21T11:04:27] Saved: {'model': '/Users/ranjotsandhu/Documents/Project/project_assets/outputs/fischer_v2_final/sac_model', 'history': '/Users/ranjotsandhu/Documents/Project/project_assets/outputs/fischer_v2_final/training_history.csv', 'stats': '/Users/ranjotsandhu/Documents/Project/project_assets/outputs/fischer_v2_final/training_stats.json'}
+[2026-06-21T11:04:27] Running Fitts' Law sweep (10 trials per condition)...
+[2026-06-21T11:04:39] Fitts sweep complete in 12.0s
+[2026-06-21T11:04:39] Fitts: MT = -0.0458 + +0.0903 * ID, R^2 = 0.3228 (n_conditions = 16, trials_per_condition = 10)
+[2026-06-21T11:04:39] Saved: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/fischer_v2_final/fitts_law.json
+[2026-06-21T11:04:39] Saved: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/fischer_v2_final/fitts_law.png
+[2026-06-21T11:04:39] Running 2/3 Power Law sweep (20 trials)...
+[2026-06-21T11:04:40] Power Law sweep complete in 0.8s
+[2026-06-21T11:04:40] Power Law: log V = -0.0963 + -0.7264 * log C, R = -0.7792, R^2 = 0.6072 (n_samples = 3517, n_trials = 0/20)
+[2026-06-21T11:04:40] Saved: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/fischer_v2_final/power_law.json
+[2026-06-21T11:04:40] Saved: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/fischer_v2_final/power_law.png
+[2026-06-21T11:04:40] Session complete. Total wall time: 0:59:21.115402
+[2026-06-21T11:04:40] ============================================================
