@@ -1,0 +1,3547 @@
+{
+  "conditions": [
+    {
+      "distance": 0.2,
+      "width": 0.02,
+      "index_of_difficulty": 4.321928094887363
+    },
+    {
+      "distance": 0.2,
+      "width": 0.04,
+      "index_of_difficulty": 3.321928094887362
+    },
+    {
+      "distance": 0.2,
+      "width": 0.08,
+      "index_of_difficulty": 2.321928094887362
+    },
+    {
+      "distance": 0.2,
+      "width": 0.12,
+      "index_of_difficulty": 1.7369655941662063
+    },
+    {
+      "distance": 0.2,
+      "width": 0.2,
+      "index_of_difficulty": 1.0
+    },
+    {
+      "distance": 0.2,
+      "width": 0.3,
+      "index_of_difficulty": 0.415037499278844
+    },
+    {
+      "distance": 0.4,
+      "width": 0.02,
+      "index_of_difficulty": 5.321928094887363
+    },
+    {
+      "distance": 0.4,
+      "width": 0.04,
+      "index_of_difficulty": 4.321928094887363
+    },
+    {
+      "distance": 0.4,
+      "width": 0.08,
+      "index_of_difficulty": 3.321928094887362
+    },
+    {
+      "distance": 0.4,
+      "width": 0.12,
+      "index_of_difficulty": 2.736965594166206
+    },
+    {
+      "distance": 0.4,
+      "width": 0.2,
+      "index_of_difficulty": 2.0
+    },
+    {
+      "distance": 0.4,
+      "width": 0.3,
+      "index_of_difficulty": 1.415037499278844
+    },
+    {
+      "distance": 0.6,
+      "width": 0.02,
+      "index_of_difficulty": 5.906890595608519
+    },
+    {
+      "distance": 0.6,
+      "width": 0.04,
+      "index_of_difficulty": 4.906890595608519
+    },
+    {
+      "distance": 0.6,
+      "width": 0.08,
+      "index_of_difficulty": 3.9068905956085187
+    },
+    {
+      "distance": 0.6,
+      "width": 0.12,
+      "index_of_difficulty": 3.321928094887362
+    },
+    {
+      "distance": 0.6,
+      "width": 0.2,
+      "index_of_difficulty": 2.584962500721156
+    },
+    {
+      "distance": 0.6,
+      "width": 0.3,
+      "index_of_difficulty": 2.0
+    },
+    {
+      "distance": 0.8,
+      "width": 0.02,
+      "index_of_difficulty": 6.321928094887363
+    },
+    {
+      "distance": 0.8,
+      "width": 0.04,
+      "index_of_difficulty": 5.321928094887363
+    },
+    {
+      "distance": 0.8,
+      "width": 0.08,
+      "index_of_difficulty": 4.321928094887363
+    },
+    {
+      "distance": 0.8,
+      "width": 0.12,
+      "index_of_difficulty": 3.736965594166206
+    },
+    {
+      "distance": 0.8,
+      "width": 0.2,
+      "index_of_difficulty": 3.0
+    },
+    {
+      "distance": 0.8,
+      "width": 0.3,
+      "index_of_difficulty": 2.415037499278844
+    },
+    {
+      "distance": 1.0,
+      "width": 0.02,
+      "index_of_difficulty": 6.643856189774724
+    },
+    {
+      "distance": 1.0,
+      "width": 0.04,
+      "index_of_difficulty": 5.643856189774724
+    },
+    {
+      "distance": 1.0,
+      "width": 0.08,
+      "index_of_difficulty": 4.643856189774724
+    },
+    {
+      "distance": 1.0,
+      "width": 0.12,
+      "index_of_difficulty": 4.058893689053568
+    },
+    {
+      "distance": 1.0,
+      "width": 0.2,
+      "index_of_difficulty": 3.321928094887362
+    },
+    {
+      "distance": 1.0,
+      "width": 0.3,
+      "index_of_difficulty": 2.736965594166206
+    },
+    {
+      "distance": 1.2,
+      "width": 0.02,
+      "index_of_difficulty": 6.906890595608519
+    },
+    {
+      "distance": 1.2,
+      "width": 0.04,
+      "index_of_difficulty": 5.906890595608519
+    },
+    {
+      "distance": 1.2,
+      "width": 0.08,
+      "index_of_difficulty": 4.906890595608519
+    },
+    {
+      "distance": 1.2,
+      "width": 0.12,
+      "index_of_difficulty": 4.321928094887363
+    },
+    {
+      "distance": 1.2,
+      "width": 0.2,
+      "index_of_difficulty": 3.584962500721156
+    },
+    {
+      "distance": 1.2,
+      "width": 0.3,
+      "index_of_difficulty": 3.0
+    }
+  ],
+  "trials": [
+    {
+      "distance": 0.2,
+      "width": 0.02,
+      "angle_rad": -1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.3742419481277466
+    },
+    {
+      "distance": 0.2,
+      "width": 0.02,
+      "angle_rad": -0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.2585736513137817
+    },
+    {
+      "distance": 0.2,
+      "width": 0.02,
+      "angle_rad": 0.0,
+      "success": true,
+      "movement_time_sec": 0.08,
+      "steps_taken": 8,
+      "final_distance": 0.01626884564757347
+    },
+    {
+      "distance": 0.2,
+      "width": 0.02,
+      "angle_rad": 0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.10995491594076157
+    },
+    {
+      "distance": 0.2,
+      "width": 0.02,
+      "angle_rad": 1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.2321665734052658
+    },
+    {
+      "distance": 0.2,
+      "width": 0.02,
+      "angle_rad": 0.8606583095499031,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.12353122234344482
+    },
+    {
+      "distance": 0.2,
+      "width": 0.02,
+      "angle_rad": -0.19201904465089836,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.5401075482368469
+    },
+    {
+      "distance": 0.2,
+      "width": 0.02,
+      "angle_rad": 1.1265685907861802,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.15831470489501953
+    },
+    {
+      "distance": 0.2,
+      "width": 0.02,
+      "angle_rad": 0.6200499501463944,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.10857932269573212
+    },
+    {
+      "distance": 0.2,
+      "width": 0.02,
+      "angle_rad": -1.2749294625364866,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.3245809078216553
+    },
+    {
+      "distance": 0.2,
+      "width": 0.04,
+      "angle_rad": -1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.3248403072357178
+    },
+    {
+      "distance": 0.2,
+      "width": 0.04,
+      "angle_rad": -0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.2585736513137817
+    },
+    {
+      "distance": 0.2,
+      "width": 0.04,
+      "angle_rad": 0.0,
+      "success": true,
+      "movement_time_sec": 0.07,
+      "steps_taken": 7,
+      "final_distance": 0.025593675673007965
+    },
+    {
+      "distance": 0.2,
+      "width": 0.04,
+      "angle_rad": 0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.10995491594076157
+    },
+    {
+      "distance": 0.2,
+      "width": 0.04,
+      "angle_rad": 1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.2321665734052658
+    },
+    {
+      "distance": 0.2,
+      "width": 0.04,
+      "angle_rad": 1.4942116857851337,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.19935286045074463
+    },
+    {
+      "distance": 0.2,
+      "width": 0.04,
+      "angle_rad": 0.8203945693335207,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.1255445033311844
+    },
+    {
+      "distance": 0.2,
+      "width": 0.04,
+      "angle_rad": 0.898697519912346,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.12330521643161774
+    },
+    {
+      "distance": 0.2,
+      "width": 0.04,
+      "angle_rad": -1.1683154795567003,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.3166098594665527
+    },
+    {
+      "distance": 0.2,
+      "width": 0.04,
+      "angle_rad": -0.15586717302203404,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.2732584476470947
+    },
+    {
+      "distance": 0.2,
+      "width": 0.08,
+      "angle_rad": -1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.3305110931396484
+    },
+    {
+      "distance": 0.2,
+      "width": 0.08,
+      "angle_rad": -0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.2585736513137817
+    },
+    {
+      "distance": 0.2,
+      "width": 0.08,
+      "angle_rad": 0.0,
+      "success": true,
+      "movement_time_sec": 0.06,
+      "steps_taken": 6,
+      "final_distance": 0.05899304151535034
+    },
+    {
+      "distance": 0.2,
+      "width": 0.08,
+      "angle_rad": 0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.10995491594076157
+    },
+    {
+      "distance": 0.2,
+      "width": 0.08,
+      "angle_rad": 1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.2321665734052658
+    },
+    {
+      "distance": 0.2,
+      "width": 0.08,
+      "angle_rad": -0.40589997790020926,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.142760157585144
+    },
+    {
+      "distance": 0.2,
+      "width": 0.08,
+      "angle_rad": 1.3407217537760974,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.19369059801101685
+    },
+    {
+      "distance": 0.2,
+      "width": 0.08,
+      "angle_rad": 0.45196560435322913,
+      "success": true,
+      "movement_time_sec": 0.09,
+      "steps_taken": 9,
+      "final_distance": 0.07844962924718857
+    },
+    {
+      "distance": 0.2,
+      "width": 0.08,
+      "angle_rad": 1.0139855131124293,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.13450467586517334
+    },
+    {
+      "distance": 0.2,
+      "width": 0.08,
+      "angle_rad": -0.17776953726154923,
+      "success": true,
+      "movement_time_sec": 0.07,
+      "steps_taken": 7,
+      "final_distance": 0.062471263110637665
+    },
+    {
+      "distance": 0.2,
+      "width": 0.12,
+      "angle_rad": -1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.3305704593658447
+    },
+    {
+      "distance": 0.2,
+      "width": 0.12,
+      "angle_rad": -0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.2585736513137817
+    },
+    {
+      "distance": 0.2,
+      "width": 0.12,
+      "angle_rad": 0.0,
+      "success": true,
+      "movement_time_sec": 0.05,
+      "steps_taken": 5,
+      "final_distance": 0.09251057356595993
+    },
+    {
+      "distance": 0.2,
+      "width": 0.12,
+      "angle_rad": 0.6283185307179586,
+      "success": true,
+      "movement_time_sec": 0.06,
+      "steps_taken": 6,
+      "final_distance": 0.11852817982435226
+    },
+    {
+      "distance": 0.2,
+      "width": 0.12,
+      "angle_rad": 1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.2321665734052658
+    },
+    {
+      "distance": 0.2,
+      "width": 0.12,
+      "angle_rad": -0.8569048278247066,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.5033721923828125
+    },
+    {
+      "distance": 0.2,
+      "width": 0.12,
+      "angle_rad": 0.17148316588671014,
+      "success": true,
+      "movement_time_sec": 0.05,
+      "steps_taken": 5,
+      "final_distance": 0.09679432213306427
+    },
+    {
+      "distance": 0.2,
+      "width": 0.12,
+      "angle_rad": -1.370308503845761,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.3286925554275513
+    },
+    {
+      "distance": 0.2,
+      "width": 0.12,
+      "angle_rad": 1.0292836830189098,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.13741153478622437
+    },
+    {
+      "distance": 0.2,
+      "width": 0.12,
+      "angle_rad": 0.41363590902119335,
+      "success": true,
+      "movement_time_sec": 0.06,
+      "steps_taken": 6,
+      "final_distance": 0.1070035994052887
+    },
+    {
+      "distance": 0.2,
+      "width": 0.2,
+      "angle_rad": -1.2566370614359172,
+      "success": true,
+      "movement_time_sec": 0.01,
+      "steps_taken": 1,
+      "final_distance": 0.1981203556060791
+    },
+    {
+      "distance": 0.2,
+      "width": 0.2,
+      "angle_rad": -0.6283185307179586,
+      "success": true,
+      "movement_time_sec": 0.01,
+      "steps_taken": 1,
+      "final_distance": 0.19484439492225647
+    },
+    {
+      "distance": 0.2,
+      "width": 0.2,
+      "angle_rad": 0.0,
+      "success": true,
+      "movement_time_sec": 0.01,
+      "steps_taken": 1,
+      "final_distance": 0.19280743598937988
+    },
+    {
+      "distance": 0.2,
+      "width": 0.2,
+      "angle_rad": 0.6283185307179586,
+      "success": true,
+      "movement_time_sec": 0.01,
+      "steps_taken": 1,
+      "final_distance": 0.19416822493076324
+    },
+    {
+      "distance": 0.2,
+      "width": 0.2,
+      "angle_rad": 1.2566370614359172,
+      "success": true,
+      "movement_time_sec": 0.01,
+      "steps_taken": 1,
+      "final_distance": 0.19840678572654724
+    },
+    {
+      "distance": 0.2,
+      "width": 0.2,
+      "angle_rad": 0.8108065482338024,
+      "success": true,
+      "movement_time_sec": 0.01,
+      "steps_taken": 1,
+      "final_distance": 0.19925479590892792
+    },
+    {
+      "distance": 0.2,
+      "width": 0.2,
+      "angle_rad": -0.45702014981129296,
+      "success": true,
+      "movement_time_sec": 0.01,
+      "steps_taken": 1,
+      "final_distance": 0.19638627767562866
+    },
+    {
+      "distance": 0.2,
+      "width": 0.2,
+      "angle_rad": 1.4787414554982574,
+      "success": true,
+      "movement_time_sec": 0.01,
+      "steps_taken": 1,
+      "final_distance": 0.19944408535957336
+    },
+    {
+      "distance": 0.2,
+      "width": 0.2,
+      "angle_rad": 1.235026426716798,
+      "success": true,
+      "movement_time_sec": 0.02,
+      "steps_taken": 2,
+      "final_distance": 0.19747795164585114
+    },
+    {
+      "distance": 0.2,
+      "width": 0.2,
+      "angle_rad": 0.874567549287566,
+      "success": true,
+      "movement_time_sec": 0.01,
+      "steps_taken": 1,
+      "final_distance": 0.1992194950580597
+    },
+    {
+      "distance": 0.2,
+      "width": 0.3,
+      "angle_rad": -1.2566370614359172,
+      "success": true,
+      "movement_time_sec": 0.01,
+      "steps_taken": 1,
+      "final_distance": 0.19891680777072906
+    },
+    {
+      "distance": 0.2,
+      "width": 0.3,
+      "angle_rad": -0.6283185307179586,
+      "success": true,
+      "movement_time_sec": 0.01,
+      "steps_taken": 1,
+      "final_distance": 0.19484439492225647
+    },
+    {
+      "distance": 0.2,
+      "width": 0.3,
+      "angle_rad": 0.0,
+      "success": true,
+      "movement_time_sec": 0.01,
+      "steps_taken": 1,
+      "final_distance": 0.19280743598937988
+    },
+    {
+      "distance": 0.2,
+      "width": 0.3,
+      "angle_rad": 0.6283185307179586,
+      "success": true,
+      "movement_time_sec": 0.01,
+      "steps_taken": 1,
+      "final_distance": 0.19416822493076324
+    },
+    {
+      "distance": 0.2,
+      "width": 0.3,
+      "angle_rad": 1.2566370614359172,
+      "success": true,
+      "movement_time_sec": 0.01,
+      "steps_taken": 1,
+      "final_distance": 0.19840678572654724
+    },
+    {
+      "distance": 0.2,
+      "width": 0.3,
+      "angle_rad": -0.9593207921029453,
+      "success": true,
+      "movement_time_sec": 0.01,
+      "steps_taken": 1,
+      "final_distance": 0.1993800550699234
+    },
+    {
+      "distance": 0.2,
+      "width": 0.3,
+      "angle_rad": -0.10454905020999153,
+      "success": true,
+      "movement_time_sec": 0.01,
+      "steps_taken": 1,
+      "final_distance": 0.19318696856498718
+    },
+    {
+      "distance": 0.2,
+      "width": 0.3,
+      "angle_rad": -1.4331827379981708,
+      "success": true,
+      "movement_time_sec": 0.01,
+      "steps_taken": 1,
+      "final_distance": 0.1991305649280548
+    },
+    {
+      "distance": 0.2,
+      "width": 0.3,
+      "angle_rad": -1.0860815919893876,
+      "success": true,
+      "movement_time_sec": 0.01,
+      "steps_taken": 1,
+      "final_distance": 0.19720645248889923
+    },
+    {
+      "distance": 0.2,
+      "width": 0.3,
+      "angle_rad": 0.575065246753797,
+      "success": true,
+      "movement_time_sec": 0.01,
+      "steps_taken": 1,
+      "final_distance": 0.19442816078662872
+    },
+    {
+      "distance": 0.4,
+      "width": 0.02,
+      "angle_rad": -1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.4917800426483154
+    },
+    {
+      "distance": 0.4,
+      "width": 0.02,
+      "angle_rad": -0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.511096715927124
+    },
+    {
+      "distance": 0.4,
+      "width": 0.02,
+      "angle_rad": 0.0,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.04556567221879959
+    },
+    {
+      "distance": 0.4,
+      "width": 0.02,
+      "angle_rad": 0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.17163097858428955
+    },
+    {
+      "distance": 0.4,
+      "width": 0.02,
+      "angle_rad": 1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.47747012972831726
+    },
+    {
+      "distance": 0.4,
+      "width": 0.02,
+      "angle_rad": 0.7689429908767978,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.3829641342163086
+    },
+    {
+      "distance": 0.4,
+      "width": 0.02,
+      "angle_rad": 1.468725140897044,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.4899950921535492
+    },
+    {
+      "distance": 0.4,
+      "width": 0.02,
+      "angle_rad": -0.547185775314815,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.4959163665771484
+    },
+    {
+      "distance": 0.4,
+      "width": 0.02,
+      "angle_rad": -0.4069628358647181,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.4716325998306274
+    },
+    {
+      "distance": 0.4,
+      "width": 0.02,
+      "angle_rad": -0.09564323964042305,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.09785722941160202
+    },
+    {
+      "distance": 0.4,
+      "width": 0.04,
+      "angle_rad": -1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.5376975536346436
+    },
+    {
+      "distance": 0.4,
+      "width": 0.04,
+      "angle_rad": -0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.511096715927124
+    },
+    {
+      "distance": 0.4,
+      "width": 0.04,
+      "angle_rad": 0.0,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.04556567221879959
+    },
+    {
+      "distance": 0.4,
+      "width": 0.04,
+      "angle_rad": 0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.17163097858428955
+    },
+    {
+      "distance": 0.4,
+      "width": 0.04,
+      "angle_rad": 1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.47747012972831726
+    },
+    {
+      "distance": 0.4,
+      "width": 0.04,
+      "angle_rad": -0.9755544970300309,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.4678678512573242
+    },
+    {
+      "distance": 0.4,
+      "width": 0.04,
+      "angle_rad": -1.1626358800896517,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.4882266521453857
+    },
+    {
+      "distance": 0.4,
+      "width": 0.04,
+      "angle_rad": -0.07632522528702859,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.08676400035619736
+    },
+    {
+      "distance": 0.4,
+      "width": 0.04,
+      "angle_rad": -0.857939582785797,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.548690915107727
+    },
+    {
+      "distance": 0.4,
+      "width": 0.04,
+      "angle_rad": 0.5334863981713107,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.17648378014564514
+    },
+    {
+      "distance": 0.4,
+      "width": 0.08,
+      "angle_rad": -1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.5064736604690552
+    },
+    {
+      "distance": 0.4,
+      "width": 0.08,
+      "angle_rad": -0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.511096715927124
+    },
+    {
+      "distance": 0.4,
+      "width": 0.08,
+      "angle_rad": 0.0,
+      "success": true,
+      "movement_time_sec": 0.11,
+      "steps_taken": 11,
+      "final_distance": 0.07923749834299088
+    },
+    {
+      "distance": 0.4,
+      "width": 0.08,
+      "angle_rad": 0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.17163097858428955
+    },
+    {
+      "distance": 0.4,
+      "width": 0.08,
+      "angle_rad": 1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.47747012972831726
+    },
+    {
+      "distance": 0.4,
+      "width": 0.08,
+      "angle_rad": -0.1974430699629011,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.5797926187515259
+    },
+    {
+      "distance": 0.4,
+      "width": 0.08,
+      "angle_rad": 1.045139376744807,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.3288264870643616
+    },
+    {
+      "distance": 0.4,
+      "width": 0.08,
+      "angle_rad": 0.6291513732206764,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.17580734193325043
+    },
+    {
+      "distance": 0.4,
+      "width": 0.08,
+      "angle_rad": -0.5894675810025589,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.4352099895477295
+    },
+    {
+      "distance": 0.4,
+      "width": 0.08,
+      "angle_rad": 1.0438249511463673,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.33188024163246155
+    },
+    {
+      "distance": 0.4,
+      "width": 0.12,
+      "angle_rad": -1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.4854631423950195
+    },
+    {
+      "distance": 0.4,
+      "width": 0.12,
+      "angle_rad": -0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.511096715927124
+    },
+    {
+      "distance": 0.4,
+      "width": 0.12,
+      "angle_rad": 0.0,
+      "success": true,
+      "movement_time_sec": 0.1,
+      "steps_taken": 10,
+      "final_distance": 0.11117060482501984
+    },
+    {
+      "distance": 0.4,
+      "width": 0.12,
+      "angle_rad": 0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.17163097858428955
+    },
+    {
+      "distance": 0.4,
+      "width": 0.12,
+      "angle_rad": 1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.47747012972831726
+    },
+    {
+      "distance": 0.4,
+      "width": 0.12,
+      "angle_rad": 0.9574454665879661,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.38989120721817017
+    },
+    {
+      "distance": 0.4,
+      "width": 0.12,
+      "angle_rad": -0.35349709780881916,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.4563509225845337
+    },
+    {
+      "distance": 0.4,
+      "width": 0.12,
+      "angle_rad": -0.6649868736641673,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.5727837085723877
+    },
+    {
+      "distance": 0.4,
+      "width": 0.12,
+      "angle_rad": 0.5733265346009498,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.15111151337623596
+    },
+    {
+      "distance": 0.4,
+      "width": 0.12,
+      "angle_rad": -1.131750950966961,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.5085828304290771
+    },
+    {
+      "distance": 0.4,
+      "width": 0.2,
+      "angle_rad": -1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.493397831916809
+    },
+    {
+      "distance": 0.4,
+      "width": 0.2,
+      "angle_rad": -0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.511096715927124
+    },
+    {
+      "distance": 0.4,
+      "width": 0.2,
+      "angle_rad": 0.0,
+      "success": true,
+      "movement_time_sec": 0.08,
+      "steps_taken": 8,
+      "final_distance": 0.18046341836452484
+    },
+    {
+      "distance": 0.4,
+      "width": 0.2,
+      "angle_rad": 0.6283185307179586,
+      "success": true,
+      "movement_time_sec": 1.62,
+      "steps_taken": 162,
+      "final_distance": 0.19917798042297363
+    },
+    {
+      "distance": 0.4,
+      "width": 0.2,
+      "angle_rad": 1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.47747012972831726
+    },
+    {
+      "distance": 0.4,
+      "width": 0.2,
+      "angle_rad": -0.9427661865067554,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.447465419769287
+    },
+    {
+      "distance": 0.4,
+      "width": 0.2,
+      "angle_rad": -1.5476670742313914,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.700777292251587
+    },
+    {
+      "distance": 0.4,
+      "width": 0.2,
+      "angle_rad": 0.9013995164965425,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.41852042078971863
+    },
+    {
+      "distance": 0.4,
+      "width": 0.2,
+      "angle_rad": 0.5178942400075127,
+      "success": true,
+      "movement_time_sec": 0.11,
+      "steps_taken": 11,
+      "final_distance": 0.18898741900920868
+    },
+    {
+      "distance": 0.4,
+      "width": 0.2,
+      "angle_rad": 0.6445460462634627,
+      "success": true,
+      "movement_time_sec": 1.06,
+      "steps_taken": 106,
+      "final_distance": 0.19995203614234924
+    },
+    {
+      "distance": 0.4,
+      "width": 0.3,
+      "angle_rad": -1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.49226975440979
+    },
+    {
+      "distance": 0.4,
+      "width": 0.3,
+      "angle_rad": -0.6283185307179586,
+      "success": true,
+      "movement_time_sec": 0.07,
+      "steps_taken": 7,
+      "final_distance": 0.29772594571113586
+    },
+    {
+      "distance": 0.4,
+      "width": 0.3,
+      "angle_rad": 0.0,
+      "success": true,
+      "movement_time_sec": 0.05,
+      "steps_taken": 5,
+      "final_distance": 0.2875008285045624
+    },
+    {
+      "distance": 0.4,
+      "width": 0.3,
+      "angle_rad": 0.6283185307179586,
+      "success": true,
+      "movement_time_sec": 0.06,
+      "steps_taken": 6,
+      "final_distance": 0.2922976613044739
+    },
+    {
+      "distance": 0.4,
+      "width": 0.3,
+      "angle_rad": 1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.47747012972831726
+    },
+    {
+      "distance": 0.4,
+      "width": 0.3,
+      "angle_rad": 0.8819362615079954,
+      "success": true,
+      "movement_time_sec": 0.28,
+      "steps_taken": 28,
+      "final_distance": 0.29868271946907043
+    },
+    {
+      "distance": 0.4,
+      "width": 0.3,
+      "angle_rad": -0.12906989774718527,
+      "success": true,
+      "movement_time_sec": 0.06,
+      "steps_taken": 6,
+      "final_distance": 0.2874338626861572
+    },
+    {
+      "distance": 0.4,
+      "width": 0.3,
+      "angle_rad": 0.2159568362045874,
+      "success": true,
+      "movement_time_sec": 0.05,
+      "steps_taken": 5,
+      "final_distance": 0.28691792488098145
+    },
+    {
+      "distance": 0.4,
+      "width": 0.3,
+      "angle_rad": -1.1316111044831418,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.575668215751648
+    },
+    {
+      "distance": 0.4,
+      "width": 0.3,
+      "angle_rad": -1.2109894891591837,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.6205177307128906
+    },
+    {
+      "distance": 0.6,
+      "width": 0.02,
+      "angle_rad": -1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 2.417954444885254
+    },
+    {
+      "distance": 0.6,
+      "width": 0.02,
+      "angle_rad": -0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.3905586004257202
+    },
+    {
+      "distance": 0.6,
+      "width": 0.02,
+      "angle_rad": 0.0,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.7623392939567566
+    },
+    {
+      "distance": 0.6,
+      "width": 0.02,
+      "angle_rad": 0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.33985331654548645
+    },
+    {
+      "distance": 0.6,
+      "width": 0.02,
+      "angle_rad": 1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.7014725804328918
+    },
+    {
+      "distance": 0.6,
+      "width": 0.02,
+      "angle_rad": 0.5290535076037084,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.251514732837677
+    },
+    {
+      "distance": 0.6,
+      "width": 0.02,
+      "angle_rad": -0.09080394644160866,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.7765039205551147
+    },
+    {
+      "distance": 0.6,
+      "width": 0.02,
+      "angle_rad": 0.2049452728701043,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.1754239946603775
+    },
+    {
+      "distance": 0.6,
+      "width": 0.02,
+      "angle_rad": 0.8325184636678751,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.5757778286933899
+    },
+    {
+      "distance": 0.6,
+      "width": 0.02,
+      "angle_rad": 0.42323008441781496,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.11414822936058044
+    },
+    {
+      "distance": 0.6,
+      "width": 0.04,
+      "angle_rad": -1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 2.4175171852111816
+    },
+    {
+      "distance": 0.6,
+      "width": 0.04,
+      "angle_rad": -0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.3905586004257202
+    },
+    {
+      "distance": 0.6,
+      "width": 0.04,
+      "angle_rad": 0.0,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.7623392939567566
+    },
+    {
+      "distance": 0.6,
+      "width": 0.04,
+      "angle_rad": 0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.33985331654548645
+    },
+    {
+      "distance": 0.6,
+      "width": 0.04,
+      "angle_rad": 1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.7014725804328918
+    },
+    {
+      "distance": 0.6,
+      "width": 0.04,
+      "angle_rad": 0.1683246514909038,
+      "success": true,
+      "movement_time_sec": 0.2,
+      "steps_taken": 20,
+      "final_distance": 0.027872031554579735
+    },
+    {
+      "distance": 0.6,
+      "width": 0.04,
+      "angle_rad": 0.18600478123770117,
+      "success": true,
+      "movement_time_sec": 0.18,
+      "steps_taken": 18,
+      "final_distance": 0.02537756785750389
+    },
+    {
+      "distance": 0.6,
+      "width": 0.04,
+      "angle_rad": -0.6159089316634969,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.3824461698532104
+    },
+    {
+      "distance": 0.6,
+      "width": 0.04,
+      "angle_rad": -1.4739792441167126,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.5543785095214844
+    },
+    {
+      "distance": 0.6,
+      "width": 0.04,
+      "angle_rad": -0.19880818508759274,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.4411351680755615
+    },
+    {
+      "distance": 0.6,
+      "width": 0.08,
+      "angle_rad": -1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 2.421509265899658
+    },
+    {
+      "distance": 0.6,
+      "width": 0.08,
+      "angle_rad": -0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.3905586004257202
+    },
+    {
+      "distance": 0.6,
+      "width": 0.08,
+      "angle_rad": 0.0,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.7623392939567566
+    },
+    {
+      "distance": 0.6,
+      "width": 0.08,
+      "angle_rad": 0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.33985331654548645
+    },
+    {
+      "distance": 0.6,
+      "width": 0.08,
+      "angle_rad": 1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.7014725804328918
+    },
+    {
+      "distance": 0.6,
+      "width": 0.08,
+      "angle_rad": -0.8966586950920943,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.5659974813461304
+    },
+    {
+      "distance": 0.6,
+      "width": 0.08,
+      "angle_rad": -0.2873657408885777,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.2411913871765137
+    },
+    {
+      "distance": 0.6,
+      "width": 0.08,
+      "angle_rad": 1.110248498735326,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.6683063507080078
+    },
+    {
+      "distance": 0.6,
+      "width": 0.08,
+      "angle_rad": -0.8358537566157688,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.5306297540664673
+    },
+    {
+      "distance": 0.6,
+      "width": 0.08,
+      "angle_rad": -1.3876328618203835,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 3.241957187652588
+    },
+    {
+      "distance": 0.6,
+      "width": 0.12,
+      "angle_rad": -1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 2.423257827758789
+    },
+    {
+      "distance": 0.6,
+      "width": 0.12,
+      "angle_rad": -0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.3905586004257202
+    },
+    {
+      "distance": 0.6,
+      "width": 0.12,
+      "angle_rad": 0.0,
+      "success": true,
+      "movement_time_sec": 0.17,
+      "steps_taken": 17,
+      "final_distance": 0.10525686293840408
+    },
+    {
+      "distance": 0.6,
+      "width": 0.12,
+      "angle_rad": 0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.33985331654548645
+    },
+    {
+      "distance": 0.6,
+      "width": 0.12,
+      "angle_rad": 1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.7014725804328918
+    },
+    {
+      "distance": 0.6,
+      "width": 0.12,
+      "angle_rad": -0.6868027587800887,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.3857566118240356
+    },
+    {
+      "distance": 0.6,
+      "width": 0.12,
+      "angle_rad": -0.648444334255262,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.3924522399902344
+    },
+    {
+      "distance": 0.6,
+      "width": 0.12,
+      "angle_rad": 0.5086757331608771,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.23052462935447693
+    },
+    {
+      "distance": 0.6,
+      "width": 0.12,
+      "angle_rad": 0.17917179081377396,
+      "success": true,
+      "movement_time_sec": 0.16,
+      "steps_taken": 16,
+      "final_distance": 0.08972989022731781
+    },
+    {
+      "distance": 0.6,
+      "width": 0.12,
+      "angle_rad": 0.8918925280960076,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.6044375896453857
+    },
+    {
+      "distance": 0.6,
+      "width": 0.2,
+      "angle_rad": -1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 2.4068171977996826
+    },
+    {
+      "distance": 0.6,
+      "width": 0.2,
+      "angle_rad": -0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.3905586004257202
+    },
+    {
+      "distance": 0.6,
+      "width": 0.2,
+      "angle_rad": 0.0,
+      "success": true,
+      "movement_time_sec": 0.14,
+      "steps_taken": 14,
+      "final_distance": 0.1761888563632965
+    },
+    {
+      "distance": 0.6,
+      "width": 0.2,
+      "angle_rad": 0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.33985331654548645
+    },
+    {
+      "distance": 0.6,
+      "width": 0.2,
+      "angle_rad": 1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.7014725804328918
+    },
+    {
+      "distance": 0.6,
+      "width": 0.2,
+      "angle_rad": 0.5162062111778509,
+      "success": true,
+      "movement_time_sec": 0.31,
+      "steps_taken": 31,
+      "final_distance": 0.19998644292354584
+    },
+    {
+      "distance": 0.6,
+      "width": 0.2,
+      "angle_rad": -0.29409434837935783,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.2392079830169678
+    },
+    {
+      "distance": 0.6,
+      "width": 0.2,
+      "angle_rad": 0.9865241335442554,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.47202068567276
+    },
+    {
+      "distance": 0.6,
+      "width": 0.2,
+      "angle_rad": -1.046235428264417,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.5957956314086914
+    },
+    {
+      "distance": 0.6,
+      "width": 0.2,
+      "angle_rad": -1.4994442446897664,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.5546809434890747
+    },
+    {
+      "distance": 0.6,
+      "width": 0.3,
+      "angle_rad": -1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 2.4196043014526367
+    },
+    {
+      "distance": 0.6,
+      "width": 0.3,
+      "angle_rad": -0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.3905586004257202
+    },
+    {
+      "distance": 0.6,
+      "width": 0.3,
+      "angle_rad": 0.0,
+      "success": true,
+      "movement_time_sec": 0.11,
+      "steps_taken": 11,
+      "final_distance": 0.27524515986442566
+    },
+    {
+      "distance": 0.6,
+      "width": 0.3,
+      "angle_rad": 0.6283185307179586,
+      "success": true,
+      "movement_time_sec": 0.14,
+      "steps_taken": 14,
+      "final_distance": 0.2913599908351898
+    },
+    {
+      "distance": 0.6,
+      "width": 0.3,
+      "angle_rad": 1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.7014725804328918
+    },
+    {
+      "distance": 0.6,
+      "width": 0.3,
+      "angle_rad": -1.2879026289106639,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 2.4392940998077393
+    },
+    {
+      "distance": 0.6,
+      "width": 0.3,
+      "angle_rad": 0.6985625022908054,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.40897002816200256
+    },
+    {
+      "distance": 0.6,
+      "width": 0.3,
+      "angle_rad": -0.1197662133767366,
+      "success": true,
+      "movement_time_sec": 0.11,
+      "steps_taken": 11,
+      "final_distance": 0.2990165054798126
+    },
+    {
+      "distance": 0.6,
+      "width": 0.3,
+      "angle_rad": -1.0641460905515767,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.6496477127075195
+    },
+    {
+      "distance": 0.6,
+      "width": 0.3,
+      "angle_rad": 0.0032822577893804068,
+      "success": true,
+      "movement_time_sec": 0.11,
+      "steps_taken": 11,
+      "final_distance": 0.2784895896911621
+    },
+    {
+      "distance": 0.8,
+      "width": 0.02,
+      "angle_rad": -1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.5721638202667236
+    },
+    {
+      "distance": 0.8,
+      "width": 0.02,
+      "angle_rad": -0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 2.576845169067383
+    },
+    {
+      "distance": 0.8,
+      "width": 0.02,
+      "angle_rad": 0.0,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.2894994020462036
+    },
+    {
+      "distance": 0.8,
+      "width": 0.02,
+      "angle_rad": 0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.44465699791908264
+    },
+    {
+      "distance": 0.8,
+      "width": 0.02,
+      "angle_rad": 1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.8084064722061157
+    },
+    {
+      "distance": 0.8,
+      "width": 0.02,
+      "angle_rad": -1.0922937438583926,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.525321125984192
+    },
+    {
+      "distance": 0.8,
+      "width": 0.02,
+      "angle_rad": 0.6167586480942082,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.4326160252094269
+    },
+    {
+      "distance": 0.8,
+      "width": 0.02,
+      "angle_rad": -0.16915504909853846,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.1053791046142578
+    },
+    {
+      "distance": 0.8,
+      "width": 0.02,
+      "angle_rad": -0.3737828420284116,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.7810206413269043
+    },
+    {
+      "distance": 0.8,
+      "width": 0.02,
+      "angle_rad": -0.6235681625594168,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 2.5748133659362793
+    },
+    {
+      "distance": 0.8,
+      "width": 0.04,
+      "angle_rad": -1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.5718040466308594
+    },
+    {
+      "distance": 0.8,
+      "width": 0.04,
+      "angle_rad": -0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 2.576845169067383
+    },
+    {
+      "distance": 0.8,
+      "width": 0.04,
+      "angle_rad": 0.0,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.2894994020462036
+    },
+    {
+      "distance": 0.8,
+      "width": 0.04,
+      "angle_rad": 0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.44465699791908264
+    },
+    {
+      "distance": 0.8,
+      "width": 0.04,
+      "angle_rad": 1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.8084064722061157
+    },
+    {
+      "distance": 0.8,
+      "width": 0.04,
+      "angle_rad": 0.4092948374329281,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.08224047720432281
+    },
+    {
+      "distance": 0.8,
+      "width": 0.04,
+      "angle_rad": -0.43412848750422034,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.313969612121582
+    },
+    {
+      "distance": 0.8,
+      "width": 0.04,
+      "angle_rad": -1.2954359841836955,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.5817326307296753
+    },
+    {
+      "distance": 0.8,
+      "width": 0.04,
+      "angle_rad": -1.2000698516128494,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.5574334859848022
+    },
+    {
+      "distance": 0.8,
+      "width": 0.04,
+      "angle_rad": 1.4510943096590374,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.9342285990715027
+    },
+    {
+      "distance": 0.8,
+      "width": 0.08,
+      "angle_rad": -1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.5704070329666138
+    },
+    {
+      "distance": 0.8,
+      "width": 0.08,
+      "angle_rad": -0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 2.576845169067383
+    },
+    {
+      "distance": 0.8,
+      "width": 0.08,
+      "angle_rad": 0.0,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.2894994020462036
+    },
+    {
+      "distance": 0.8,
+      "width": 0.08,
+      "angle_rad": 0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.44465699791908264
+    },
+    {
+      "distance": 0.8,
+      "width": 0.08,
+      "angle_rad": 1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.8084064722061157
+    },
+    {
+      "distance": 0.8,
+      "width": 0.08,
+      "angle_rad": 1.2835940963256618,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.8745371699333191
+    },
+    {
+      "distance": 0.8,
+      "width": 0.08,
+      "angle_rad": 0.6273984644493246,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.4436042606830597
+    },
+    {
+      "distance": 0.8,
+      "width": 0.08,
+      "angle_rad": -0.7355412090634684,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.4176092147827148
+    },
+    {
+      "distance": 0.8,
+      "width": 0.08,
+      "angle_rad": 1.473961060313482,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.9348151087760925
+    },
+    {
+      "distance": 0.8,
+      "width": 0.08,
+      "angle_rad": 0.8757217920804543,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.7403900623321533
+    },
+    {
+      "distance": 0.8,
+      "width": 0.12,
+      "angle_rad": -1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.5709915161132812
+    },
+    {
+      "distance": 0.8,
+      "width": 0.12,
+      "angle_rad": -0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 2.576845169067383
+    },
+    {
+      "distance": 0.8,
+      "width": 0.12,
+      "angle_rad": 0.0,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.2894994020462036
+    },
+    {
+      "distance": 0.8,
+      "width": 0.12,
+      "angle_rad": 0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.44465699791908264
+    },
+    {
+      "distance": 0.8,
+      "width": 0.12,
+      "angle_rad": 1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.8084064722061157
+    },
+    {
+      "distance": 0.8,
+      "width": 0.12,
+      "angle_rad": 0.6813806248976012,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.5001770257949829
+    },
+    {
+      "distance": 0.8,
+      "width": 0.12,
+      "angle_rad": -0.159085532853896,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.0891834497451782
+    },
+    {
+      "distance": 0.8,
+      "width": 0.12,
+      "angle_rad": -0.7155242361003337,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.3935319185256958
+    },
+    {
+      "distance": 0.8,
+      "width": 0.12,
+      "angle_rad": -1.2679751882210113,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.5748664140701294
+    },
+    {
+      "distance": 0.8,
+      "width": 0.12,
+      "angle_rad": 1.2648127312997777,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.8524273037910461
+    },
+    {
+      "distance": 0.8,
+      "width": 0.2,
+      "angle_rad": -1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.5720335245132446
+    },
+    {
+      "distance": 0.8,
+      "width": 0.2,
+      "angle_rad": -0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 2.576845169067383
+    },
+    {
+      "distance": 0.8,
+      "width": 0.2,
+      "angle_rad": 0.0,
+      "success": true,
+      "movement_time_sec": 0.21,
+      "steps_taken": 21,
+      "final_distance": 0.18513086438179016
+    },
+    {
+      "distance": 0.8,
+      "width": 0.2,
+      "angle_rad": 0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.44465699791908264
+    },
+    {
+      "distance": 0.8,
+      "width": 0.2,
+      "angle_rad": 1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.8084064722061157
+    },
+    {
+      "distance": 0.8,
+      "width": 0.2,
+      "angle_rad": -0.1389328829732117,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.0152450799942017
+    },
+    {
+      "distance": 0.8,
+      "width": 0.2,
+      "angle_rad": -0.9350530665984896,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.4723542928695679
+    },
+    {
+      "distance": 0.8,
+      "width": 0.2,
+      "angle_rad": -0.6096052440460732,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 2.5799777507781982
+    },
+    {
+      "distance": 0.8,
+      "width": 0.2,
+      "angle_rad": 0.24887561580841053,
+      "success": true,
+      "movement_time_sec": 0.19,
+      "steps_taken": 19,
+      "final_distance": 0.19006653130054474
+    },
+    {
+      "distance": 0.8,
+      "width": 0.2,
+      "angle_rad": -1.015448250558383,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.500292420387268
+    },
+    {
+      "distance": 0.8,
+      "width": 0.3,
+      "angle_rad": -1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.5716962814331055
+    },
+    {
+      "distance": 0.8,
+      "width": 0.3,
+      "angle_rad": -0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 2.576845169067383
+    },
+    {
+      "distance": 0.8,
+      "width": 0.3,
+      "angle_rad": 0.0,
+      "success": true,
+      "movement_time_sec": 0.17,
+      "steps_taken": 17,
+      "final_distance": 0.2797943651676178
+    },
+    {
+      "distance": 0.8,
+      "width": 0.3,
+      "angle_rad": 0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.44465699791908264
+    },
+    {
+      "distance": 0.8,
+      "width": 0.3,
+      "angle_rad": 1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.8084064722061157
+    },
+    {
+      "distance": 0.8,
+      "width": 0.3,
+      "angle_rad": 1.1203368150697903,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.7189167737960815
+    },
+    {
+      "distance": 0.8,
+      "width": 0.3,
+      "angle_rad": 0.8121630557397834,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.6717165112495422
+    },
+    {
+      "distance": 0.8,
+      "width": 0.3,
+      "angle_rad": 0.6894632101505633,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.5085545182228088
+    },
+    {
+      "distance": 0.8,
+      "width": 0.3,
+      "angle_rad": -0.21333600737014846,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.124582052230835
+    },
+    {
+      "distance": 0.8,
+      "width": 0.3,
+      "angle_rad": 0.3999525186878288,
+      "success": true,
+      "movement_time_sec": 0.17,
+      "steps_taken": 17,
+      "final_distance": 0.29777270555496216
+    },
+    {
+      "distance": 1.0,
+      "width": 0.02,
+      "angle_rad": -1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.6260493993759155
+    },
+    {
+      "distance": 1.0,
+      "width": 0.02,
+      "angle_rad": -0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.4147720336914062
+    },
+    {
+      "distance": 1.0,
+      "width": 0.02,
+      "angle_rad": 0.0,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.0335489511489868
+    },
+    {
+      "distance": 1.0,
+      "width": 0.02,
+      "angle_rad": 0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.49406394362449646
+    },
+    {
+      "distance": 1.0,
+      "width": 0.02,
+      "angle_rad": 1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.1025997400283813
+    },
+    {
+      "distance": 1.0,
+      "width": 0.02,
+      "angle_rad": 0.2642015613180729,
+      "success": true,
+      "movement_time_sec": 1.16,
+      "steps_taken": 116,
+      "final_distance": 0.016768615692853928
+    },
+    {
+      "distance": 1.0,
+      "width": 0.02,
+      "angle_rad": 0.47075698261001936,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.16239790618419647
+    },
+    {
+      "distance": 1.0,
+      "width": 0.02,
+      "angle_rad": -1.3055066678644438,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 4.577345848083496
+    },
+    {
+      "distance": 1.0,
+      "width": 0.02,
+      "angle_rad": -0.2644988468274527,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 2.01652193069458
+    },
+    {
+      "distance": 1.0,
+      "width": 0.02,
+      "angle_rad": -1.4400615439051667,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 4.593353271484375
+    },
+    {
+      "distance": 1.0,
+      "width": 0.04,
+      "angle_rad": -1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.6260493993759155
+    },
+    {
+      "distance": 1.0,
+      "width": 0.04,
+      "angle_rad": -0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.4147720336914062
+    },
+    {
+      "distance": 1.0,
+      "width": 0.04,
+      "angle_rad": 0.0,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.0335489511489868
+    },
+    {
+      "distance": 1.0,
+      "width": 0.04,
+      "angle_rad": 0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.49406394362449646
+    },
+    {
+      "distance": 1.0,
+      "width": 0.04,
+      "angle_rad": 1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.1025997400283813
+    },
+    {
+      "distance": 1.0,
+      "width": 0.04,
+      "angle_rad": -0.01887839811551249,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.1513677835464478
+    },
+    {
+      "distance": 1.0,
+      "width": 0.04,
+      "angle_rad": -0.5345067654259954,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 2.8787248134613037
+    },
+    {
+      "distance": 1.0,
+      "width": 0.04,
+      "angle_rad": -1.1167601967872998,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.590312123298645
+    },
+    {
+      "distance": 1.0,
+      "width": 0.04,
+      "angle_rad": -1.2459463230383458,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.6238971948623657
+    },
+    {
+      "distance": 1.0,
+      "width": 0.04,
+      "angle_rad": 0.27534354408052053,
+      "success": true,
+      "movement_time_sec": 0.29,
+      "steps_taken": 29,
+      "final_distance": 0.035442840307950974
+    },
+    {
+      "distance": 1.0,
+      "width": 0.08,
+      "angle_rad": -1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.6260493993759155
+    },
+    {
+      "distance": 1.0,
+      "width": 0.08,
+      "angle_rad": -0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.4147720336914062
+    },
+    {
+      "distance": 1.0,
+      "width": 0.08,
+      "angle_rad": 0.0,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.0335489511489868
+    },
+    {
+      "distance": 1.0,
+      "width": 0.08,
+      "angle_rad": 0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.49406394362449646
+    },
+    {
+      "distance": 1.0,
+      "width": 0.08,
+      "angle_rad": 1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.1025997400283813
+    },
+    {
+      "distance": 1.0,
+      "width": 0.08,
+      "angle_rad": -1.0348627100853405,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.5652090311050415
+    },
+    {
+      "distance": 1.0,
+      "width": 0.08,
+      "angle_rad": 1.3355542407857692,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.1309927701950073
+    },
+    {
+      "distance": 1.0,
+      "width": 0.08,
+      "angle_rad": 0.25466108097437673,
+      "success": true,
+      "movement_time_sec": 0.3,
+      "steps_taken": 30,
+      "final_distance": 0.07254309952259064
+    },
+    {
+      "distance": 1.0,
+      "width": 0.08,
+      "angle_rad": -0.48107269711612494,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 2.6568703651428223
+    },
+    {
+      "distance": 1.0,
+      "width": 0.08,
+      "angle_rad": 0.2856194401355243,
+      "success": true,
+      "movement_time_sec": 0.28,
+      "steps_taken": 28,
+      "final_distance": 0.07167713344097137
+    },
+    {
+      "distance": 1.0,
+      "width": 0.12,
+      "angle_rad": -1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.6260493993759155
+    },
+    {
+      "distance": 1.0,
+      "width": 0.12,
+      "angle_rad": -0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.4147720336914062
+    },
+    {
+      "distance": 1.0,
+      "width": 0.12,
+      "angle_rad": 0.0,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.0335489511489868
+    },
+    {
+      "distance": 1.0,
+      "width": 0.12,
+      "angle_rad": 0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.49406394362449646
+    },
+    {
+      "distance": 1.0,
+      "width": 0.12,
+      "angle_rad": 1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.1025997400283813
+    },
+    {
+      "distance": 1.0,
+      "width": 0.12,
+      "angle_rad": -1.4991558530945899,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 4.596665859222412
+    },
+    {
+      "distance": 1.0,
+      "width": 0.12,
+      "angle_rad": 1.4406062555552401,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.1260414123535156
+    },
+    {
+      "distance": 1.0,
+      "width": 0.12,
+      "angle_rad": -0.05559539249397316,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.1774728298187256
+    },
+    {
+      "distance": 1.0,
+      "width": 0.12,
+      "angle_rad": 0.8882389128405399,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.8334975242614746
+    },
+    {
+      "distance": 1.0,
+      "width": 0.12,
+      "angle_rad": -1.3108923668070793,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.635429859161377
+    },
+    {
+      "distance": 1.0,
+      "width": 0.2,
+      "angle_rad": -1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.6260489225387573
+    },
+    {
+      "distance": 1.0,
+      "width": 0.2,
+      "angle_rad": -0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.4147720336914062
+    },
+    {
+      "distance": 1.0,
+      "width": 0.2,
+      "angle_rad": 0.0,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.0335489511489868
+    },
+    {
+      "distance": 1.0,
+      "width": 0.2,
+      "angle_rad": 0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.49406394362449646
+    },
+    {
+      "distance": 1.0,
+      "width": 0.2,
+      "angle_rad": 1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.1025997400283813
+    },
+    {
+      "distance": 1.0,
+      "width": 0.2,
+      "angle_rad": -0.041914089825460944,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.1791142225265503
+    },
+    {
+      "distance": 1.0,
+      "width": 0.2,
+      "angle_rad": -0.029194838265605552,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.1003177165985107
+    },
+    {
+      "distance": 1.0,
+      "width": 0.2,
+      "angle_rad": 1.3754723744966684,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.1201547384262085
+    },
+    {
+      "distance": 1.0,
+      "width": 0.2,
+      "angle_rad": 0.2253403224009823,
+      "success": true,
+      "movement_time_sec": 0.27,
+      "steps_taken": 27,
+      "final_distance": 0.16885244846343994
+    },
+    {
+      "distance": 1.0,
+      "width": 0.2,
+      "angle_rad": -0.08328550288173925,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.138249397277832
+    },
+    {
+      "distance": 1.0,
+      "width": 0.3,
+      "angle_rad": -1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.6260493993759155
+    },
+    {
+      "distance": 1.0,
+      "width": 0.3,
+      "angle_rad": -0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.4147720336914062
+    },
+    {
+      "distance": 1.0,
+      "width": 0.3,
+      "angle_rad": 0.0,
+      "success": true,
+      "movement_time_sec": 0.25,
+      "steps_taken": 25,
+      "final_distance": 0.2935677170753479
+    },
+    {
+      "distance": 1.0,
+      "width": 0.3,
+      "angle_rad": 0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.49406394362449646
+    },
+    {
+      "distance": 1.0,
+      "width": 0.3,
+      "angle_rad": 1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.1025997400283813
+    },
+    {
+      "distance": 1.0,
+      "width": 0.3,
+      "angle_rad": -0.73206754493814,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.4521251916885376
+    },
+    {
+      "distance": 1.0,
+      "width": 0.3,
+      "angle_rad": -0.5291416005854009,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 2.8314428329467773
+    },
+    {
+      "distance": 1.0,
+      "width": 0.3,
+      "angle_rad": 0.0649442677366346,
+      "success": true,
+      "movement_time_sec": 0.23,
+      "steps_taken": 23,
+      "final_distance": 0.2828451991081238
+    },
+    {
+      "distance": 1.0,
+      "width": 0.3,
+      "angle_rad": -0.1919153075241938,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.8862223625183105
+    },
+    {
+      "distance": 1.0,
+      "width": 0.3,
+      "angle_rad": -1.5028999754140546,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 4.597379207611084
+    },
+    {
+      "distance": 1.2,
+      "width": 0.02,
+      "angle_rad": -1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 4.763631820678711
+    },
+    {
+      "distance": 1.2,
+      "width": 0.02,
+      "angle_rad": -0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.458482027053833
+    },
+    {
+      "distance": 1.2,
+      "width": 0.02,
+      "angle_rad": 0.0,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.3768340349197388
+    },
+    {
+      "distance": 1.2,
+      "width": 0.02,
+      "angle_rad": 0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.4570097327232361
+    },
+    {
+      "distance": 1.2,
+      "width": 0.02,
+      "angle_rad": 1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.2782338857650757
+    },
+    {
+      "distance": 1.2,
+      "width": 0.02,
+      "angle_rad": 1.0250763119746722,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.034836769104004
+    },
+    {
+      "distance": 1.2,
+      "width": 0.02,
+      "angle_rad": 1.2445757704522733,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.0782746076583862
+    },
+    {
+      "distance": 1.2,
+      "width": 0.02,
+      "angle_rad": -1.1301908191241998,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 4.729866027832031
+    },
+    {
+      "distance": 1.2,
+      "width": 0.02,
+      "angle_rad": 0.16975955157060116,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.691213846206665
+    },
+    {
+      "distance": 1.2,
+      "width": 0.02,
+      "angle_rad": -1.22969557608572,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 4.7575531005859375
+    },
+    {
+      "distance": 1.2,
+      "width": 0.04,
+      "angle_rad": -1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 4.764011859893799
+    },
+    {
+      "distance": 1.2,
+      "width": 0.04,
+      "angle_rad": -0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.458482027053833
+    },
+    {
+      "distance": 1.2,
+      "width": 0.04,
+      "angle_rad": 0.0,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.3768340349197388
+    },
+    {
+      "distance": 1.2,
+      "width": 0.04,
+      "angle_rad": 0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.4570097327232361
+    },
+    {
+      "distance": 1.2,
+      "width": 0.04,
+      "angle_rad": 1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.2782338857650757
+    },
+    {
+      "distance": 1.2,
+      "width": 0.04,
+      "angle_rad": 0.5411082109474948,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.2623280882835388
+    },
+    {
+      "distance": 1.2,
+      "width": 0.04,
+      "angle_rad": -0.6872743375450081,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.488808035850525
+    },
+    {
+      "distance": 1.2,
+      "width": 0.04,
+      "angle_rad": 0.5008409779640078,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.1750604510307312
+    },
+    {
+      "distance": 1.2,
+      "width": 0.04,
+      "angle_rad": 0.7131246126481191,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.6146485209465027
+    },
+    {
+      "distance": 1.2,
+      "width": 0.04,
+      "angle_rad": 0.8439809870138346,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.8113784193992615
+    },
+    {
+      "distance": 1.2,
+      "width": 0.08,
+      "angle_rad": -1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 4.763856887817383
+    },
+    {
+      "distance": 1.2,
+      "width": 0.08,
+      "angle_rad": -0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.458482027053833
+    },
+    {
+      "distance": 1.2,
+      "width": 0.08,
+      "angle_rad": 0.0,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.3768340349197388
+    },
+    {
+      "distance": 1.2,
+      "width": 0.08,
+      "angle_rad": 0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.4570097327232361
+    },
+    {
+      "distance": 1.2,
+      "width": 0.08,
+      "angle_rad": 1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.2782338857650757
+    },
+    {
+      "distance": 1.2,
+      "width": 0.08,
+      "angle_rad": -1.232318162489037,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 4.7582855224609375
+    },
+    {
+      "distance": 1.2,
+      "width": 0.08,
+      "angle_rad": 1.3069397564906438,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.2465256452560425
+    },
+    {
+      "distance": 1.2,
+      "width": 0.08,
+      "angle_rad": -0.8475577442459514,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.5504646301269531
+    },
+    {
+      "distance": 1.2,
+      "width": 0.08,
+      "angle_rad": -1.4532613151597946,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 4.794376373291016
+    },
+    {
+      "distance": 1.2,
+      "width": 0.08,
+      "angle_rad": 0.17232411487154312,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.6855751276016235
+    },
+    {
+      "distance": 1.2,
+      "width": 0.12,
+      "angle_rad": -1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 4.76293420791626
+    },
+    {
+      "distance": 1.2,
+      "width": 0.12,
+      "angle_rad": -0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.458482027053833
+    },
+    {
+      "distance": 1.2,
+      "width": 0.12,
+      "angle_rad": 0.0,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.3768340349197388
+    },
+    {
+      "distance": 1.2,
+      "width": 0.12,
+      "angle_rad": 0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.4570097327232361
+    },
+    {
+      "distance": 1.2,
+      "width": 0.12,
+      "angle_rad": 1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.2782338857650757
+    },
+    {
+      "distance": 1.2,
+      "width": 0.12,
+      "angle_rad": -0.4055096047599111,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 2.9264633655548096
+    },
+    {
+      "distance": 1.2,
+      "width": 0.12,
+      "angle_rad": 1.036065034254054,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.0443722009658813
+    },
+    {
+      "distance": 1.2,
+      "width": 0.12,
+      "angle_rad": 0.96840056009545,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.9859929084777832
+    },
+    {
+      "distance": 1.2,
+      "width": 0.12,
+      "angle_rad": -0.5744751109354532,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.4256867170333862
+    },
+    {
+      "distance": 1.2,
+      "width": 0.12,
+      "angle_rad": 1.4228254123663722,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.3012490272521973
+    },
+    {
+      "distance": 1.2,
+      "width": 0.2,
+      "angle_rad": -1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 4.763716697692871
+    },
+    {
+      "distance": 1.2,
+      "width": 0.2,
+      "angle_rad": -0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.458482027053833
+    },
+    {
+      "distance": 1.2,
+      "width": 0.2,
+      "angle_rad": 0.0,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.3768340349197388
+    },
+    {
+      "distance": 1.2,
+      "width": 0.2,
+      "angle_rad": 0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.4570097327232361
+    },
+    {
+      "distance": 1.2,
+      "width": 0.2,
+      "angle_rad": 1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.2782338857650757
+    },
+    {
+      "distance": 1.2,
+      "width": 0.2,
+      "angle_rad": -0.6568509836956754,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.4750657081604004
+    },
+    {
+      "distance": 1.2,
+      "width": 0.2,
+      "angle_rad": 0.04730336657850652,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.115986704826355
+    },
+    {
+      "distance": 1.2,
+      "width": 0.2,
+      "angle_rad": -0.7666582786922698,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.5199334621429443
+    },
+    {
+      "distance": 1.2,
+      "width": 0.2,
+      "angle_rad": 1.3698712763108896,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.303066372871399
+    },
+    {
+      "distance": 1.2,
+      "width": 0.2,
+      "angle_rad": -1.0536656163557796,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 4.704296112060547
+    },
+    {
+      "distance": 1.2,
+      "width": 0.3,
+      "angle_rad": -1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 4.764545440673828
+    },
+    {
+      "distance": 1.2,
+      "width": 0.3,
+      "angle_rad": -0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.458482027053833
+    },
+    {
+      "distance": 1.2,
+      "width": 0.3,
+      "angle_rad": 0.0,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.3768340349197388
+    },
+    {
+      "distance": 1.2,
+      "width": 0.3,
+      "angle_rad": 0.6283185307179586,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.4570097327232361
+    },
+    {
+      "distance": 1.2,
+      "width": 0.3,
+      "angle_rad": 1.2566370614359172,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.2782338857650757
+    },
+    {
+      "distance": 1.2,
+      "width": 0.3,
+      "angle_rad": -1.4297054548437884,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 4.791296482086182
+    },
+    {
+      "distance": 1.2,
+      "width": 0.3,
+      "angle_rad": -0.20389859949083516,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 2.1805307865142822
+    },
+    {
+      "distance": 1.2,
+      "width": 0.3,
+      "angle_rad": 1.5468434548449483,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.3074231147766113
+    },
+    {
+      "distance": 1.2,
+      "width": 0.3,
+      "angle_rad": 1.230490422244571,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 1.210901141166687
+    },
+    {
+      "distance": 1.2,
+      "width": 0.3,
+      "angle_rad": 0.78102512754946,
+      "success": false,
+      "movement_time_sec": null,
+      "steps_taken": 200,
+      "final_distance": 0.7305970788002014
+    }
+  ],
+  "per_condition_mt_mean": [
+    0.08,
+    0.07,
+    0.07333333333333333,
+    0.055,
+    0.011,
+    0.009999999999999998,
+    NaN,
+    NaN,
+    0.11,
+    0.1,
+    0.7175,
+    0.09500000000000001,
+    NaN,
+    0.19,
+    NaN,
+    0.165,
+    0.225,
+    0.1175,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    0.2,
+    0.17,
+    1.16,
+    0.29,
+    0.29000000000000004,
+    NaN,
+    0.27,
+    0.24,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN
+  ],
+  "per_condition_mt_std": [
+    NaN,
+    NaN,
+    0.015275252316519465,
+    0.0057735026918962545,
+    0.0031622776601683794,
+    1.828559098217032e-18,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    0.7543816452344707,
+    0.09093954035511727,
+    NaN,
+    0.014142135623730963,
+    NaN,
+    0.007071067811865481,
+    0.12020815280171307,
+    0.015000000000000006,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    0.014142135623730944,
+    0.0,
+    NaN,
+    NaN,
+    0.014142135623730925,
+    NaN,
+    NaN,
+    0.014142135623730944,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN
+  ],
+  "per_condition_success_rate": [
+    0.1,
+    0.1,
+    0.3,
+    0.4,
+    1.0,
+    1.0,
+    0.0,
+    0.0,
+    0.1,
+    0.1,
+    0.4,
+    0.6,
+    0.0,
+    0.2,
+    0.0,
+    0.2,
+    0.2,
+    0.4,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.2,
+    0.2,
+    0.1,
+    0.1,
+    0.2,
+    0.0,
+    0.1,
+    0.2,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "slope": 0.09696462565967143,
+  "intercept": -0.07371792131611826,
+  "r_squared": 0.31732346662867994,
+  "fit_n_conditions": 21,
+  "n_trials_per_condition": 10,
+  "timestamp_iso": "2026-06-19T14:31:50Z",
+  "metadata": {}
+}

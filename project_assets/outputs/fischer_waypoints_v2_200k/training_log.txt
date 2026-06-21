@@ -1,0 +1,22 @@
+[2026-06-19T01:24:02] Starting Fischer session: algorithm=SAC, timesteps=200,000, direction=EAST, actuation=muscle, waypoints=[[2.3, -1.0], [1.0, 1.5], [2.5, 0.0]]
+[2026-06-19T01:24:02] Save dir: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/fischer_waypoints_v2_200k
+[2026-06-19T01:24:02] Waypoint mode active: 3 waypoints, current_waypoint_index=0 at every episode reset
+[2026-06-19T01:36:53] Training complete in 770.3s
+[2026-06-19T01:36:53] Episodes: 200
+[2026-06-19T01:36:53] Best reward: 781.45
+[2026-06-19T01:36:53] Mean reward (100ep): 330.06
+[2026-06-19T01:36:53] Final goal tolerance: 0.6
+[2026-06-19T01:36:53] Curriculum stage: 0
+[2026-06-19T01:36:53] Saved: {'model': '/Users/ranjotsandhu/Documents/Project/project_assets/outputs/fischer_waypoints_v2_200k/sac_model', 'history': '/Users/ranjotsandhu/Documents/Project/project_assets/outputs/fischer_waypoints_v2_200k/training_history.csv', 'stats': '/Users/ranjotsandhu/Documents/Project/project_assets/outputs/fischer_waypoints_v2_200k/training_stats.json'}
+[2026-06-19T01:36:53] Running Fitts' Law sweep (10 trials per condition)...
+[2026-06-19T01:37:05] Fitts sweep complete in 12.0s
+[2026-06-19T01:37:05] Fitts: MT = -0.3228 + +0.2953 * ID, R^2 = 0.4268 (n_conditions = 20, trials_per_condition = 10)
+[2026-06-19T01:37:05] Saved: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/fischer_waypoints_v2_200k/fitts_law.json
+[2026-06-19T01:37:05] Saved: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/fischer_waypoints_v2_200k/fitts_law.png
+[2026-06-19T01:37:05] Running 2/3 Power Law sweep (20 trials)...
+[2026-06-19T01:37:06] Power Law sweep complete in 0.8s
+[2026-06-19T01:37:06] Power Law: log V = -0.1381 + -0.4641 * log C, R = -0.6345, R^2 = 0.4026 (n_samples = 3765, n_trials = 0/20)
+[2026-06-19T01:37:06] Saved: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/fischer_waypoints_v2_200k/power_law.json
+[2026-06-19T01:37:06] Saved: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/fischer_waypoints_v2_200k/power_law.png
+[2026-06-19T01:37:06] Session complete. Total wall time: 0:13:04.226595
+[2026-06-19T01:37:06] ============================================================

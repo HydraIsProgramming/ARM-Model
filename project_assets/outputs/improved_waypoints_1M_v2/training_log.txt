@@ -1,0 +1,38 @@
+[2026-06-19T20:15:15] ============================================================
+[2026-06-19T20:15:15] IMPROVED WAYPOINT TRAINING
+[2026-06-19T20:15:15] ============================================================
+[2026-06-19T20:15:15] Timesteps: 1,000,000
+[2026-06-19T20:15:15] Waypoints: [[2.3, -1.0], [1.0, 1.5], [2.5, 0.0]]
+[2026-06-19T20:15:15] Improvements:
+[2026-06-19T20:15:15]   1. EMA velocity (alpha=0.15) for hold criterion
+[2026-06-19T20:15:15]   2. Eval-based curriculum (20 deterministic episodes every 10k steps)
+[2026-06-19T20:15:15]   3. Co-contraction penalty P7=-0.08
+[2026-06-19T20:15:15] Curriculum: eval-based, init_tol=0.8, min_tol=0.02, decay=0.85, threshold=70%
+[2026-06-19T20:15:16] Starting training...
+[2026-06-19T22:26:57] Training complete in 7901.0s (131.7 min)
+[2026-06-19T22:26:57] Final tolerance: 0.578m
+[2026-06-19T22:26:57] Curriculum stage: 2
+[2026-06-19T22:26:57] Last eval success rate: 0.0
+[2026-06-19T22:26:57] Model saved: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/improved_waypoints_1M_v2/sac_model.zip
+[2026-06-19T22:26:57] Metadata saved: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/improved_waypoints_1M_v2/sac_model_metadata.pkl
+[2026-06-19T22:26:57] 
+[2026-06-19T22:26:57] EVALUATION (deterministic, 800 steps, tol=current curriculum)
+[2026-06-19T22:26:57]   step=   0  ee=(1.01,-1.80)  wp=0/3  dist=1.517  hold=0/20  ema_v=0.086  cc=0.105
+[2026-06-19T22:26:57]   step=  50  ee=(2.57,-0.29)  wp=1/3  dist=2.382  hold=0/20  ema_v=2.655  cc=0.091
+[2026-06-19T22:26:57]   step= 100  ee=(1.64,1.12)  wp=1/3  dist=0.743  hold=0/20  ema_v=2.231  cc=0.288
+[2026-06-19T22:26:57]   step= 150  ee=(2.66,0.34)  wp=2/3  dist=0.378  hold=0/20  ema_v=2.823  cc=0.195
+[2026-06-19T22:26:57]   step= 200  ee=(2.72,-0.32)  wp=2/3  dist=0.386  hold=5/20  ema_v=0.382  cc=0.064
+[2026-06-19T22:26:57]   step= 250  ee=(2.68,-0.36)  wp=2/3  dist=0.407  hold=17/20  ema_v=0.461  cc=0.027
+[2026-06-19T22:26:57]   step= 300  ee=(2.66,-0.39)  wp=2/3  dist=0.421  hold=12/20  ema_v=0.294  cc=0.077
+[2026-06-19T22:26:57]   step= 350  ee=(2.64,-0.41)  wp=2/3  dist=0.438  hold=8/20  ema_v=0.337  cc=0.105
+[2026-06-19T22:26:57]   step= 400  ee=(2.60,-0.46)  wp=2/3  dist=0.474  hold=2/20  ema_v=0.457  cc=0.167
+[2026-06-19T22:26:57]   step= 450  ee=(2.58,-0.48)  wp=2/3  dist=0.484  hold=14/20  ema_v=0.326  cc=0.029
+[2026-06-19T22:26:57]   step= 500  ee=(2.56,-0.50)  wp=2/3  dist=0.505  hold=7/20  ema_v=0.419  cc=0.019
+[2026-06-19T22:26:57]   step= 550  ee=(2.55,-0.50)  wp=2/3  dist=0.507  hold=9/20  ema_v=0.353  cc=0.014
+[2026-06-19T22:26:57]   step= 600  ee=(2.55,-0.51)  wp=2/3  dist=0.511  hold=9/20  ema_v=0.339  cc=0.012
+[2026-06-19T22:26:57]   step= 650  ee=(2.55,-0.51)  wp=2/3  dist=0.510  hold=10/20  ema_v=0.283  cc=0.013
+[2026-06-19T22:26:57]   step= 700  ee=(2.55,-0.51)  wp=2/3  dist=0.509  hold=11/20  ema_v=0.262  cc=0.013
+[2026-06-19T22:26:57]   step= 750  ee=(2.55,-0.51)  wp=2/3  dist=0.511  hold=11/20  ema_v=0.270  cc=0.013
+[2026-06-19T22:26:57]   Truncated at 800 steps, WPs=2/3
+[2026-06-19T22:26:57]   Total reward: 16901.8
+[2026-06-19T22:26:57] ============================================================

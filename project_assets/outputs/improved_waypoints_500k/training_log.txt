@@ -1,0 +1,49 @@
+[2026-06-19T19:10:57] ============================================================
+[2026-06-19T19:10:57] IMPROVED WAYPOINT TRAINING
+[2026-06-19T19:10:57] ============================================================
+[2026-06-19T19:10:57] Timesteps: 500,000
+[2026-06-19T19:10:57] Waypoints: [[2.3, -1.0], [1.0, 1.5], [2.5, 0.0]]
+[2026-06-19T19:10:57] Improvements:
+[2026-06-19T19:10:57]   1. EMA velocity (alpha=0.15) for hold criterion
+[2026-06-19T19:10:57]   2. Eval-based curriculum (20 deterministic episodes every 10k steps)
+[2026-06-19T19:10:57]   3. Co-contraction penalty P7=-0.08
+[2026-06-19T19:10:57] Curriculum: eval-based, init_tol=0.60, min_tol=0.02, decay=0.80, threshold=80%
+[2026-06-19T19:10:58] Starting training...
+[2026-06-19T19:11:12] ============================================================
+[2026-06-19T19:11:12] IMPROVED WAYPOINT TRAINING
+[2026-06-19T19:11:12] ============================================================
+[2026-06-19T19:11:12] Timesteps: 500,000
+[2026-06-19T19:11:12] Waypoints: [[2.3, -1.0], [1.0, 1.5], [2.5, 0.0]]
+[2026-06-19T19:11:12] Improvements:
+[2026-06-19T19:11:12]   1. EMA velocity (alpha=0.15) for hold criterion
+[2026-06-19T19:11:12]   2. Eval-based curriculum (20 deterministic episodes every 10k steps)
+[2026-06-19T19:11:12]   3. Co-contraction penalty P7=-0.08
+[2026-06-19T19:11:12] Curriculum: eval-based, init_tol=0.60, min_tol=0.02, decay=0.80, threshold=80%
+[2026-06-19T19:11:13] Starting training...
+[2026-06-19T20:12:27] Training complete in 3673.7s (61.2 min)
+[2026-06-19T20:12:27] Final tolerance: 0.600m
+[2026-06-19T20:12:27] Curriculum stage: 0
+[2026-06-19T20:12:27] Last eval success rate: 0.0
+[2026-06-19T20:12:27] Model saved: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/improved_waypoints_500k/sac_model.zip
+[2026-06-19T20:12:27] Metadata saved: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/improved_waypoints_500k/sac_model_metadata.pkl
+[2026-06-19T20:12:27] 
+[2026-06-19T20:12:27] EVALUATION (deterministic, 800 steps, tol=current curriculum)
+[2026-06-19T20:12:27]   step=   0  ee=(1.01,-1.80)  wp=0/3  dist=1.515  hold=0/20  ema_v=0.109  cc=0.008
+[2026-06-19T20:12:27]   step=  50  ee=(1.88,-1.45)  wp=0/3  dist=0.617  hold=0/20  ema_v=0.433  cc=0.201
+[2026-06-19T20:12:27]   step= 100  ee=(1.87,-1.57)  wp=0/3  dist=0.714  hold=0/20  ema_v=2.137  cc=0.775
+[2026-06-19T20:12:27]   step= 150  ee=(1.97,-1.52)  wp=0/3  dist=0.614  hold=0/20  ema_v=2.000  cc=0.120
+[2026-06-19T20:12:27]   step= 200  ee=(1.97,-1.52)  wp=0/3  dist=0.615  hold=0/20  ema_v=2.000  cc=0.120
+[2026-06-19T20:12:27]   step= 250  ee=(1.97,-1.52)  wp=0/3  dist=0.615  hold=0/20  ema_v=2.000  cc=0.120
+[2026-06-19T20:12:27]   step= 300  ee=(1.97,-1.52)  wp=0/3  dist=0.615  hold=0/20  ema_v=2.000  cc=0.120
+[2026-06-19T20:12:27]   step= 350  ee=(1.97,-1.52)  wp=0/3  dist=0.615  hold=0/20  ema_v=2.000  cc=0.120
+[2026-06-19T20:12:27]   step= 400  ee=(1.97,-1.52)  wp=0/3  dist=0.615  hold=0/20  ema_v=2.000  cc=0.120
+[2026-06-19T20:12:27]   step= 450  ee=(1.97,-1.52)  wp=0/3  dist=0.615  hold=0/20  ema_v=2.000  cc=0.120
+[2026-06-19T20:12:27]   step= 500  ee=(1.97,-1.52)  wp=0/3  dist=0.615  hold=0/20  ema_v=2.000  cc=0.120
+[2026-06-19T20:12:27]   step= 550  ee=(1.97,-1.52)  wp=0/3  dist=0.615  hold=0/20  ema_v=2.000  cc=0.120
+[2026-06-19T20:12:27]   step= 600  ee=(1.97,-1.52)  wp=0/3  dist=0.615  hold=0/20  ema_v=2.000  cc=0.120
+[2026-06-19T20:12:27]   step= 650  ee=(1.97,-1.52)  wp=0/3  dist=0.615  hold=0/20  ema_v=2.000  cc=0.120
+[2026-06-19T20:12:27]   step= 700  ee=(1.97,-1.52)  wp=0/3  dist=0.615  hold=0/20  ema_v=2.000  cc=0.120
+[2026-06-19T20:12:27]   step= 750  ee=(1.97,-1.52)  wp=0/3  dist=0.615  hold=0/20  ema_v=2.000  cc=0.120
+[2026-06-19T20:12:27]   Truncated at 800 steps, WPs=0/3
+[2026-06-19T20:12:27]   Total reward: 554.5
+[2026-06-19T20:12:27] ============================================================

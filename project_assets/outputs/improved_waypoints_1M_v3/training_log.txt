@@ -1,0 +1,11 @@
+[2026-06-19T22:31:37] ============================================================
+[2026-06-19T22:31:37] IMPROVED WAYPOINT TRAINING
+[2026-06-19T22:31:37] ============================================================
+[2026-06-19T22:31:37] Timesteps: 1,000,000
+[2026-06-19T22:31:37] Waypoints: [[2.3, -1.0], [1.0, 1.5], [2.5, 0.0]]
+[2026-06-19T22:31:37] Improvements:
+[2026-06-19T22:31:37]   1. EMA velocity (alpha=0.15) for hold criterion
+[2026-06-19T22:31:37]   2. Eval-based curriculum (20 deterministic episodes every 10k steps)
+[2026-06-19T22:31:37]   3. Co-contraction penalty P7=-0.08
+[2026-06-19T22:31:37] Curriculum: eval-based, init_tol=0.8, min_tol=0.02, decay=0.85, threshold=70%
+[2026-06-19T22:31:37] Starting training...

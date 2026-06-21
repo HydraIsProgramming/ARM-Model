@@ -1,0 +1,44 @@
+[2026-06-20T20:00:30] Starting Fischer session: algorithm=SAC, timesteps=500,000, direction=EAST, actuation=muscle, waypoints=[[2.3, -1.0], [1.0, 1.5], [2.5, 0.0]]
+[2026-06-20T20:00:30] Save dir: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/multiseed_run_4
+[2026-06-20T20:00:30] Waypoint mode active: 3 waypoints, current_waypoint_index=0 at every episode reset
+[2026-06-20T20:01:06] Starting Fischer session: algorithm=SAC, timesteps=500,000, direction=EAST, actuation=muscle, waypoints=[[2.3, -1.0], [1.0, 1.5], [2.5, 0.0]]
+[2026-06-20T20:01:06] Save dir: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/multiseed_run_4
+[2026-06-20T20:01:06] Waypoint mode active: 3 waypoints, current_waypoint_index=0 at every episode reset
+[2026-06-20T23:17:41] Training complete in 11830.4s
+[2026-06-20T23:17:41] Episodes: 500
+[2026-06-20T23:17:41] Best reward: 1403.67
+[2026-06-20T23:17:41] Mean reward (100ep): 816.52
+[2026-06-20T23:17:41] Final goal tolerance: 0.6
+[2026-06-20T23:17:41] Curriculum stage: 0
+[2026-06-20T23:17:41] Saved: {'model': '/Users/ranjotsandhu/Documents/Project/project_assets/outputs/multiseed_run_4/sac_model', 'history': '/Users/ranjotsandhu/Documents/Project/project_assets/outputs/multiseed_run_4/training_history.csv', 'stats': '/Users/ranjotsandhu/Documents/Project/project_assets/outputs/multiseed_run_4/training_stats.json'}
+[2026-06-20T23:17:41] Running Fitts' Law sweep (10 trials per condition)...
+[2026-06-20T23:17:56] Fitts sweep complete in 14.8s
+[2026-06-20T23:17:56] Fitts: MT = +0.0016 + +0.2756 * ID, R^2 = 0.8118 (n_conditions = 21, trials_per_condition = 10)
+[2026-06-20T23:17:56] Saved: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/multiseed_run_4/fitts_law.json
+[2026-06-20T23:17:56] Saved: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/multiseed_run_4/fitts_law.png
+[2026-06-20T23:17:56] Running 2/3 Power Law sweep (20 trials)...
+[2026-06-20T23:17:57] Power Law sweep complete in 0.8s
+[2026-06-20T23:17:57] Power Law: log V = +0.0705 + -0.5136 * log C, R = -0.7445, R^2 = 0.5542 (n_samples = 3527, n_trials = 2/20)
+[2026-06-20T23:17:57] Saved: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/multiseed_run_4/power_law.json
+[2026-06-20T23:17:57] Saved: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/multiseed_run_4/power_law.png
+[2026-06-20T23:17:57] Session complete. Total wall time: 3:17:27.559792
+[2026-06-20T23:17:57] ============================================================
+[2026-06-20T23:18:20] Training complete in 11833.0s
+[2026-06-20T23:18:20] Episodes: 502
+[2026-06-20T23:18:20] Best reward: 26238.34
+[2026-06-20T23:18:20] Mean reward (100ep): 3254.77
+[2026-06-20T23:18:20] Final goal tolerance: 0.6
+[2026-06-20T23:18:20] Curriculum stage: 0
+[2026-06-20T23:18:20] Saved: {'model': '/Users/ranjotsandhu/Documents/Project/project_assets/outputs/multiseed_run_4/sac_model', 'history': '/Users/ranjotsandhu/Documents/Project/project_assets/outputs/multiseed_run_4/training_history.csv', 'stats': '/Users/ranjotsandhu/Documents/Project/project_assets/outputs/multiseed_run_4/training_stats.json'}
+[2026-06-20T23:18:20] Running Fitts' Law sweep (10 trials per condition)...
+[2026-06-20T23:18:35] Fitts sweep complete in 14.6s
+[2026-06-20T23:18:35] Fitts: MT = -0.0247 + +0.0842 * ID, R^2 = 0.7045 (n_conditions = 14, trials_per_condition = 10)
+[2026-06-20T23:18:35] Saved: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/multiseed_run_4/fitts_law.json
+[2026-06-20T23:18:35] Saved: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/multiseed_run_4/fitts_law.png
+[2026-06-20T23:18:35] Running 2/3 Power Law sweep (20 trials)...
+[2026-06-20T23:18:36] Power Law sweep complete in 0.9s
+[2026-06-20T23:18:36] Power Law: log V = -0.3130 + -0.4952 * log C, R = -0.6225, R^2 = 0.3875 (n_samples = 3216, n_trials = 0/20)
+[2026-06-20T23:18:36] Saved: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/multiseed_run_4/power_law.json
+[2026-06-20T23:18:36] Saved: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/multiseed_run_4/power_law.png
+[2026-06-20T23:18:36] Session complete. Total wall time: 3:17:29.997210
+[2026-06-20T23:18:36] ============================================================

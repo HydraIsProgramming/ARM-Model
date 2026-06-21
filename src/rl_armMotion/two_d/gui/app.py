@@ -1,5 +1,6 @@
 """Interactive arm controller GUI using Tkinter and Matplotlib (fully open-source)"""
 
+import os
 import pickle
 import sys
 from collections import deque
@@ -18,7 +19,7 @@ from matplotlib.figure import Figure
 from time import time
 
 from rl_armMotion.two_d.config import ArmConfiguration
-from rl_armMotion.two_d.environments.task_env import ArmTaskEnv
+from rl_armMotion.two_d.environments.task_env import ArmTaskEnv, ActionSmoother
 from rl_armMotion.two_d.models.trainers import RLTrainer
 from rl_armMotion.two_d.utils import ArmKinematics, ArmController, MotionRecorder, ArmVisualizer
 
@@ -66,6 +67,8 @@ class ArmControllerGUI:
         self.sim_model_label = None
         self.sim_model_details_text = None
         self.sim_time = 0.0
+        self.action_smoothing = True
+        self.action_smooth_alpha = 0.3
         self.prev_sim_velocities = np.zeros(self.config.dof, dtype=float)
         self.latest_shoulder_torque = 0.0
         self.latest_elbow_torque = 0.0
@@ -579,6 +582,34 @@ class ArmControllerGUI:
         speed_slider.bind("<Motion>", _on_speed_change)
         speed_slider.bind("<ButtonRelease-1>", _on_speed_change)
 
+        # Action smoothing control
+        smooth_row = ttk.Frame(frame)
+        smooth_row.pack(fill="x", pady=(2, 4))
+        self._smooth_var = tk.BooleanVar(value=self.action_smoothing)
+        smooth_check = ttk.Checkbutton(
+            smooth_row, text="Smooth motion",
+            variable=self._smooth_var,
+            command=self._on_smooth_toggle,
+        )
+        smooth_check.pack(side="left", padx=(0, 8))
+        ttk.Label(smooth_row, text="α:", font=("Courier", 8)).pack(side="left")
+        self._smooth_alpha_var = tk.DoubleVar(value=self.action_smooth_alpha)
+        alpha_slider = ttk.Scale(
+            smooth_row, from_=0.1, to=0.9, orient="horizontal",
+            variable=self._smooth_alpha_var, length=100,
+        )
+        alpha_slider.pack(side="left")
+        self._smooth_alpha_label = ttk.Label(smooth_row, text="0.3", font=("Courier", 8), width=4)
+        self._smooth_alpha_label.pack(side="left", padx=(4, 0))
+
+        def _on_alpha_change(event=None):
+            val = round(self._smooth_alpha_var.get(), 2)
+            self.action_smooth_alpha = val
+            self._smooth_alpha_label.config(text=f"{val:.2f}")
+
+        alpha_slider.bind("<Motion>", _on_alpha_change)
+        alpha_slider.bind("<ButtonRelease-1>", _on_alpha_change)
+
         details_frame = ttk.LabelFrame(frame, text="Model Details", padding=4)
         details_frame.pack(fill="x", pady=(0, 6))
         self.sim_model_details_text = tk.Text(
@@ -987,6 +1018,14 @@ class ArmControllerGUI:
         self._set_model_details_text(details_text)
         print(f"✓ Loaded model: {model_base} ({algorithm})")
 
+    def _on_smooth_toggle(self):
+        """Toggle action smoothing on/off."""
+        self.action_smoothing = self._smooth_var.get()
+        state = "ON" if self.action_smoothing else "OFF"
+        print(f"✓ Action smoothing {state} (alpha={self.action_smooth_alpha:.2f})")
+        if self.simulation_active:
+            print("  (restart simulation to apply)")
+
     def _on_toggle_simulation(self):
         """Start/stop policy simulation."""
         if self.simulation_active:
@@ -1033,7 +1072,12 @@ class ArmControllerGUI:
                     f"muscle mode or Box(-1,1,(2,)) for velocity mode."
                 )
 
-            self.sim_env = ArmTaskEnv(actuation_mode=detected_actuation)
+            raw_env = ArmTaskEnv(actuation_mode=detected_actuation)
+            if self.action_smoothing and detected_actuation == "muscle":
+                self.sim_env = ActionSmoother(raw_env, alpha=self.action_smooth_alpha)
+                print(f"✓ Action smoothing ON (alpha={self.action_smooth_alpha})")
+            else:
+                self.sim_env = raw_env
             inspect_model.set_env(self.sim_env)
             self.sim_model = inspect_model
             print(f"✓ Detected {detected_actuation}-mode model, env constructed to match")
@@ -1355,6 +1399,8 @@ Points: {len(self.trajectory_points)}
         if self.simulation_active:
             self._stop_simulation()
         self.root.destroy()
+        # Force-exit to prevent PyTorch/OpenMP GIL crash during interpreter cleanup
+        os._exit(0)
 
 
 def main():

@@ -83,6 +83,42 @@ from rl_armMotion.two_d.config import ArmConfiguration
 from rl_armMotion.two_d.utils.arm_kinematics import ArmController, ArmKinematics
 
 
+class ActionSmoother(gym.ActionWrapper):
+    """EMA low-pass filter on actions for smoother muscle commands.
+
+    Wraps any env and applies exponential moving average to the action
+    before passing it to the underlying env. Use at evaluation/visualization
+    time — does not affect training.
+
+    Parameters
+    ----------
+    env : gym.Env
+        The environment to wrap.
+    alpha : float
+        Smoothing factor in (0, 1]. Lower = smoother but more lag.
+        0.3 is a good default for muscle actuation.
+    """
+
+    def __init__(self, env: gym.Env, alpha: float = 0.3):
+        super().__init__(env)
+        self.alpha = alpha
+        self._prev_action: Optional[np.ndarray] = None
+
+    def action(self, action: np.ndarray) -> np.ndarray:
+        if self._prev_action is None:
+            self._prev_action = np.array(action, dtype=np.float32)
+        else:
+            self._prev_action = (
+                self.alpha * np.array(action, dtype=np.float32)
+                + (1.0 - self.alpha) * self._prev_action
+            )
+        return self._prev_action
+
+    def reset(self, **kwargs):
+        self._prev_action = None
+        return self.env.reset(**kwargs)
+
+
 class ArmTaskEnv(gym.Env):
     """
     2-DOF Robotic Arm Task Environment.
@@ -112,8 +148,9 @@ class ArmTaskEnv(gym.Env):
     # near 0.60 m (their reported initial radius) and decays toward this value
     # as the success rate improves; see ArmTaskEnv.set_goal_tolerance().
     DEFAULT_GOAL_TOLERANCE: float = 0.10
-    DEFAULT_ORIENTATION_TOLERANCE_DEG: float = 10.0
-    DEFAULT_HOLD_VELOCITY_TOLERANCE: float = 0.30
+    DEFAULT_ORIENTATION_TOLERANCE_DEG: float = 12.0
+    DEFAULT_HOLD_VELOCITY_TOLERANCE: float = 0.50
+    EMA_VELOCITY_ALPHA: float = 0.15
 
     # Actuation-mode constants. Phase 6 of the Fischer integration adds an
     # opt-in muscle-driven actuation path; the historical default is the
@@ -325,6 +362,7 @@ class ArmTaskEnv(gym.Env):
         self.previous_total_error = float("inf")
         self.hold_counter = 0
         self.last_gradient = 0.0
+        self._ema_velocity_norm = 0.0
 
         # Waypoint state. When the user calls set_waypoints() the goal_direction
         # is switched to "WAYPOINTS" and self.waypoints holds an ordered list of
@@ -560,6 +598,7 @@ class ArmTaskEnv(gym.Env):
         self.best_total_error = float("inf")
         self.hold_counter = 0
         self.last_gradient = 0.0
+        self._ema_velocity_norm = 0.0
 
         # In waypoint mode, rewind to the first waypoint at the start of every
         # episode so the agent always begins by attempting waypoint 0. The
@@ -749,12 +788,15 @@ class ArmTaskEnv(gym.Env):
         signed_orientation_error, orientation_error = self._compute_orientation_error(new_angles)
         velocity_norm = float(np.linalg.norm(new_velocities))
 
+        alpha = self.EMA_VELOCITY_ALPHA
+        self._ema_velocity_norm = alpha * velocity_norm + (1.0 - alpha) * self._ema_velocity_norm
+
         in_goal_region = self._is_goal_reached(goal_distance, orientation_error, velocity_norm)
 
         if in_goal_region:
             self.hold_counter += 1
         else:
-            self.hold_counter = 0
+            self.hold_counter = max(0, self.hold_counter - 5)
 
         total_error = 2.0 * goal_distance + orientation_error
 
@@ -783,12 +825,23 @@ class ArmTaskEnv(gym.Env):
         # docs/Reward_System_Report.pdf; the labels P1..P5 / B1..B4 below
         # match the labels used in that document.
         # ------------------------------------------------------------------
+        action_arr = np.asarray(action, dtype=np.float32)
+
+        cocontraction = 0.0
+        if self.actuation_mode == self.ACTUATION_MUSCLE:
+            for j in range(self.num_dof):
+                a_ext = float(action_arr[2 * j])
+                a_flex = float(action_arr[2 * j + 1])
+                cocontraction += a_ext * a_flex
+            cocontraction /= max(self.num_dof, 1)
+
         reward = (
             -2.0  * goal_distance                       # P1 distance penalty (primary signal)
             -1.0  * orientation_error                   # P2 orientation-error penalty
             -0.15 * velocity_norm                       # P3 velocity-norm penalty (smoothness)
             -0.20 * gradient_norm                       # P4 error-gradient penalty (anti-overshoot)
             -0.01 * float(np.linalg.norm(action))       # P5 action-norm penalty (small effort cost)
+            -0.08 * cocontraction                       # P7 co-contraction penalty (reduce muscle tremor)
         )
 
         # B1 — Progress bonus. Standard potential-based reward shaping (Ng,
@@ -910,6 +963,8 @@ class ArmTaskEnv(gym.Env):
             ),
             "waypoint_advanced": bool(waypoint_advanced),
             "actuation_mode": self.actuation_mode,
+            "ema_velocity_norm": float(self._ema_velocity_norm),
+            "cocontraction": float(cocontraction),
         }
 
         obs = self._get_observation(

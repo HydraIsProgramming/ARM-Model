@@ -1,0 +1,31 @@
+Fatal Python error: PyEval_RestoreThread: the function must be called with the GIL held, but the GIL is released (the current Python thread state is NULL)
+Python runtime state: initialized
+
+Current thread 0x00000001f4f2a080 (most recent call first):
+  File "/Users/ranjotsandhu/Documents/Project/venv/lib/python3.10/site-packages/matplotlib/backends/backend_agg.py", line 192 in draw_text
+  File "/Users/ranjotsandhu/Documents/Project/venv/lib/python3.10/site-packages/matplotlib/text.py", line 808 in draw
+  File "/Users/ranjotsandhu/Documents/Project/venv/lib/python3.10/site-packages/matplotlib/artist.py", line 71 in draw_wrapper
+  File "/Users/ranjotsandhu/Documents/Project/venv/lib/python3.10/site-packages/matplotlib/axis.py", line 276 in draw
+  File "/Users/ranjotsandhu/Documents/Project/venv/lib/python3.10/site-packages/matplotlib/artist.py", line 71 in draw_wrapper
+  File "/Users/ranjotsandhu/Documents/Project/venv/lib/python3.10/site-packages/matplotlib/axis.py", line 1408 in draw
+  File "/Users/ranjotsandhu/Documents/Project/venv/lib/python3.10/site-packages/matplotlib/artist.py", line 71 in draw_wrapper
+  File "/Users/ranjotsandhu/Documents/Project/venv/lib/python3.10/site-packages/matplotlib/image.py", line 134 in _draw_list_compositing_images
+  File "/Users/ranjotsandhu/Documents/Project/venv/lib/python3.10/site-packages/matplotlib/axes/_base.py", line 3226 in draw
+  File "/Users/ranjotsandhu/Documents/Project/venv/lib/python3.10/site-packages/matplotlib/artist.py", line 71 in draw_wrapper
+  File "/Users/ranjotsandhu/Documents/Project/venv/lib/python3.10/site-packages/matplotlib/image.py", line 134 in _draw_list_compositing_images
+  File "/Users/ranjotsandhu/Documents/Project/venv/lib/python3.10/site-packages/matplotlib/figure.py", line 3257 in draw
+  File "/Users/ranjotsandhu/Documents/Project/venv/lib/python3.10/site-packages/matplotlib/artist.py", line 71 in draw_wrapper
+  File "/Users/ranjotsandhu/Documents/Project/venv/lib/python3.10/site-packages/matplotlib/artist.py", line 94 in draw_wrapper
+  File "/Users/ranjotsandhu/Documents/Project/venv/lib/python3.10/site-packages/matplotlib/backends/backend_agg.py", line 382 in draw
+  File "/Users/ranjotsandhu/Documents/Project/venv/lib/python3.10/site-packages/matplotlib/backends/backend_tkagg.py", line 10 in draw
+  File "/Users/ranjotsandhu/Documents/Project/venv/lib/python3.10/site-packages/matplotlib/backends/_backend_tk.py", line 302 in idle_draw
+  File "/Users/ranjotsandhu/.pyenv/versions/3.10.14/lib/python3.10/tkinter/__init__.py", line 839 in callit
+  File "/Users/ranjotsandhu/.pyenv/versions/3.10.14/lib/python3.10/tkinter/__init__.py", line 1921 in __call__
+  File "/Users/ranjotsandhu/.pyenv/versions/3.10.14/lib/python3.10/tkinter/__init__.py", line 1458 in mainloop
+  File "/Users/ranjotsandhu/Documents/Project/src/rl_armMotion/two_d/gui/app.py", line 1350 in run
+  File "/Users/ranjotsandhu/Documents/Project/src/rl_armMotion/two_d/gui/app.py", line 1364 in main
+  File "/Users/ranjotsandhu/Documents/Project/src/rl_armMotion/two_d/gui/app.py", line 1368 in <module>
+  File "/Users/ranjotsandhu/.pyenv/versions/3.10.14/lib/python3.10/runpy.py", line 86 in _run_code
+  File "/Users/ranjotsandhu/.pyenv/versions/3.10.14/lib/python3.10/runpy.py", line 196 in _run_module_as_main
+
+Extension modules: numpy._core._multiarray_umath, numpy.linalg._umath_linalg, numpy.random._common, numpy.random.bit_generator, numpy.random._bounded_integers, numpy.random._mt19937, numpy.random.mtrand, numpy.random._philox, numpy.random._pcg64, numpy.random._sfc64, numpy.random._generator, torch._C, torch._C._dynamo.autograd_compiler, torch._C._dynamo.eval_frame, torch._C._dynamo.guards, torch._C._dynamo.utils, torch._C._fft, torch._C._linalg, torch._C._nested, torch._C._nn, torch._C._sparse, torch._C._special, google._upb._message, PIL._imaging, kiwisolver._cext, pandas._libs.tslibs.ccalendar, pandas._libs.tslibs.np_datetime, pandas._libs.tslibs.dtypes, pandas._libs.tslibs.base, pandas._libs.tslibs.nattype, pandas._libs.tslibs.timezones, pandas._libs.tslibs.fields, pandas._libs.tslibs.timedeltas, pandas._libs.tslibs.tzconversion, pandas._libs.tslibs.timestamps, pandas._libs.properties, pandas._libs.tslibs.offsets, pandas._libs.tslibs.strptime, pandas._libs.tslibs.parsing, pandas._libs.tslibs.conversion, pandas._libs.tslibs.period, pandas._libs.tslibs.vectorized, pandas._libs.ops_dispatch, pandas._libs.missing, pandas._libs.hashtable, pandas._libs.algos, pandas._libs.interval, pandas._libs.lib, pandas._libs.ops, pandas._libs.hashing, pandas._libs.arrays, pandas._libs.tslib, pandas._libs.sparse, pandas._libs.internals, pandas._libs.indexing, pandas._libs.index, pandas._libs.writers, pandas._libs.join, pandas._libs.window.aggregations, pandas._libs.window.indexers, pandas._libs.reshape, pandas._libs.groupby, pandas._libs.json, pandas._libs.parsers, pandas._libs.testing, psutil._psutil_osx (total: 66)

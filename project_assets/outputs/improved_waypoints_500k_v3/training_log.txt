@@ -1,0 +1,81 @@
+[2026-06-19T22:43:04] ============================================================
+[2026-06-19T22:43:04] IMPROVED WAYPOINT TRAINING
+[2026-06-19T22:43:04] ============================================================
+[2026-06-19T22:43:04] Timesteps: 500,000
+[2026-06-19T22:43:04] Waypoints: [[2.3, -1.0], [1.0, 1.5], [2.5, 0.0]]
+[2026-06-19T22:43:04] Improvements:
+[2026-06-19T22:43:04]   1. EMA velocity (alpha=0.15) for hold criterion
+[2026-06-19T22:43:04]   2. Eval-based curriculum (20 deterministic episodes every 10k steps)
+[2026-06-19T22:43:04]   3. Co-contraction penalty P7=-0.08
+[2026-06-19T22:43:04] Curriculum: eval-based, init_tol=0.8, min_tol=0.02, decay=0.85, threshold=70%
+[2026-06-19T22:43:04] Starting training...
+[2026-06-19T23:44:17] ============================================================
+[2026-06-19T23:44:17] IMPROVED WAYPOINT TRAINING
+[2026-06-19T23:44:17] ============================================================
+[2026-06-19T23:44:17] Timesteps: 500,000
+[2026-06-19T23:44:17] Waypoints: [[2.3, -1.0], [1.0, 1.5], [2.5, 0.0]]
+[2026-06-19T23:44:17] Improvements:
+[2026-06-19T23:44:17]   1. EMA velocity (alpha=0.15) for hold criterion
+[2026-06-19T23:44:17]   2. Eval-based curriculum (20 deterministic episodes every 10k steps)
+[2026-06-19T23:44:17]   3. Co-contraction penalty P7=-0.08
+[2026-06-19T23:44:17] Curriculum: eval-based, init_tol=0.8, min_tol=0.02, decay=0.85, threshold=70%
+[2026-06-19T23:44:27] ============================================================
+[2026-06-19T23:44:27] IMPROVED WAYPOINT TRAINING
+[2026-06-19T23:44:27] ============================================================
+[2026-06-19T23:44:27] Timesteps: 500,000
+[2026-06-19T23:44:27] Waypoints: [[2.3, -1.0], [1.0, 1.5], [2.5, 0.0]]
+[2026-06-19T23:44:27] Improvements:
+[2026-06-19T23:44:27]   1. EMA velocity (alpha=0.15) for hold criterion
+[2026-06-19T23:44:27]   2. Eval-based curriculum (20 deterministic episodes every 10k steps)
+[2026-06-19T23:44:27]   3. Co-contraction penalty P7=-0.08
+[2026-06-19T23:44:27] Curriculum: eval-based, init_tol=0.8, min_tol=0.02, decay=0.85, threshold=70%
+[2026-06-19T23:44:28] Starting training...
+[2026-06-20T09:49:12] ============================================================
+[2026-06-20T09:49:12] IMPROVED WAYPOINT TRAINING
+[2026-06-20T09:49:12] ============================================================
+[2026-06-20T09:49:12] Timesteps: 500,000
+[2026-06-20T09:49:12] Waypoints: [[2.3, -1.0], [1.0, 1.5], [2.5, 0.0]]
+[2026-06-20T09:49:12] Improvements:
+[2026-06-20T09:49:12]   1. EMA velocity (alpha=0.15) for hold criterion
+[2026-06-20T09:49:12]   2. Eval-based curriculum (20 deterministic episodes every 10k steps)
+[2026-06-20T09:49:12]   3. Co-contraction penalty P7=-0.08
+[2026-06-20T09:49:12] Curriculum: eval-based, init_tol=0.8, min_tol=0.02, decay=0.85, threshold=70%
+[2026-06-20T09:49:13] Starting training...
+[2026-06-20T12:29:04] ============================================================
+[2026-06-20T12:29:04] IMPROVED WAYPOINT TRAINING
+[2026-06-20T12:29:04] ============================================================
+[2026-06-20T12:29:04] Timesteps: 500,000
+[2026-06-20T12:29:04] Waypoints: [[2.3, -1.0], [1.0, 1.5], [2.5, 0.0]]
+[2026-06-20T12:29:04] Improvements:
+[2026-06-20T12:29:04]   1. EMA velocity (alpha=0.15) for hold criterion
+[2026-06-20T12:29:04]   2. Eval-based curriculum (20 deterministic episodes every 10k steps)
+[2026-06-20T12:29:04]   3. Co-contraction penalty P7=-0.08
+[2026-06-20T12:29:04] Curriculum: eval-based, init_tol=0.8, min_tol=0.02, decay=0.85, threshold=70%
+[2026-06-20T12:29:05] Starting training...
+[2026-06-20T13:29:57] Training complete in 3651.6s (60.9 min)
+[2026-06-20T13:29:57] Final tolerance: 0.800m
+[2026-06-20T13:29:57] Curriculum stage: 0
+[2026-06-20T13:29:57] Last eval success rate: 0.0
+[2026-06-20T13:29:57] Model saved: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/improved_waypoints_500k_v3/sac_model.zip
+[2026-06-20T13:29:57] Metadata saved: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/improved_waypoints_500k_v3/sac_model_metadata.pkl
+[2026-06-20T13:29:57] 
+[2026-06-20T13:29:57] EVALUATION (deterministic, 800 steps, tol=current curriculum)
+[2026-06-20T13:29:57]   step=   0  ee=(1.01,-1.80)  wp=0/3  dist=1.516  hold=0/20  ema_v=0.098  cc=0.055
+[2026-06-20T13:29:57]   step=  50  ee=(2.59,-0.28)  wp=1/3  dist=2.381  hold=0/20  ema_v=2.827  cc=0.278
+[2026-06-20T13:29:57]   step= 100  ee=(1.70,1.13)  wp=2/3  dist=1.381  hold=0/20  ema_v=2.161  cc=0.070
+[2026-06-20T13:29:57]   step= 150  ee=(2.68,-0.33)  wp=2/3  dist=0.376  hold=5/20  ema_v=1.081  cc=0.088
+[2026-06-20T13:29:57]   step= 200  ee=(2.67,-0.39)  wp=2/3  dist=0.425  hold=15/20  ema_v=0.170  cc=0.014
+[2026-06-20T13:29:57]   step= 250  ee=(2.67,-0.42)  wp=2/3  dist=0.453  hold=5/20  ema_v=0.203  cc=0.112
+[2026-06-20T13:29:57]   step= 300  ee=(2.65,-0.43)  wp=2/3  dist=0.459  hold=15/20  ema_v=0.189  cc=0.014
+[2026-06-20T13:29:57]   step= 350  ee=(2.65,-0.44)  wp=2/3  dist=0.469  hold=5/20  ema_v=0.187  cc=0.107
+[2026-06-20T13:29:57]   step= 400  ee=(2.64,-0.45)  wp=2/3  dist=0.470  hold=15/20  ema_v=0.183  cc=0.012
+[2026-06-20T13:29:57]   step= 450  ee=(2.64,-0.46)  wp=2/3  dist=0.477  hold=5/20  ema_v=0.171  cc=0.075
+[2026-06-20T13:29:57]   step= 500  ee=(2.63,-0.45)  wp=2/3  dist=0.472  hold=15/20  ema_v=0.168  cc=0.013
+[2026-06-20T13:29:57]   step= 550  ee=(2.63,-0.45)  wp=2/3  dist=0.469  hold=5/20  ema_v=0.154  cc=0.058
+[2026-06-20T13:29:57]   step= 600  ee=(2.63,-0.44)  wp=2/3  dist=0.460  hold=15/20  ema_v=0.150  cc=0.016
+[2026-06-20T13:29:57]   step= 650  ee=(2.64,-0.44)  wp=2/3  dist=0.462  hold=5/20  ema_v=0.154  cc=0.059
+[2026-06-20T13:29:57]   step= 700  ee=(2.63,-0.44)  wp=2/3  dist=0.457  hold=15/20  ema_v=0.151  cc=0.016
+[2026-06-20T13:29:57]   step= 750  ee=(2.64,-0.44)  wp=2/3  dist=0.461  hold=5/20  ema_v=0.154  cc=0.061
+[2026-06-20T13:29:57]   Truncated at 800 steps, WPs=2/3
+[2026-06-20T13:29:57]   Total reward: 19653.0
+[2026-06-20T13:29:57] ============================================================

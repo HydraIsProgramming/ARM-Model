@@ -1,0 +1,26 @@
+[2026-06-19T16:20:44] Fine-tuning from: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/fischer_waypoints_v2_500k/sac_model
+[2026-06-19T16:20:44] Additional timesteps: 300,000
+[2026-06-19T16:20:44] Waypoints: [[2.3, -1.0], [1.0, 1.5], [2.5, 0.0]]
+[2026-06-19T16:20:44] Velocity tolerance: 0.50 rad/s (corrected for muscle dynamics)
+[2026-06-19T16:20:44] Curriculum: active, initial_tol=0.60, min_tol=0.02, decay=0.80, threshold=80%
+[2026-06-19T16:20:44] Starting fine-tuning...
+[2026-06-19T16:57:53] Fine-tuning complete in 2228.4s
+[2026-06-19T16:57:53] Episodes: 308
+[2026-06-19T16:57:53] Best reward: 25697.69
+[2026-06-19T16:57:53] Mean reward (100ep): 19012.45
+[2026-06-19T16:57:53] Final goal tolerance: 0.6
+[2026-06-19T16:57:53] Curriculum stage: 0
+[2026-06-19T16:57:53] Recent success rate: 0.06
+[2026-06-19T16:57:53] Saved: {'model': '/Users/ranjotsandhu/Documents/Project/project_assets/outputs/fischer_waypoints_finetuned/sac_model', 'history': '/Users/ranjotsandhu/Documents/Project/project_assets/outputs/fischer_waypoints_finetuned/training_history.csv', 'stats': '/Users/ranjotsandhu/Documents/Project/project_assets/outputs/fischer_waypoints_finetuned/training_stats.json'}
+[2026-06-19T16:57:53] Running Fitts' Law sweep (10 trials per condition)...
+[2026-06-19T16:58:05] Fitts sweep complete in 11.9s
+[2026-06-19T16:58:05] Fitts: MT = +0.0241 + +0.0430 * ID, R^2 = 0.6657 (n_conditions = 21, trials_per_condition = 10)
+[2026-06-19T16:58:05] Saved: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/fischer_waypoints_finetuned/fitts_law.json
+[2026-06-19T16:58:05] Saved: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/fischer_waypoints_finetuned/fitts_law.png
+[2026-06-19T16:58:05] Running 2/3 Power Law sweep (20 trials)...
+[2026-06-19T16:58:06] Power Law sweep complete in 0.8s
+[2026-06-19T16:58:06] Power Law: log V = -0.2910 + -0.4903 * log C, R = -0.3924, R^2 = 0.1540 (n_samples = 3629, n_trials = 0/20)
+[2026-06-19T16:58:06] Saved: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/fischer_waypoints_finetuned/power_law.json
+[2026-06-19T16:58:06] Saved: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/fischer_waypoints_finetuned/power_law.png
+[2026-06-19T16:58:06] Session complete. Total wall time: 0:37:22.418250
+[2026-06-19T16:58:06] ============================================================

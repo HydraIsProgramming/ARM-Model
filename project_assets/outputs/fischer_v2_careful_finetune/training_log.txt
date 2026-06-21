@@ -1,0 +1,38 @@
+[2026-06-21T00:17:34] ============================================================
+[2026-06-21T00:17:34] CAREFUL FINE-TUNE FROM FISCHER V2
+[2026-06-21T00:17:34] ============================================================
+[2026-06-21T00:17:34] Base model: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/fischer_waypoints_v2_500k/sac_model.zip
+[2026-06-21T00:17:34] Learning rate: 1e-05 (30x smaller than default)
+[2026-06-21T00:17:34] Fine-tune steps: 100,000
+[2026-06-21T00:17:34] Checkpoints every 25K steps
+[2026-06-21T00:17:34] Waypoints: [[2.3, -1.0], [1.0, 1.5], [2.5, 0.0]]
+[2026-06-21T00:17:34] Curriculum: eval-based, init_tol=0.6
+[2026-06-21T00:17:34] Loading base model...
+[2026-06-21T00:17:35] Base model loaded, lr set to 1e-5
+[2026-06-21T00:17:35] 
+[2026-06-21T00:17:35] BASELINE (before fine-tune):
+[2026-06-21T00:17:35]   tol=0.6m: 3/3 in 181 steps
+[2026-06-21T00:17:35]   tol=0.4m: 3/3 in 206 steps
+[2026-06-21T00:17:35]   tol=0.2m: 2/3 stuck (dist=0.343)
+[2026-06-21T00:17:35] 
+[2026-06-21T00:17:35] Starting fine-tuning...
+[2026-06-21T00:29:55] Fine-tuning complete in 739.7s (12.3 min)
+[2026-06-21T00:29:55] Final tolerance: 0.600m
+[2026-06-21T00:29:55] Curriculum stage: 0
+[2026-06-21T00:29:55] Final model saved: /Users/ranjotsandhu/Documents/Project/project_assets/outputs/fischer_v2_careful_finetune/sac_model.zip
+[2026-06-21T00:29:55] 
+[2026-06-21T00:29:55] FINAL MODEL (after fine-tune):
+[2026-06-21T00:29:55]   tol=0.6m: 2/3 stuck (dist=0.332)
+[2026-06-21T00:29:55]   tol=0.4m: 2/3 stuck (dist=0.333)
+[2026-06-21T00:29:55]   tol=0.2m: 2/3 stuck (dist=0.303)
+[2026-06-21T00:29:55] 
+[2026-06-21T00:29:55] CHECKPOINT EVALUATION:
+[2026-06-21T00:29:56]   finetune_100000_steps: 0.6m:2/3, 0.4m:2/3, 0.2m:2/3  (score=60.0)
+[2026-06-21T00:29:56]   finetune_25000_steps: 0.6m:2/3, 0.4m:2/3, 0.2m:1/3  (score=50.0)
+[2026-06-21T00:29:57]   finetune_50000_steps: 0.6m:0/3, 0.4m:0/3, 0.2m:0/3  (score=0.0)
+[2026-06-21T00:29:57]   finetune_75000_steps: 0.6m:2/3, 0.4m:2/3, 0.2m:2/3  (score=60.0)
+[2026-06-21T00:29:58]   ORIGINAL baseline: score=181.3
+[2026-06-21T00:29:58]   FINAL model: score=60.0
+[2026-06-21T00:29:58] 
+[2026-06-21T00:29:58] Original model is still the best (score=181.3)
+[2026-06-21T00:29:58] ============================================================

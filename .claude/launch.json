@@ -43,6 +43,18 @@
       "runtimeArgs": ["run", "dev", "--", "--port", "5181"],
       "port": 5181,
       "cwd": "../Eileens-English-Toffee"
+    },
+    {
+      "name": "concierge-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["start"],
+      "port": 3003,
+      "cwd": "../concierge/frontend",
+      "env": {
+        "BROWSER": "none",
+        "PORT": "3003",
+        "REACT_APP_API_URL": "http://localhost:3001"
+      }
     }
   ]
 }

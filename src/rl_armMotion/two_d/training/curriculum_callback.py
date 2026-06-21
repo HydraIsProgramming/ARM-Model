@@ -24,12 +24,12 @@ environment with multiple parallel workers.
 """
 
 from collections import deque
-from typing import Any, List, Optional
+from typing import Any, Callable, List, Optional
 
 from stable_baselines3.common.callbacks import BaseCallback
 
 
-__all__ = ["AdaptiveCurriculumCallback"]
+__all__ = ["AdaptiveCurriculumCallback", "EvalBasedCurriculumCallback"]
 
 
 class AdaptiveCurriculumCallback(BaseCallback):
@@ -279,4 +279,164 @@ class AdaptiveCurriculumCallback(BaseCallback):
             "window_filled": len(self._episode_results),
             "window_size": int(self.window_size),
             "episodes_since_last_decay": int(self._episodes_since_last_decay),
+        }
+
+
+class EvalBasedCurriculumCallback(BaseCallback):
+    """Curriculum that advances based on periodic deterministic evaluation.
+
+    Unlike AdaptiveCurriculumCallback which measures success rate from the
+    stochastic training policy (systematically under-counting because SAC's
+    exploration noise disrupts holds), this callback periodically runs a
+    batch of deterministic rollouts on a separate eval environment and uses
+    *that* success rate for curriculum decisions.
+
+    Parameters
+    ----------
+    eval_env_fn : Callable
+        Zero-argument factory that returns a fresh ArmTaskEnv instance for
+        evaluation. A factory is used (instead of a pre-built env) so the
+        callback can set the current tolerance on each eval round.
+    initial_tolerance : float
+        Starting position tolerance in metres.
+    min_tolerance : float
+        Floor tolerance below which no further decay occurs.
+    success_rate_threshold : float
+        Eval success rate (in [0, 1]) above which tolerance is shrunk.
+    decay_factor : float
+        Multiplicative shrink factor in (0, 1).
+    eval_freq : int
+        Run an evaluation round every this many training timesteps.
+    n_eval_episodes : int
+        Number of deterministic episodes per evaluation round.
+    success_key : str
+        Key in the info dict that flags a successful termination.
+    verbose : int
+        SB3 verbosity level.
+    """
+
+    def __init__(
+        self,
+        eval_env_fn: Callable,
+        initial_tolerance: float = 0.60,
+        min_tolerance: float = 0.02,
+        success_rate_threshold: float = 0.80,
+        decay_factor: float = 0.80,
+        eval_freq: int = 10_000,
+        n_eval_episodes: int = 20,
+        success_key: str = "goal_reached",
+        verbose: int = 0,
+    ):
+        super().__init__(verbose=verbose)
+        self.eval_env_fn = eval_env_fn
+        self.initial_tolerance = float(initial_tolerance)
+        self.min_tolerance = float(min_tolerance)
+        self.success_rate_threshold = float(success_rate_threshold)
+        self.decay_factor = float(decay_factor)
+        self.eval_freq = int(eval_freq)
+        self.n_eval_episodes = int(n_eval_episodes)
+        self.success_key = str(success_key)
+
+        self.current_tolerance: float = float(initial_tolerance)
+        self.curriculum_stage: int = 0
+        self._last_eval_step: int = 0
+        self._recent_success_rate: Optional[float] = None
+
+    def _on_training_start(self) -> None:
+        self._apply_tolerance(self.current_tolerance)
+        if self.verbose:
+            print(
+                f"[EvalCurriculum] Initial tolerance {self.current_tolerance:.3f} m  "
+                f"(eval every {self.eval_freq} steps, {self.n_eval_episodes} episodes, "
+                f"threshold {self.success_rate_threshold:.0%}, decay x{self.decay_factor})"
+            )
+
+    def _on_step(self) -> bool:
+        if self.num_timesteps - self._last_eval_step >= self.eval_freq:
+            self._run_eval_and_maybe_advance()
+            self._last_eval_step = self.num_timesteps
+        return True
+
+    def _run_eval_and_maybe_advance(self) -> None:
+        eval_env = self.eval_env_fn()
+        if hasattr(eval_env, "set_goal_tolerance"):
+            eval_env.set_goal_tolerance(self.current_tolerance)
+
+        successes = 0
+        for _ in range(self.n_eval_episodes):
+            obs, _ = eval_env.reset()
+            done = False
+            while not done:
+                action, _ = self.model.predict(obs, deterministic=True)
+                obs, _, terminated, truncated, info = eval_env.step(action)
+                done = terminated or truncated
+            if info.get(self.success_key, False):
+                successes += 1
+
+        eval_env.close()
+        self._recent_success_rate = successes / self.n_eval_episodes
+
+        if self.verbose:
+            print(
+                f"[EvalCurriculum] step {self.num_timesteps}: "
+                f"eval success {self._recent_success_rate:.0%} "
+                f"({successes}/{self.n_eval_episodes}) at tol "
+                f"{self.current_tolerance:.3f} m"
+            )
+
+        if self.current_tolerance <= self.min_tolerance:
+            return
+        if self._recent_success_rate < self.success_rate_threshold:
+            return
+
+        new_tol = max(
+            self.current_tolerance * self.decay_factor,
+            self.min_tolerance,
+        )
+        if new_tol >= self.current_tolerance:
+            return
+
+        self.current_tolerance = float(new_tol)
+        self.curriculum_stage += 1
+        self._apply_tolerance(self.current_tolerance)
+
+        if self.verbose:
+            print(
+                f"[EvalCurriculum] Stage {self.curriculum_stage}: "
+                f"tolerance shrunk to {self.current_tolerance:.3f} m"
+            )
+
+    def _apply_tolerance(self, tolerance: float) -> None:
+        env = self.training_env
+        if hasattr(env, "env_method"):
+            try:
+                env.env_method("set_goal_tolerance", tolerance)
+                return
+            except Exception:
+                pass
+        if hasattr(env, "set_goal_tolerance"):
+            env.set_goal_tolerance(tolerance)
+            return
+        if hasattr(env, "envs"):
+            for sub in env.envs:
+                target = sub
+                for _ in range(8):
+                    if hasattr(target, "set_goal_tolerance"):
+                        target.set_goal_tolerance(tolerance)
+                        break
+                    if hasattr(target, "env"):
+                        target = target.env
+                    else:
+                        break
+
+    def get_progress(self) -> dict:
+        return {
+            "current_tolerance": float(self.current_tolerance),
+            "min_tolerance": float(self.min_tolerance),
+            "initial_tolerance": float(self.initial_tolerance),
+            "curriculum_stage": int(self.curriculum_stage),
+            "recent_success_rate": self._recent_success_rate,
+            "eval_freq": int(self.eval_freq),
+            "n_eval_episodes": int(self.n_eval_episodes),
+            "last_eval_step": int(self._last_eval_step),
         }
