@@ -118,6 +118,12 @@ class ActionSmoother(gym.ActionWrapper):
         self._prev_action = None
         return self.env.reset(**kwargs)
 
+    def get_state_info(self):
+        return self.env.get_state_info()
+
+    def set_waypoints(self, *args, **kwargs):
+        return self.env.set_waypoints(*args, **kwargs)
+
 
 class ArmTaskEnv(gym.Env):
     """
@@ -389,6 +395,17 @@ class ArmTaskEnv(gym.Env):
             raise ValueError(f"goal_tolerance must be positive, got {tolerance}")
         self.height_tolerance = float(tolerance)
         self.goal_tolerance = self.height_tolerance
+
+    def set_hold_steps_required(self, steps: int) -> None:
+        """Update the number of consecutive steps the arm must hold at the final waypoint.
+
+        Used by HoldCurriculumCallback to gradually increase the hold
+        requirement from an easy initial value (e.g. 10) up to the full
+        production value (20) as the agent learns to hold.
+        """
+        if steps < 1:
+            raise ValueError(f"hold_steps_required must be >= 1, got {steps}")
+        self.hold_steps_required = int(steps)
 
     def set_waypoints(self, positions, tolerance: Optional[float] = None) -> None:
         """Configure a sequence of 2D waypoints to be visited in order.
@@ -796,7 +813,7 @@ class ArmTaskEnv(gym.Env):
         if in_goal_region:
             self.hold_counter += 1
         else:
-            self.hold_counter = max(0, self.hold_counter - 5)
+            self.hold_counter = max(0, self.hold_counter - 3)
 
         total_error = 2.0 * goal_distance + orientation_error
 

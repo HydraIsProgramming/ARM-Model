@@ -29,7 +29,7 @@ from typing import Any, Callable, List, Optional
 from stable_baselines3.common.callbacks import BaseCallback
 
 
-__all__ = ["AdaptiveCurriculumCallback", "EvalBasedCurriculumCallback"]
+__all__ = ["AdaptiveCurriculumCallback", "EvalBasedCurriculumCallback", "HoldCurriculumCallback"]
 
 
 class AdaptiveCurriculumCallback(BaseCallback):
@@ -439,4 +439,132 @@ class EvalBasedCurriculumCallback(BaseCallback):
             "eval_freq": int(self.eval_freq),
             "n_eval_episodes": int(self.n_eval_episodes),
             "last_eval_step": int(self._last_eval_step),
+        }
+
+
+class HoldCurriculumCallback(BaseCallback):
+    """Gradually increase the hold-steps requirement as the agent learns to hold.
+
+    Starts at initial_hold_steps (e.g. 10) and advances through a fixed
+    ladder of steps (e.g. [10, 15, 20]) each time the rolling success rate
+    exceeds success_rate_threshold. This prevents the agent from getting
+    stuck trying to hold for the full 20 steps before it has learned basic
+    hold behaviour.
+
+    Parameters
+    ----------
+    initial_hold_steps : int
+        Starting hold requirement (default 10 — half the production value).
+    hold_ladder : list of int
+        Ordered stages to advance through (default [10, 15, 20]).
+    success_rate_threshold : float
+        Rolling success rate above which the hold requirement advances.
+    window_size : int
+        Number of recent episodes for the rolling success rate.
+    min_episodes_before_advance : int
+        Cooldown between advances.
+    success_key : str
+        Info dict key flagging a successful episode.
+    verbose : int
+        SB3 verbosity level.
+    """
+
+    def __init__(
+        self,
+        initial_hold_steps: int = 10,
+        hold_ladder: Optional[List[int]] = None,
+        success_rate_threshold: float = 0.60,
+        window_size: int = 50,
+        min_episodes_before_advance: int = 20,
+        success_key: str = "goal_reached",
+        verbose: int = 0,
+    ):
+        super().__init__(verbose=verbose)
+        self.hold_ladder: List[int] = hold_ladder if hold_ladder is not None else [10, 15, 20]
+        if initial_hold_steps not in self.hold_ladder:
+            self.hold_ladder = sorted(set([initial_hold_steps] + self.hold_ladder))
+        self.success_rate_threshold = float(success_rate_threshold)
+        self.window_size = int(window_size)
+        self.min_episodes_before_advance = int(min_episodes_before_advance)
+        self.success_key = str(success_key)
+
+        self._ladder_idx: int = self.hold_ladder.index(initial_hold_steps)
+        self.current_hold_steps: int = initial_hold_steps
+        self._episode_results: deque = deque(maxlen=self.window_size)
+        self._episodes_since_last_advance: int = 0
+
+    def _on_training_start(self) -> None:
+        self._apply_hold_steps(self.current_hold_steps)
+        if self.verbose:
+            print(
+                f"[HoldCurriculum] Initial hold requirement: "
+                f"{self.current_hold_steps} steps "
+                f"(ladder: {self.hold_ladder}, threshold: {self.success_rate_threshold:.0%})"
+            )
+
+    def _on_step(self) -> bool:
+        infos: List[Any] = list(self.locals.get("infos", []))
+        dones: List[Any] = list(self.locals.get("dones", []))
+        for info, done in zip(infos, dones):
+            if not bool(done):
+                continue
+            success = bool(info.get(self.success_key, False)) if isinstance(info, dict) else False
+            self._episode_results.append(1 if success else 0)
+            self._episodes_since_last_advance += 1
+        self._maybe_advance()
+        return True
+
+    def _maybe_advance(self) -> None:
+        if self._ladder_idx >= len(self.hold_ladder) - 1:
+            return
+        if len(self._episode_results) < self.window_size:
+            return
+        if self._episodes_since_last_advance < self.min_episodes_before_advance:
+            return
+        success_rate = sum(self._episode_results) / float(len(self._episode_results))
+        if success_rate < self.success_rate_threshold:
+            return
+
+        self._ladder_idx += 1
+        self.current_hold_steps = self.hold_ladder[self._ladder_idx]
+        self._episodes_since_last_advance = 0
+        self._apply_hold_steps(self.current_hold_steps)
+
+        if self.verbose:
+            print(
+                f"[HoldCurriculum] Advanced to hold={self.current_hold_steps} steps "
+                f"(success rate {success_rate:.1%}, stage {self._ladder_idx}/{len(self.hold_ladder)-1})"
+            )
+
+    def _apply_hold_steps(self, steps: int) -> None:
+        env = self.training_env
+        if hasattr(env, "env_method"):
+            try:
+                env.env_method("set_hold_steps_required", steps)
+                return
+            except Exception:
+                pass
+        if hasattr(env, "set_hold_steps_required"):
+            env.set_hold_steps_required(steps)
+            return
+        if hasattr(env, "envs"):
+            for sub in env.envs:
+                target = sub
+                for _ in range(8):
+                    if hasattr(target, "set_hold_steps_required"):
+                        target.set_hold_steps_required(steps)
+                        break
+                    if hasattr(target, "env"):
+                        target = target.env
+                    else:
+                        break
+
+    def get_progress(self) -> dict:
+        sr = sum(self._episode_results) / float(len(self._episode_results)) if self._episode_results else None
+        return {
+            "current_hold_steps": int(self.current_hold_steps),
+            "ladder_stage": int(self._ladder_idx),
+            "hold_ladder": self.hold_ladder,
+            "recent_success_rate": sr,
+            "window_filled": len(self._episode_results),
         }

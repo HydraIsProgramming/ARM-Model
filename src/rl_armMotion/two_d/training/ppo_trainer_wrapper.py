@@ -11,7 +11,7 @@ import numpy as np
 from rl_armMotion.two_d.environments.task_env import ArmTaskEnv
 from rl_armMotion.two_d.models.callbacks import GUICallback
 from rl_armMotion.two_d.models.trainers import RLTrainer
-from rl_armMotion.two_d.training.curriculum_callback import AdaptiveCurriculumCallback
+from rl_armMotion.two_d.training.curriculum_callback import AdaptiveCurriculumCallback, HoldCurriculumCallback
 
 
 class RLTrainerWithMetrics:
@@ -151,6 +151,7 @@ class RLTrainerWithMetrics:
             self.use_curriculum = bool(use_curriculum)
         self.curriculum_kwargs = dict(curriculum_kwargs) if curriculum_kwargs else {}
         self.curriculum_callback: Optional[AdaptiveCurriculumCallback] = None
+        self.hold_curriculum_callback: Optional[HoldCurriculumCallback] = None
 
         # RLock avoids deadlocks for nested metric reads.
         self.metrics_lock = threading.RLock()
@@ -193,6 +194,17 @@ class RLTrainerWithMetrics:
                 **self.curriculum_kwargs
             )
             callbacks.append(self.curriculum_callback)
+            # Hold curriculum: start at 10 steps, graduate to 15 then 20
+            # as the agent learns to hold. Runs alongside the tolerance curriculum.
+            self.hold_curriculum_callback = HoldCurriculumCallback(
+                initial_hold_steps=10,
+                hold_ladder=[10, 15, 20],
+                success_rate_threshold=0.60,
+                window_size=50,
+                min_episodes_before_advance=20,
+                verbose=1,
+            )
+            callbacks.append(self.hold_curriculum_callback)
 
         try:
             result = self.trainer.train(
