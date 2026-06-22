@@ -32,9 +32,16 @@ TIMESTEPS         = 500_000
 
 # WAYPOINTS: the three target positions the arm must visit in order.
 #   Format for CLI: "x1,y1;x2,y2;x3,y3"
-#   These are the fixed Phase 1 targets from the research plan.
-WAYPOINTS         = "2.3,-1.0;1.0,1.5;2.5,0.0"
-WAYPOINTS_LIST    = [[2.3, -1.0], [1.0, 1.5], [2.5, 0.0]]
+#   Shoulder is fixed at [1.0, 0.0]. Max reach is 1.8m.
+#   Points chosen to form a wide triangle across the workspace:
+#     WP1 [2.5,  0.8] — upper right (northeast)
+#     WP2 [0.2,  1.1] — upper left  (northwest)
+#     WP3 [1.8, -1.3] — lower right (southeast)
+#   All points are 2.2–2.9m apart from each other, giving a clear visual sweep.
+#   Previous waypoints [2.3,-1.0;1.0,1.5;2.5,0.0] had WP1 and WP3 only 1.02m
+#   apart — the arm barely moved on the last leg.
+WAYPOINTS         = "2.5,0.8;0.2,1.1;1.8,-1.3"
+WAYPOINTS_LIST    = [[2.5, 0.8], [0.2, 1.1], [1.8, -1.3]]
 
 # MAX_BATCHES: safety ceiling — stops after this many batches even if no winner.
 #   At ~1/8 success rate, 20 batches * 5 seeds = 100 seeds gives ~99.9% chance
@@ -204,6 +211,7 @@ python scripts/train_fischer_session.py \\
 - Orientation tolerance: 12 degrees
 - Hold grace: decrement by 5 (not hard reset)
 - Hold criterion: 20 steps within position + orientation + velocity
+- Waypoint layout: WP1=[2.5,0.8] upper-right, WP2=[0.2,1.1] upper-left, WP3=[1.8,-1.3] lower-right
 
 ## Performance Results
 ### Consistency ({CONSISTENCY_RUNS} runs at 0.6m tolerance)
