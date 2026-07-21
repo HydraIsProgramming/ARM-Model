@@ -1083,7 +1083,8 @@ class ArmControllerGUI:
             print(f"[OK] Detected {detected_actuation}-mode model, env constructed to match")
 
             self.sim_obs, _ = self.sim_env.reset()
-            state_info = self.sim_env.get_state_info()
+            base_env = getattr(self.sim_env, "unwrapped", self.sim_env)
+            state_info = base_env.get_state_info()
             self._set_controller_state_from_arrays(
                 state_info["joint_angles"],
                 state_info["joint_velocities"],
@@ -1153,7 +1154,8 @@ class ArmControllerGUI:
             self.sim_episode_count += 1
             self.sim_episode_reward = 0.0
             self.sim_obs, _ = self.sim_env.reset()
-            state_info = self.sim_env.get_state_info()
+            base_env = getattr(self.sim_env, "unwrapped", self.sim_env)
+            state_info = base_env.get_state_info()
             self.prev_sim_velocities = np.array(state_info["joint_velocities"], dtype=float)
             self._set_controller_state_from_arrays(
                 state_info["joint_angles"],
