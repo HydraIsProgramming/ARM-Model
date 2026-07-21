@@ -42,6 +42,22 @@ def parse_args() -> argparse.Namespace:
         help="Total SAC training timesteps (default: 300000).",
     )
     parser.add_argument(
+        "--num-threads",
+        type=int,
+        default=0,
+        help="PyTorch CPU thread count (0 = use all available, set to cores/num_seeds for parallel runs).",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help=(
+            "RNG seed for torch/numpy/random. When set, the run is exactly "
+            "reproducible: the same seed + same config always trains the same "
+            "model. Leave unset for uncontrolled (random) initialisation."
+        ),
+    )
+    parser.add_argument(
         "--save-dir",
         type=str,
         default="./project_assets/outputs/fischer_300k_session",
@@ -136,6 +152,19 @@ def main() -> int:
 
     # Local imports so a quick --help does not require torch / SB3 to be on
     # the path (useful when triaging a misconfigured environment).
+    import torch
+    if args.num_threads > 0:
+        torch.set_num_threads(args.num_threads)
+
+    # Seed everything for reproducibility. This is what makes "seed_007" a
+    # real seed: rerunning with --seed 7 reproduces the exact same model.
+    if args.seed is not None:
+        import random
+        random.seed(args.seed)
+        import numpy as np
+        np.random.seed(args.seed)
+        torch.manual_seed(args.seed)
+
     from rl_armMotion.two_d.environments.task_env import ArmTaskEnv
     from rl_armMotion.two_d.training.ppo_trainer_wrapper import RLTrainerWithMetrics
     from rl_armMotion.two_d.validation import FittsLawValidator, PowerLawValidator
@@ -178,7 +207,8 @@ def main() -> int:
     log(f"Starting Fischer session: algorithm={args.algorithm}, "
         f"timesteps={args.timesteps:,}, direction={args.goal_direction}, "
         f"actuation={args.actuation_mode}"
-        + (f", waypoints={waypoints}" if waypoints else ""))
+        + (f", waypoints={waypoints}" if waypoints else "")
+        + (f", seed={args.seed}" if args.seed is not None else ", seed=unset"))
     log(f"Save dir: {save_dir}")
 
     # --- TRAIN ---------------------------------------------------------
@@ -206,10 +236,44 @@ def main() -> int:
     #      is SAC — which is the default. The callback shrinks the goal
     #      tolerance during training following Fischer's protocol; see
     #      curriculum_callback.py for details.
+    # In waypoint mode, stop the tolerance curriculum at 0.20 m instead of
+    # Fischer's 0.02 m precision floor. Winners are evaluated at 0.6 m, so
+    # training below ~0.2 m buys no evaluated precision while making even
+    # the touch-and-go intermediate waypoints brutally hard — seeds burn
+    # their remaining budget failing at a precision the task never tests.
+    curriculum_kwargs = {"min_tolerance": 0.20} if waypoints is not None else None
+    if curriculum_kwargs:
+        log(f"Waypoint mode: tolerance curriculum floor raised to "
+            f"{curriculum_kwargs['min_tolerance']} m (eval standard is 0.6 m)")
+
+    # Eval env factory for the checkpoint/curriculum callback: a fresh env
+    # configured exactly like the training env. Periodic deterministic
+    # evaluation on this env (every 25K steps, production standard: 0.6 m
+    # tolerance + full 20-step hold) drives best-model checkpointing
+    # (sac_model_best.zip) and both curricula. Only used in waypoint mode —
+    # directional goals keep the classic stochastic-success curriculum.
+    eval_env_fn = None
+    if waypoints is not None:
+        _wp = [list(w) for w in waypoints]
+
+        def eval_env_fn():
+            e = ArmTaskEnv(
+                goal_direction=args.goal_direction,
+                actuation_mode=args.actuation_mode,
+            )
+            e.set_waypoints(_wp, tolerance=0.6)
+            return e
+
+        log("Best-model checkpointing active: deterministic eval every 25K "
+            "steps, best snapshot saved to sac_model_best.zip")
+
     trainer = RLTrainerWithMetrics(
         env=env,
         total_timesteps=args.timesteps,
         algorithm=args.algorithm,
+        curriculum_kwargs=curriculum_kwargs,
+        eval_env_fn=eval_env_fn,
+        eval_save_dir=str(save_dir) if eval_env_fn is not None else None,
     )
 
     t0 = time.time()
@@ -227,6 +291,11 @@ def main() -> int:
     # --- SAVE MODEL ----------------------------------------------------
     save_paths = trainer.save_model_and_results(str(save_dir))
     log(f"Saved: {save_paths}")
+    if trainer.eval_checkpoint_callback is not None:
+        cp = trainer.eval_checkpoint_callback.get_progress()
+        log(f"Best checkpoint: score={cp.get('best_score')} "
+            f"at step {cp.get('best_saved_at')} -> "
+            f"{save_dir / (args.algorithm.lower() + '_model_best.zip')}")
 
     # --- VALIDATE: FITTS' LAW -----------------------------------------
     log(f"Running Fitts' Law sweep ({args.fitts_trials} trials per condition)...")

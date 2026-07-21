@@ -168,7 +168,7 @@ class RLTrainer(BaseTrainer):
         self.model = AlgorithmClass(
             policy="MlpPolicy",
             env=env,
-            verbose=0,
+            verbose=1,
             **hyperparams,
         )
 

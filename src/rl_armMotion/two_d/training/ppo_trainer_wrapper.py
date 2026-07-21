@@ -11,7 +11,11 @@ import numpy as np
 from rl_armMotion.two_d.environments.task_env import ArmTaskEnv
 from rl_armMotion.two_d.models.callbacks import GUICallback
 from rl_armMotion.two_d.models.trainers import RLTrainer
-from rl_armMotion.two_d.training.curriculum_callback import AdaptiveCurriculumCallback, HoldCurriculumCallback
+from rl_armMotion.two_d.training.curriculum_callback import (
+    AdaptiveCurriculumCallback,
+    EvalCheckpointCurriculumCallback,
+    HoldCurriculumCallback,
+)
 
 
 class RLTrainerWithMetrics:
@@ -58,6 +62,8 @@ class RLTrainerWithMetrics:
         check_freq: int = 100,
         use_curriculum: Optional[bool] = None,
         curriculum_kwargs: Optional[Dict[str, Any]] = None,
+        eval_env_fn: Optional[Callable[[], ArmTaskEnv]] = None,
+        eval_save_dir: Optional[str] = None,
     ):
         """
         Initialize trainer with metrics collection.
@@ -80,6 +86,15 @@ class RLTrainerWithMetrics:
                 to disable explicitly.
             curriculum_kwargs: Optional override of AdaptiveCurriculumCallback
                 constructor parameters (e.g., initial_tolerance, decay_factor).
+            eval_env_fn: Optional zero-argument factory returning a fresh env
+                configured like the training env (same actuation mode and
+                waypoints). When provided together with eval_save_dir, the
+                trainer uses EvalCheckpointCurriculumCallback: periodic
+                deterministic evaluation drives best-model checkpointing and
+                both curricula, REPLACING the stochastic-success
+                AdaptiveCurriculumCallback + HoldCurriculumCallback pair.
+            eval_save_dir: Directory where the best-model snapshot
+                (sac_model_best.zip) is written during training.
         """
         if env is None:
             env = ArmTaskEnv()
@@ -152,6 +167,9 @@ class RLTrainerWithMetrics:
         self.curriculum_kwargs = dict(curriculum_kwargs) if curriculum_kwargs else {}
         self.curriculum_callback: Optional[AdaptiveCurriculumCallback] = None
         self.hold_curriculum_callback: Optional[HoldCurriculumCallback] = None
+        self.eval_env_fn = eval_env_fn
+        self.eval_save_dir = eval_save_dir
+        self.eval_checkpoint_callback: Optional[EvalCheckpointCurriculumCallback] = None
 
         # RLock avoids deadlocks for nested metric reads.
         self.metrics_lock = threading.RLock()
@@ -190,21 +208,42 @@ class RLTrainerWithMetrics:
         # instances directly and wraps them in a CallbackList internally.
         callbacks: List[Any] = [gui_callback]
         if self.use_curriculum:
-            self.curriculum_callback = AdaptiveCurriculumCallback(
-                **self.curriculum_kwargs
-            )
-            callbacks.append(self.curriculum_callback)
-            # Hold curriculum: start at 10 steps, graduate to 15 then 20
-            # as the agent learns to hold. Runs alongside the tolerance curriculum.
-            self.hold_curriculum_callback = HoldCurriculumCallback(
-                initial_hold_steps=10,
-                hold_ladder=[10, 15, 20],
-                success_rate_threshold=0.60,
-                window_size=50,
-                min_episodes_before_advance=20,
-                verbose=1,
-            )
-            callbacks.append(self.hold_curriculum_callback)
+            if self.eval_env_fn is not None and self.eval_save_dir:
+                # Preferred path: one deterministic eval round every 25K steps
+                # drives best-model checkpointing AND both curricula. The
+                # stochastic-success callbacks below are NOT attached in this
+                # mode — the deterministic success rate is the true skill
+                # signal (exploration noise systematically breaks holds).
+                import os
+                self.eval_checkpoint_callback = EvalCheckpointCurriculumCallback(
+                    eval_env_fn=self.eval_env_fn,
+                    save_path=os.path.join(
+                        self.eval_save_dir, f"{self.algorithm.lower()}_model_best"
+                    ),
+                    eval_freq=25_000,
+                    n_eval_episodes=5,
+                    initial_tolerance=self.curriculum_kwargs.get("initial_tolerance", 0.60),
+                    min_tolerance=self.curriculum_kwargs.get("min_tolerance", 0.20),
+                    hold_ladder=[10, 15, 20],
+                    verbose=1,
+                )
+                callbacks.append(self.eval_checkpoint_callback)
+            else:
+                self.curriculum_callback = AdaptiveCurriculumCallback(
+                    **self.curriculum_kwargs
+                )
+                callbacks.append(self.curriculum_callback)
+                # Hold curriculum: start at 10 steps, graduate to 15 then 20
+                # as the agent learns to hold. Runs alongside the tolerance curriculum.
+                self.hold_curriculum_callback = HoldCurriculumCallback(
+                    initial_hold_steps=10,
+                    hold_ladder=[10, 15, 20],
+                    success_rate_threshold=0.60,
+                    window_size=50,
+                    min_episodes_before_advance=20,
+                    verbose=1,
+                )
+                callbacks.append(self.hold_curriculum_callback)
 
         try:
             result = self.trainer.train(
@@ -247,6 +286,9 @@ class RLTrainerWithMetrics:
             curriculum_info: Dict[str, Any]
             if self.curriculum_callback is not None:
                 curriculum_info = self.curriculum_callback.get_progress()
+                curriculum_info["enabled"] = True
+            elif self.eval_checkpoint_callback is not None:
+                curriculum_info = self.eval_checkpoint_callback.get_progress()
                 curriculum_info["enabled"] = True
             else:
                 curriculum_info = {"enabled": False}

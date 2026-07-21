@@ -1,0 +1,11 @@
+[2026-06-24T00:25:44] Starting Fischer session: algorithm=SAC, timesteps=500,000, direction=EAST, actuation=muscle, waypoints=[[2.5, 0.8], [0.2, 1.1], [1.8, -1.3]]
+[2026-06-24T00:25:44] Save dir: C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\Parallel_Seeds\seed_027
+[2026-06-24T00:25:44] Waypoint mode active: 3 waypoints, current_waypoint_index=0 at every episode reset
+[2026-06-24T01:49:11] Training complete in 5005.4s
+[2026-06-24T01:49:11] Episodes: 323
+[2026-06-24T01:49:11] Best reward: 848.13
+[2026-06-24T01:49:11] Mean reward (100ep): 587.93
+[2026-06-24T01:49:11] Final goal tolerance: 0.6
+[2026-06-24T01:49:11] Curriculum stage: 0
+[2026-06-24T01:49:11] Saved: {'model': 'C:\\Users\\ranjo\\OneDrive\\Desktop\\ARM-Model\\project_assets\\outputs\\Parallel_Seeds\\seed_027\\sac_model', 'history': 'C:\\Users\\ranjo\\OneDrive\\Desktop\\ARM-Model\\project_assets\\outputs\\Parallel_Seeds\\seed_027\\training_history.csv', 'stats': 'C:\\Users\\ranjo\\OneDrive\\Desktop\\ARM-Model\\project_assets\\outputs\\Parallel_Seeds\\seed_027\\training_stats.json'}
+[2026-06-24T01:49:11] Running Fitts' Law sweep (10 trials per condition)...

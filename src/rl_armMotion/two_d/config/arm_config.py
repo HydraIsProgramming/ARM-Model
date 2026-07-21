@@ -72,7 +72,7 @@ class ArmConfiguration:
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w") as f:
             json.dump(self.to_dict(), f, indent=2)
-        print(f"✓ Configuration saved to {filepath}")
+        print(f"[OK] Configuration saved to {filepath}")
 
     @classmethod
     def from_json(cls, filepath: str) -> "ArmConfiguration":

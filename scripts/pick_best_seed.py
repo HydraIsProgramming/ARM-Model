@@ -48,11 +48,11 @@ def evaluate_model(model_path: str, tolerance: float = 0.6) -> dict:
 
 
 def main() -> int:
-    base_dir = PROJECT_ROOT / "project_assets/outputs"
-    seed_dirs = sorted(base_dir.glob("multiseed_run_*"))
+    base_dir = PROJECT_ROOT / "project_assets/outputs/Parallel_Seeds"
+    seed_dirs = sorted(base_dir.glob("seed_*"))
 
     if not seed_dirs:
-        print("No multiseed_run_* directories found. Run multi_seed_train.sh first.")
+        print("No seed_* directories found. Run run_parallel_seeds.py first.")
         return 1
 
     print("=" * 70)

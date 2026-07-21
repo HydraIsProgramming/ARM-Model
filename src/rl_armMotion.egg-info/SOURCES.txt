@@ -46,6 +46,7 @@ src/rl_armMotion/two_d/environments/__init__.py
 src/rl_armMotion/two_d/environments/simple_arm.py
 src/rl_armMotion/two_d/environments/task_env.py
 src/rl_armMotion/two_d/gui/__init__.py
+src/rl_armMotion/two_d/gui/__main__.py
 src/rl_armMotion/two_d/gui/app.py
 src/rl_armMotion/two_d/gui/training_gui.py
 src/rl_armMotion/two_d/models/__init__.py
@@ -56,11 +57,16 @@ src/rl_armMotion/two_d/models/agents/a3c_agent.py
 src/rl_armMotion/two_d/models/agents/ppo_agent.py
 src/rl_armMotion/two_d/models/agents/sac_agent.py
 src/rl_armMotion/two_d/training/__init__.py
+src/rl_armMotion/two_d/training/curriculum_callback.py
 src/rl_armMotion/two_d/training/ppo_trainer_wrapper.py
 src/rl_armMotion/two_d/utils/__init__.py
 src/rl_armMotion/two_d/utils/arm_kinematics.py
+src/rl_armMotion/two_d/utils/muscle_model.py
 src/rl_armMotion/two_d/utils/parallel_env.py
 src/rl_armMotion/two_d/utils/visualization.py
+src/rl_armMotion/two_d/validation/__init__.py
+src/rl_armMotion/two_d/validation/fitts_law.py
+src/rl_armMotion/two_d/validation/power_law.py
 src/rl_armMotion/utils/__init__.py
 src/rl_armMotion/utils/arm_kinematics.py
 src/rl_armMotion/utils/parallel_env.py

@@ -32,16 +32,19 @@ TIMESTEPS         = 500_000
 
 # WAYPOINTS: the three target positions the arm must visit in order.
 #   Format for CLI: "x1,y1;x2,y2;x3,y3"
-#   Shoulder is fixed at [1.0, 0.0]. Max reach is 1.8m.
-#   Points chosen to form a wide triangle across the workspace:
-#     WP1 [2.5,  0.8] — upper right (northeast)
-#     WP2 [0.2,  1.1] — upper left  (northwest)
-#     WP3 [1.8, -1.3] — lower right (southeast)
-#   All points are 2.2–2.9m apart from each other, giving a clear visual sweep.
-#   Previous waypoints [2.3,-1.0;1.0,1.5;2.5,0.0] had WP1 and WP3 only 1.02m
-#   apart — the arm barely moved on the last leg.
-WAYPOINTS         = "2.5,0.8;0.2,1.1;1.8,-1.3"
-WAYPOINTS_LIST    = [[2.5, 0.8], [0.2, 1.1], [1.8, -1.3]]
+#   Shoulder is fixed at [1.0, 0.0]. Max reach is 1.8m, so the reachable
+#   workspace is a circle of radius 1.8 centred on [1.0, 0.0]
+#   (x: -0.8..2.8, y: -1.8..1.8). Points are kept 1.3-1.6m from the
+#   shoulder — well inside reach so the arm doesn't strain at the boundary.
+#     WP1 [0.2,  1.2] — upper left   (1.44m from shoulder)
+#     WP2 [2.2,  0.5] — right        (1.30m from shoulder)
+#     WP3 [1.0, -1.6] — straight down (1.60m from shoulder)
+#   They form a wide triangle (2.1-2.3m between points) with a clear
+#   visual sweep: upper-left -> right -> bottom.
+#   Previous waypoints reached out to x=2.5 which is nearly at the edge
+#   of the workspace and hard for the arm to hold.
+WAYPOINTS         = "0.2,1.2;2.2,0.5;1.0,-1.6"
+WAYPOINTS_LIST    = [[0.2, 1.2], [2.2, 0.5], [1.0, -1.6]]
 
 # MAX_BATCHES: safety ceiling — stops after this many batches even if no winner.
 #   At ~1/8 success rate, 20 batches * 5 seeds = 100 seeds gives ~99.9% chance
@@ -103,9 +106,17 @@ def get_latest_timesteps(log_path: Path) -> int:
 
 
 def evaluate_model(model_dir: Path, tolerance: float = 0.6) -> dict:
-    """Evaluate model at given tolerance. Returns dict with waypoints, steps."""
-    model_path = model_dir / "sac_model"
-    if not (model_dir / "sac_model.zip").exists():
+    """Evaluate model at given tolerance. Returns dict with waypoints, steps.
+
+    Prefers the best-checkpoint snapshot (sac_model_best.zip, saved by the
+    periodic-eval callback at the policy's peak) over the final model —
+    SAC can partially forget the task late in training.
+    """
+    if (model_dir / "sac_model_best.zip").exists():
+        model_path = model_dir / "sac_model_best"
+    else:
+        model_path = model_dir / "sac_model"
+    if not (model_dir / "sac_model.zip").exists() and not (model_dir / "sac_model_best.zip").exists():
         return {"waypoints": 0, "steps": 800, "completed": False}
     script = f"""
 import sys; sys.path.insert(0, 'src')
@@ -198,8 +209,11 @@ python scripts/train_fischer_session.py \\
     --actuation-mode muscle \\
     --goal-direction EAST \\
     --waypoints "{WAYPOINTS}" \\
+    --seed {seed_id} \\
     --save-dir ./project_assets/outputs/MY_REPLICATED_RUN
 ```
+The --seed flag makes the run exactly reproducible: same seed + same
+config trains the same model.
 
 ## Environment Settings (do NOT change)
 - Algorithm: SAC (MlpPolicy)
@@ -209,9 +223,11 @@ python scripts/train_fischer_session.py \\
 - Waypoints: {WAYPOINTS_LIST}
 - Arm: 2-DOF, shoulder at [1.0, 0.0], links [1.0, 0.8]m
 - Orientation tolerance: 12 degrees
-- Hold grace: decrement by 5 (not hard reset)
+- Hold grace: decrement by 3 (not hard reset)
 - Hold criterion: 20 steps within position + orientation + velocity
-- Waypoint layout: WP1=[2.5,0.8] upper-right, WP2=[0.2,1.1] upper-left, WP3=[1.8,-1.3] lower-right
+- Hold curriculum: 10 -> 15 -> 20 steps (advances at 60% success)
+- Tolerance curriculum: 0.60 m -> 0.20 m floor (waypoint mode)
+- Waypoint layout: WP1=[0.2,1.2] upper-left, WP2=[2.2,0.5] right, WP3=[1.0,-1.6] bottom
 
 ## Performance Results
 ### Consistency ({CONSISTENCY_RUNS} runs at 0.6m tolerance)
@@ -247,7 +263,9 @@ import sys; sys.path.insert(0, 'src')
 from stable_baselines3 import SAC
 from rl_armMotion.two_d.environments.task_env import ArmTaskEnv
 
-model = SAC.load('{CHAMPION_DIR}/sac_model')
+# sac_model_best is the peak-of-training checkpoint (preferred);
+# sac_model is the final model at 500K steps.
+model = SAC.load('{CHAMPION_DIR}/sac_model_best')
 env = ArmTaskEnv(actuation_mode='muscle', goal_direction='EAST')
 env.set_waypoints({WAYPOINTS_LIST}, tolerance=0.6)
 obs, _ = env.reset()
@@ -281,6 +299,7 @@ def run_seed(seed_id: int, save_dir: Path) -> tuple:
         "--waypoints", WAYPOINTS,
         "--save-dir", str(save_dir),
         "--num-threads", str(THREADS_PER_SEED),
+        "--seed", str(seed_id),
     ]
     print(f"  [seed {seed_id:03d}] Starting (threads={THREADS_PER_SEED})...", flush=True)
     with open(log_path, "w") as f:

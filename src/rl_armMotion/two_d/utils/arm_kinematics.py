@@ -356,7 +356,7 @@ class MotionRecorder:
         with open(path, "w") as f:
             json.dump(data, f, indent=2)
 
-        print(f"✓ Recorded {len(self.frames)} frames to {filepath}")
+        print(f"[OK] Recorded {len(self.frames)} frames to {filepath}")
 
     @classmethod
     def load_from_json(cls, filepath: str) -> "MotionRecorder":
@@ -375,7 +375,7 @@ class MotionRecorder:
         recorder = cls()
         recorder.frames = [ArmState.from_dict(frame_data) for frame_data in data["frames"]]
 
-        print(f"✓ Loaded {len(recorder.frames)} frames from {filepath}")
+        print(f"[OK] Loaded {len(recorder.frames)} frames from {filepath}")
         return recorder
 
 

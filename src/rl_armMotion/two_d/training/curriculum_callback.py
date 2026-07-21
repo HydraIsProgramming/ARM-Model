@@ -29,7 +29,42 @@ from typing import Any, Callable, List, Optional
 from stable_baselines3.common.callbacks import BaseCallback
 
 
-__all__ = ["AdaptiveCurriculumCallback", "EvalBasedCurriculumCallback", "HoldCurriculumCallback"]
+__all__ = [
+    "AdaptiveCurriculumCallback",
+    "EvalBasedCurriculumCallback",
+    "HoldCurriculumCallback",
+    "EvalCheckpointCurriculumCallback",
+]
+
+
+def _apply_env_setting(env, method_name: str, value) -> None:
+    """Call ``method_name(value)`` on every underlying ArmTaskEnv.
+
+    Handles the three rollout topologies used across this project:
+      1. A VecEnv (DummyVecEnv / SubprocVecEnv) supporting env_method.
+      2. A bare ArmTaskEnv exposing the method directly.
+      3. A VecEnv wrapper exposing .envs (walk through TimeLimit/Monitor).
+    """
+    if hasattr(env, "env_method"):
+        try:
+            env.env_method(method_name, value)
+            return
+        except Exception:
+            pass
+    if hasattr(env, method_name):
+        getattr(env, method_name)(value)
+        return
+    if hasattr(env, "envs"):
+        for sub in env.envs:
+            target = sub
+            for _ in range(8):
+                if hasattr(target, method_name):
+                    getattr(target, method_name)(value)
+                    break
+                if hasattr(target, "env"):
+                    target = target.env
+                else:
+                    break
 
 
 class AdaptiveCurriculumCallback(BaseCallback):
@@ -215,6 +250,13 @@ class AdaptiveCurriculumCallback(BaseCallback):
         self.current_tolerance = float(new_tolerance)
         self.curriculum_stage += 1
         self._episodes_since_last_decay = 0
+        # Clear the success window: every recorded episode was played at the
+        # OLD (easier) tolerance, so keeping them would let a second decay
+        # fire on stale data as soon as the cooldown elapses — a double
+        # difficulty spike that collapses the success rate. Requiring a full
+        # fresh window also naturally staggers this curriculum against the
+        # hold curriculum running alongside it.
+        self._episode_results.clear()
         self._apply_tolerance(self.current_tolerance)
 
         if self.verbose:
@@ -528,6 +570,11 @@ class HoldCurriculumCallback(BaseCallback):
         self._ladder_idx += 1
         self.current_hold_steps = self.hold_ladder[self._ladder_idx]
         self._episodes_since_last_advance = 0
+        # Clear the success window — see AdaptiveCurriculumCallback for the
+        # rationale. All recorded episodes were played at the OLD (shorter)
+        # hold requirement; keeping them would let the next advance fire on
+        # stale data after only the cooldown, instead of a fresh window.
+        self._episode_results.clear()
         self._apply_hold_steps(self.current_hold_steps)
 
         if self.verbose:
@@ -567,4 +614,186 @@ class HoldCurriculumCallback(BaseCallback):
             "hold_ladder": self.hold_ladder,
             "recent_success_rate": sr,
             "window_filled": len(self._episode_results),
+        }
+
+
+class EvalCheckpointCurriculumCallback(BaseCallback):
+    """Periodic deterministic evaluation driving best-model checkpointing
+    AND both curricula (tolerance + hold) from a single set of eval rollouts.
+
+    Motivation
+    ----------
+    1. Best-model checkpointing. SAC is prone to partially forgetting the
+       task late in training (the reason for this project's "never
+       fine-tune a working model" rule). Saving only the final model
+       discards a seed that peaked mid-training. This callback evaluates
+       the policy deterministically every ``eval_freq`` steps at the
+       PRODUCTION standard (eval_tolerance, full hold requirement) and
+       snapshots the model to ``save_path`` whenever the eval score
+       improves — so every seed yields its peak self, not its final self.
+
+    2. Deterministic curriculum signal. The stochastic-training-policy
+       success rate used by AdaptiveCurriculumCallback / HoldCurriculumCallback
+       systematically under-counts (SAC's exploration noise breaks holds).
+       The deterministic eval success rate measured here is the true skill
+       signal, so it also drives both curricula. At most ONE difficulty
+       change is applied per eval round (hold advance takes priority) so
+       difficulty never double-spikes.
+
+    Eval score for checkpointing: (successes, mean waypoints reached,
+    -mean steps) compared lexicographically.
+    """
+
+    def __init__(
+        self,
+        eval_env_fn: Callable,
+        save_path: str,
+        eval_freq: int = 25_000,
+        n_eval_episodes: int = 5,
+        max_eval_steps: int = 800,
+        initial_tolerance: float = 0.60,
+        min_tolerance: float = 0.20,
+        tolerance_threshold: float = 0.80,
+        decay_factor: float = 0.80,
+        hold_ladder: Optional[List[int]] = None,
+        hold_threshold: float = 0.60,
+        eval_tolerance: float = 0.60,
+        verbose: int = 0,
+    ):
+        super().__init__(verbose=verbose)
+        self.eval_env_fn = eval_env_fn
+        self.save_path = str(save_path)
+        self.eval_freq = int(eval_freq)
+        self.n_eval_episodes = int(n_eval_episodes)
+        self.max_eval_steps = int(max_eval_steps)
+        self.initial_tolerance = float(initial_tolerance)
+        self.min_tolerance = float(min_tolerance)
+        self.tolerance_threshold = float(tolerance_threshold)
+        self.decay_factor = float(decay_factor)
+        self.hold_ladder: List[int] = hold_ladder if hold_ladder is not None else [10, 15, 20]
+        self.hold_threshold = float(hold_threshold)
+        self.eval_tolerance = float(eval_tolerance)
+
+        self.current_tolerance: float = float(initial_tolerance)
+        self._ladder_idx: int = 0
+        self.current_hold_steps: int = self.hold_ladder[0]
+        self.best_score: Optional[tuple] = None
+        self.best_saved_at: Optional[int] = None
+        self._last_eval_step: int = 0
+        self._eval_env = None
+        self._last_eval_success_rate: Optional[float] = None
+
+    def _on_training_start(self) -> None:
+        _apply_env_setting(self.training_env, "set_goal_tolerance", self.current_tolerance)
+        _apply_env_setting(self.training_env, "set_hold_steps_required", self.current_hold_steps)
+        if self.verbose:
+            print(
+                f"[EvalCheckpoint] Active: eval every {self.eval_freq:,} steps, "
+                f"{self.n_eval_episodes} deterministic episodes at production "
+                f"standard (tol {self.eval_tolerance} m, hold {self.hold_ladder[-1]}). "
+                f"Training starts at tol {self.current_tolerance} m, "
+                f"hold {self.current_hold_steps}. Best model -> {self.save_path}"
+            )
+
+    def _on_step(self) -> bool:
+        if self.num_timesteps - self._last_eval_step >= self.eval_freq:
+            self._last_eval_step = self.num_timesteps
+            self._run_eval_round()
+        return True
+
+    def _run_eval_round(self) -> None:
+        if self._eval_env is None:
+            self._eval_env = self.eval_env_fn()
+
+        env = self._eval_env
+        # Always evaluate at the PRODUCTION standard, independent of the
+        # current training difficulty — this measures true champion quality.
+        if hasattr(env, "set_goal_tolerance"):
+            env.set_goal_tolerance(self.eval_tolerance)
+        if hasattr(env, "set_hold_steps_required"):
+            env.set_hold_steps_required(self.hold_ladder[-1])
+
+        successes = 0
+        waypoints_reached: List[int] = []
+        steps_taken: List[int] = []
+        for _ in range(self.n_eval_episodes):
+            obs, _ = env.reset()
+            info: dict = {}
+            step = 0
+            for step in range(self.max_eval_steps):
+                action, _ = self.model.predict(obs, deterministic=True)
+                obs, _, terminated, truncated, info = env.step(action)
+                if terminated or truncated:
+                    break
+            if info.get("goal_reached", False):
+                successes += 1
+                waypoints_reached.append(int(info.get("num_waypoints", 0)) or
+                                         int(info.get("current_waypoint_index", 0)) + 1)
+            else:
+                waypoints_reached.append(int(info.get("current_waypoint_index", 0)))
+            steps_taken.append(step + 1)
+
+        mean_wp = sum(waypoints_reached) / max(len(waypoints_reached), 1)
+        mean_steps = sum(steps_taken) / max(len(steps_taken), 1)
+        success_rate = successes / float(self.n_eval_episodes)
+        self._last_eval_success_rate = success_rate
+        score = (successes, mean_wp, -mean_steps)
+
+        if self.verbose:
+            print(
+                f"[EvalCheckpoint] step {self.num_timesteps:,}: "
+                f"{successes}/{self.n_eval_episodes} success, "
+                f"mean waypoints {mean_wp:.1f}, mean steps {mean_steps:.0f} "
+                f"(train tol {self.current_tolerance:.2f} m, hold {self.current_hold_steps})"
+            )
+
+        # --- Best-model checkpoint ---
+        if self.best_score is None or score > self.best_score:
+            self.best_score = score
+            self.best_saved_at = self.num_timesteps
+            self.model.save(self.save_path)
+            if self.verbose:
+                print(f"[EvalCheckpoint] New best model saved (score {score})")
+
+        # --- Curriculum: at most ONE difficulty change per eval round ---
+        if (
+            self._ladder_idx < len(self.hold_ladder) - 1
+            and success_rate >= self.hold_threshold
+        ):
+            self._ladder_idx += 1
+            self.current_hold_steps = self.hold_ladder[self._ladder_idx]
+            _apply_env_setting(self.training_env, "set_hold_steps_required", self.current_hold_steps)
+            if self.verbose:
+                print(
+                    f"[EvalCheckpoint] Hold requirement advanced to "
+                    f"{self.current_hold_steps} steps "
+                    f"(eval success {success_rate:.0%})"
+                )
+        elif (
+            self.current_tolerance > self.min_tolerance
+            and success_rate >= self.tolerance_threshold
+        ):
+            new_tol = max(self.current_tolerance * self.decay_factor, self.min_tolerance)
+            if new_tol < self.current_tolerance:
+                self.current_tolerance = float(new_tol)
+                _apply_env_setting(self.training_env, "set_goal_tolerance", self.current_tolerance)
+                if self.verbose:
+                    print(
+                        f"[EvalCheckpoint] Tolerance shrunk to "
+                        f"{self.current_tolerance:.3f} m "
+                        f"(eval success {success_rate:.0%})"
+                    )
+
+    def get_progress(self) -> dict:
+        return {
+            "current_tolerance": float(self.current_tolerance),
+            "min_tolerance": float(self.min_tolerance),
+            "initial_tolerance": float(self.initial_tolerance),
+            "current_hold_steps": int(self.current_hold_steps),
+            "hold_ladder": self.hold_ladder,
+            "recent_success_rate": self._last_eval_success_rate,
+            "best_score": self.best_score,
+            "best_saved_at": self.best_saved_at,
+            "eval_freq": int(self.eval_freq),
+            "curriculum_stage": int(self._ladder_idx),
         }

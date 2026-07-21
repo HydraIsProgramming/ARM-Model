@@ -906,18 +906,18 @@ class ArmControllerGUI:
         if self.recording:
             self.recorder.start_recording()
             self.record_button.config(text="Stop Recording (REC)")
-            print("✓ Recording started")
+            print("[OK] Recording started")
         else:
             self.recorder.stop_recording()
             self.record_button.config(text="Record")
-            print(f"✓ Recording stopped ({self.recorder.get_num_frames()} frames)")
+            print(f"[OK] Recording stopped ({self.recorder.get_num_frames()} frames)")
 
     def _on_clear_recording(self):
         """Clear recording"""
         if self.simulation_active:
             self._stop_simulation()
         self.recorder.clear_frames()
-        print("✓ Recording cleared")
+        print("[OK] Recording cleared")
 
     def _on_save_motion(self):
         """Save motion recording"""
@@ -931,7 +931,7 @@ class ArmControllerGUI:
             try:
                 self.recorder.save_to_json(filepath)
                 messagebox.showinfo("Success", f"Motion saved to {filepath}")
-                print(f"✓ Motion saved to {filepath}")
+                print(f"[OK] Motion saved to {filepath}")
             except Exception as e:
                 messagebox.showerror("Error", f"Error saving motion: {e}")
 
@@ -946,7 +946,7 @@ class ArmControllerGUI:
             try:
                 self.recorder = MotionRecorder.load_from_json(filepath)
                 messagebox.showinfo("Success", f"Loaded {self.recorder.get_num_frames()} frames")
-                print(f"✓ Loaded {self.recorder.get_num_frames()} frames")
+                print(f"[OK] Loaded {self.recorder.get_num_frames()} frames")
             except Exception as e:
                 messagebox.showerror("Error", f"Error loading motion: {e}")
 
@@ -960,10 +960,10 @@ class ArmControllerGUI:
                 self.playback_frames = self.recorder.get_frames()
                 self.playback_index = 0
                 self.playback_button.config(text="Stop Playback")
-                print("✓ Playback started")
+                print("[OK] Playback started")
             else:
                 self.playback_button.config(text="Playback")
-                print("✓ Playback stopped")
+                print("[OK] Playback stopped")
         else:
             messagebox.showwarning("Warning", "No frames recorded to playback")
 
@@ -1016,13 +1016,13 @@ class ArmControllerGUI:
             f"Saved: {timestamp}"
         )
         self._set_model_details_text(details_text)
-        print(f"✓ Loaded model: {model_base} ({algorithm})")
+        print(f"[OK] Loaded model: {model_base} ({algorithm})")
 
     def _on_smooth_toggle(self):
         """Toggle action smoothing on/off."""
         self.action_smoothing = self._smooth_var.get()
         state = "ON" if self.action_smoothing else "OFF"
-        print(f"✓ Action smoothing {state} (alpha={self.action_smooth_alpha:.2f})")
+        print(f"[OK] Action smoothing {state} (alpha={self.action_smooth_alpha:.2f})")
         if self.simulation_active:
             print("  (restart simulation to apply)")
 
@@ -1075,12 +1075,12 @@ class ArmControllerGUI:
             raw_env = ArmTaskEnv(actuation_mode=detected_actuation)
             if self.action_smoothing and detected_actuation == "muscle":
                 self.sim_env = ActionSmoother(raw_env, alpha=self.action_smooth_alpha)
-                print(f"✓ Action smoothing ON (alpha={self.action_smooth_alpha})")
+                print(f"[OK] Action smoothing ON (alpha={self.action_smooth_alpha})")
             else:
                 self.sim_env = raw_env
             inspect_model.set_env(self.sim_env)
             self.sim_model = inspect_model
-            print(f"✓ Detected {detected_actuation}-mode model, env constructed to match")
+            print(f"[OK] Detected {detected_actuation}-mode model, env constructed to match")
 
             self.sim_obs, _ = self.sim_env.reset()
             state_info = self.sim_env.get_state_info()
@@ -1102,7 +1102,7 @@ class ArmControllerGUI:
             self.latest_elbow_torque = 0.0
             self._reset_ee_kinematics()
             self.sim_toggle_button.config(text="Stop Simulation")
-            print("✓ Policy simulation started")
+            print("[OK] Policy simulation started")
         except Exception as e:
             self.simulation_active = False
             self.sim_model = None
@@ -1125,7 +1125,7 @@ class ArmControllerGUI:
         self.prev_sim_velocities = np.zeros(self.config.dof, dtype=float)
         self._reset_ee_kinematics()
         self._update_vel_acc_plot()
-        print("✓ Policy simulation stopped")
+        print("[OK] Policy simulation stopped")
 
     def _simulation_step(self):
         """Run a single simulation step if active."""
@@ -1169,7 +1169,7 @@ class ArmControllerGUI:
         self._reset_ee_kinematics()
         for i in range(self.config.dof):
             self.angle_labels[i].config(text=f"{self.controller.angles[i]:.2f}rad")
-        print("✓ Arm reset to home position")
+        print("[OK] Arm reset to home position")
 
     def _on_reset_defaults(self):
         """Reset to default configuration"""
@@ -1181,7 +1181,7 @@ class ArmControllerGUI:
         self._sync_ui_to_config()  # Update all UI sliders
         self._compute_positions()  # Recompute positions
         self._reset_ee_kinematics()
-        print("✓ Reset to default configuration")
+        print("[OK] Reset to default configuration")
         messagebox.showinfo("Success", "Reset to default configuration")
 
     def _on_save_config(self):
@@ -1196,7 +1196,7 @@ class ArmControllerGUI:
             try:
                 self.config.to_json(filepath)
                 messagebox.showinfo("Success", f"Configuration saved to {filepath}")
-                print(f"✓ Configuration saved to {filepath}")
+                print(f"[OK] Configuration saved to {filepath}")
             except Exception as e:
                 messagebox.showerror("Error", f"Error saving config: {e}")
 
@@ -1215,7 +1215,7 @@ class ArmControllerGUI:
                 self._compute_positions()  # Recompute positions
                 self._reset_ee_kinematics()
                 messagebox.showinfo("Success", f"Loaded configuration: {self.config.name}")
-                print(f"✓ Loaded configuration: {self.config.name}")
+                print(f"[OK] Loaded configuration: {self.config.name}")
             except Exception as e:
                 messagebox.showerror("Error", f"Error loading config: {e}")
 
@@ -1312,10 +1312,10 @@ Points: {len(self.trajectory_points)}
         # Joint selection with Left/Right
         if event.keysym == "Left":
             self.selected_joint = max(0, self.selected_joint - 1)
-            print(f"✓ Selected joint {self.selected_joint}")
+            print(f"[OK] Selected joint {self.selected_joint}")
         elif event.keysym == "Right":
             self.selected_joint = min(self.config.dof - 1, self.selected_joint + 1)
-            print(f"✓ Selected joint {self.selected_joint}")
+            print(f"[OK] Selected joint {self.selected_joint}")
         # Joint control with Up/Down on selected joint
         elif event.keysym == "Up":
             self._increment_joint(self.selected_joint, 0.05)
@@ -1324,7 +1324,7 @@ Points: {len(self.trajectory_points)}
         elif event.char == 't':
             # Toggle trajectory
             self.show_trajectory = not self.show_trajectory
-            print(f"✓ Trajectory {'ON' if self.show_trajectory else 'OFF'}")
+            print(f"[OK] Trajectory {'ON' if self.show_trajectory else 'OFF'}")
 
     def run(self):
         """Run the GUI event loop"""
@@ -1356,7 +1356,7 @@ Points: {len(self.trajectory_points)}
                 else:
                     self.playing_back = False
                     self.playback_button.config(text="Playback")
-                    print("✓ Playback finished")
+                    print("[OK] Playback finished")
 
             # Record current frame if recording
             if self.recording:

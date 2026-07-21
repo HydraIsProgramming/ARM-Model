@@ -1,0 +1,18 @@
+============================================================
+AUTO SEED SEARCH
+  Seeds per batch : 5
+  Timesteps each  : 500,000
+  Threads per seed: 3
+  Early kill at   : 250,000 steps if reward < 0
+  Max batches     : 20
+  Output          : C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\Parallel_Seeds
+============================================================
+
+============================================================
+BATCH 1 — seeds 021 to 025
+============================================================
+  [seed 021] Starting (threads=3)...
+  [seed 022] Starting (threads=3)...
+  [seed 023] Starting (threads=3)...
+  [seed 024] Starting (threads=3)...
+  [seed 025] Starting (threads=3)...

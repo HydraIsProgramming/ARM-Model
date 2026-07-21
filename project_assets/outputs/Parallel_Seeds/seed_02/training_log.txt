@@ -1,0 +1,25 @@
+[2026-06-21T17:52:58] Starting Fischer session: algorithm=SAC, timesteps=500,000, direction=EAST, actuation=muscle, waypoints=[[2.3, -1.0], [1.0, 1.5], [2.5, 0.0]]
+[2026-06-21T17:52:58] Save dir: C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\Parallel_Seeds\seed_02
+[2026-06-21T17:52:58] Waypoint mode active: 3 waypoints, current_waypoint_index=0 at every episode reset
+[2026-06-21T18:02:00] Starting Fischer session: algorithm=SAC, timesteps=500,000, direction=EAST, actuation=muscle, waypoints=[[2.3, -1.0], [1.0, 1.5], [2.5, 0.0]]
+[2026-06-21T18:02:00] Save dir: C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\Parallel_Seeds\seed_02
+[2026-06-21T18:02:00] Waypoint mode active: 3 waypoints, current_waypoint_index=0 at every episode reset
+[2026-06-21T21:52:46] Training complete in 13844.6s
+[2026-06-21T21:52:46] Episodes: 503
+[2026-06-21T21:52:46] Best reward: 29983.05
+[2026-06-21T21:52:46] Mean reward (100ep): 26277.80
+[2026-06-21T21:52:46] Final goal tolerance: 0.6
+[2026-06-21T21:52:46] Curriculum stage: 0
+[2026-06-21T21:52:46] Saved: {'model': 'C:\\Users\\ranjo\\OneDrive\\Desktop\\ARM-Model\\project_assets\\outputs\\Parallel_Seeds\\seed_02\\sac_model', 'history': 'C:\\Users\\ranjo\\OneDrive\\Desktop\\ARM-Model\\project_assets\\outputs\\Parallel_Seeds\\seed_02\\training_history.csv', 'stats': 'C:\\Users\\ranjo\\OneDrive\\Desktop\\ARM-Model\\project_assets\\outputs\\Parallel_Seeds\\seed_02\\training_stats.json'}
+[2026-06-21T21:52:46] Running Fitts' Law sweep (10 trials per condition)...
+[2026-06-21T21:53:27] Fitts sweep complete in 41.3s
+[2026-06-21T21:53:27] Fitts: MT = -0.0481 + +0.1400 * ID, R^2 = 1.0000 (n_conditions = 2, trials_per_condition = 10)
+[2026-06-21T21:53:28] Saved: C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\Parallel_Seeds\seed_02\fitts_law.json
+[2026-06-21T21:53:28] Saved: C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\Parallel_Seeds\seed_02\fitts_law.png
+[2026-06-21T21:53:28] Running 2/3 Power Law sweep (20 trials)...
+[2026-06-21T21:53:30] Power Law sweep complete in 2.4s
+[2026-06-21T21:53:30] Power Law: log V = +0.0262 + -0.2863 * log C, R = -0.2500, R^2 = 0.0625 (n_samples = 3685, n_trials = 0/20)
+[2026-06-21T21:53:30] Saved: C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\Parallel_Seeds\seed_02\power_law.json
+[2026-06-21T21:53:30] Saved: C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\Parallel_Seeds\seed_02\power_law.png
+[2026-06-21T21:53:30] Session complete. Total wall time: 3:51:29.975915
+[2026-06-21T21:53:30] ============================================================

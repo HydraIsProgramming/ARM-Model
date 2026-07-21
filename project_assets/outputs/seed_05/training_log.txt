@@ -1,0 +1,9 @@
+[2026-06-21T11:47:46] Starting Fischer session: algorithm=SAC, timesteps=500,000, direction=EAST, actuation=muscle, waypoints=[[2.3, -1.0], [1.0, 1.5], [2.5, 0.0]]
+[2026-06-21T11:47:46] Save dir: C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\seed_05
+[2026-06-21T11:47:46] Waypoint mode active: 3 waypoints, current_waypoint_index=0 at every episode reset
+[2026-06-21T11:49:46] Starting Fischer session: algorithm=SAC, timesteps=500,000, direction=EAST, actuation=muscle, waypoints=[[2.3, -1.0], [1.0, 1.5], [2.5, 0.0]]
+[2026-06-21T11:49:46] Save dir: C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\seed_05
+[2026-06-21T11:49:46] Waypoint mode active: 3 waypoints, current_waypoint_index=0 at every episode reset
+[2026-06-21T11:55:28] Starting Fischer session: algorithm=SAC, timesteps=500,000, direction=EAST, actuation=muscle, waypoints=[[2.3, -1.0], [1.0, 1.5], [2.5, 0.0]]
+[2026-06-21T11:55:28] Save dir: C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\seed_05
+[2026-06-21T11:55:28] Waypoint mode active: 3 waypoints, current_waypoint_index=0 at every episode reset
