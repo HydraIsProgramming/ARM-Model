@@ -1,0 +1,26 @@
+[2026-08-14T17:50:37] Starting Fischer session: algorithm=SAC, timesteps=500,000, direction=EAST, actuation=muscle, waypoints=[[0.2, 1.2], [2.2, 0.5], [1.0, -1.6]], seed=102
+[2026-08-14T17:50:37] Save dir: C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\Ablation\decrement_5\seed_102
+[2026-08-14T17:50:37] Waypoint mode active: 3 waypoints, current_waypoint_index=0 at every episode reset
+[2026-08-14T17:50:37] Ablation config: hold_decrement=5, hold_curriculum=on, curriculum_mode=eval
+[2026-08-14T17:50:37] Waypoint mode: tolerance curriculum floor raised to 0.2 m (eval standard is 0.6 m)
+[2026-08-14T17:50:37] Best-model checkpointing active: deterministic eval every 25K steps, best snapshot saved to sac_model_best.zip
+[2026-08-14T19:47:41] Training complete in 7023.7s
+[2026-08-14T19:47:41] Episodes: 502
+[2026-08-14T19:47:41] Best reward: 20096.18
+[2026-08-14T19:47:41] Mean reward (100ep): 9569.38
+[2026-08-14T19:47:41] Final goal tolerance: 0.6
+[2026-08-14T19:47:41] Curriculum stage: 1
+[2026-08-14T19:47:41] Saved: {'model': 'C:\\Users\\ranjo\\OneDrive\\Desktop\\ARM-Model\\project_assets\\outputs\\Ablation\\decrement_5\\seed_102\\sac_model', 'history': 'C:\\Users\\ranjo\\OneDrive\\Desktop\\ARM-Model\\project_assets\\outputs\\Ablation\\decrement_5\\seed_102\\training_history.csv', 'stats': 'C:\\Users\\ranjo\\OneDrive\\Desktop\\ARM-Model\\project_assets\\outputs\\Ablation\\decrement_5\\seed_102\\training_stats.json'}
+[2026-08-14T19:47:41] Best checkpoint: score=(5, 3.0, -490.0) at step 25000 -> C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\Ablation\decrement_5\seed_102\sac_model_best.zip
+[2026-08-14T19:47:41] Running Fitts' Law sweep (1 trials per condition)...
+[2026-08-14T19:47:43] Fitts sweep complete in 2.2s
+[2026-08-14T19:47:43] Fitts: MT = -0.0001 + +0.0574 * ID, R^2 = 0.6120 (n_conditions = 10, trials_per_condition = 1)
+[2026-08-14T19:47:44] Saved: C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\Ablation\decrement_5\seed_102\fitts_law.json
+[2026-08-14T19:47:44] Saved: C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\Ablation\decrement_5\seed_102\fitts_law.png
+[2026-08-14T19:47:44] Running 2/3 Power Law sweep (1 trials)...
+[2026-08-14T19:47:44] Power Law sweep complete in 0.1s
+[2026-08-14T19:47:44] Power Law: log V = -0.9320 + -0.4021 * log C, R = -0.3772, R^2 = 0.1422 (n_samples = 177, n_trials = 0/1)
+[2026-08-14T19:47:44] Saved: C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\Ablation\decrement_5\seed_102\power_law.json
+[2026-08-14T19:47:44] Saved: C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\Ablation\decrement_5\seed_102\power_law.png
+[2026-08-14T19:47:44] Session complete. Total wall time: 1:57:07.642634
+[2026-08-14T19:47:44] ============================================================

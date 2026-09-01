@@ -357,6 +357,12 @@ class ArmTaskEnv(gym.Env):
             else self.DEFAULT_HOLD_VELOCITY_TOLERANCE
         )
         self.hold_steps_required = 20                      # ~0.2 s hold — achievable in one episode
+        # Steps of accumulated hold progress lost per step spent outside the
+        # goal region. A hard reset (equivalent to a very large value) makes
+        # the hold brittle: one bad step erases everything. 3 is the tuned
+        # default; configurable so the ablation harness can compare against
+        # the original value of 5. See set_hold_decrement().
+        self.hold_decrement = 3
         self.gradient_scale = 5.0
 
         # Compatibility alias with previous code/tests
@@ -406,6 +412,17 @@ class ArmTaskEnv(gym.Env):
         if steps < 1:
             raise ValueError(f"hold_steps_required must be >= 1, got {steps}")
         self.hold_steps_required = int(steps)
+
+    def set_hold_decrement(self, decrement: int) -> None:
+        """Set how many steps of hold progress are lost per out-of-region step.
+
+        Used by the ablation harness to compare the tuned value (3) against
+        the original, harsher value (5). Must be >= 1; a value >= the hold
+        requirement is equivalent to a hard reset on any excursion.
+        """
+        if decrement < 1:
+            raise ValueError(f"hold_decrement must be >= 1, got {decrement}")
+        self.hold_decrement = int(decrement)
 
     def set_waypoints(self, positions, tolerance: Optional[float] = None) -> None:
         """Configure a sequence of 2D waypoints to be visited in order.
@@ -813,7 +830,7 @@ class ArmTaskEnv(gym.Env):
         if in_goal_region:
             self.hold_counter += 1
         else:
-            self.hold_counter = max(0, self.hold_counter - 3)
+            self.hold_counter = max(0, self.hold_counter - self.hold_decrement)
 
         total_error = 2.0 * goal_distance + orientation_error
 

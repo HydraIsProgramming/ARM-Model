@@ -1,0 +1,3 @@
+[2026-08-16T13:48:34] Starting Fischer session: algorithm=SAC, timesteps=500,000, direction=EAST, actuation=velocity, seed=203
+[2026-08-16T13:48:34] Save dir: C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\ActuationComparison\velocity_500k_seed203
+[2026-08-16T13:48:34] Ablation config: hold_decrement=3, hold_curriculum=on, curriculum_mode=eval

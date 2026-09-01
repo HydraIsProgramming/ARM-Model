@@ -1,0 +1,25 @@
+[2026-08-14T17:55:35] Starting Fischer session: algorithm=SAC, timesteps=500,000, direction=EAST, actuation=muscle, waypoints=[[0.2, 1.2], [2.2, 0.5], [1.0, -1.6]], seed=102
+[2026-08-14T17:55:35] Save dir: C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\Ablation\stochastic\seed_102
+[2026-08-14T17:55:35] Waypoint mode active: 3 waypoints, current_waypoint_index=0 at every episode reset
+[2026-08-14T17:55:35] Ablation config: hold_decrement=3, hold_curriculum=on, curriculum_mode=stochastic
+[2026-08-14T17:55:35] Waypoint mode: tolerance curriculum floor raised to 0.2 m (eval standard is 0.6 m)
+[2026-08-14T17:55:35] Curriculum mode 'stochastic': using training-policy success rate, no best-model checkpointing (ablation condition)
+[2026-08-14T19:59:46] Training complete in 7449.7s
+[2026-08-14T19:59:46] Episodes: 500
+[2026-08-14T19:59:46] Best reward: 8775.47
+[2026-08-14T19:59:46] Mean reward (100ep): 729.12
+[2026-08-14T19:59:46] Final goal tolerance: 0.6
+[2026-08-14T19:59:46] Curriculum stage: 0
+[2026-08-14T19:59:46] Saved: {'model': 'C:\\Users\\ranjo\\OneDrive\\Desktop\\ARM-Model\\project_assets\\outputs\\Ablation\\stochastic\\seed_102\\sac_model', 'history': 'C:\\Users\\ranjo\\OneDrive\\Desktop\\ARM-Model\\project_assets\\outputs\\Ablation\\stochastic\\seed_102\\training_history.csv', 'stats': 'C:\\Users\\ranjo\\OneDrive\\Desktop\\ARM-Model\\project_assets\\outputs\\Ablation\\stochastic\\seed_102\\training_stats.json'}
+[2026-08-14T19:59:46] Running Fitts' Law sweep (1 trials per condition)...
+[2026-08-14T19:59:49] Fitts sweep complete in 2.8s
+[2026-08-14T19:59:49] Fitts: MT = -0.5072 + +0.6984 * ID, R^2 = 0.7589 (n_conditions = 6, trials_per_condition = 1)
+[2026-08-14T19:59:49] Saved: C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\Ablation\stochastic\seed_102\fitts_law.json
+[2026-08-14T19:59:49] Saved: C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\Ablation\stochastic\seed_102\fitts_law.png
+[2026-08-14T19:59:49] Running 2/3 Power Law sweep (1 trials)...
+[2026-08-14T19:59:49] Power Law sweep complete in 0.1s
+[2026-08-14T19:59:49] Power Law: log V = -0.6053 + -0.7199 * log C, R = -0.7342, R^2 = 0.5390 (n_samples = 158, n_trials = 0/1)
+[2026-08-14T19:59:50] Saved: C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\Ablation\stochastic\seed_102\power_law.json
+[2026-08-14T19:59:50] Saved: C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\Ablation\stochastic\seed_102\power_law.png
+[2026-08-14T19:59:50] Session complete. Total wall time: 2:04:14.547417
+[2026-08-14T19:59:50] ============================================================

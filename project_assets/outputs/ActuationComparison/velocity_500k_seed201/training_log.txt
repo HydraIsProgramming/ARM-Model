@@ -1,0 +1,22 @@
+[2026-08-16T11:27:13] Starting Fischer session: algorithm=SAC, timesteps=500,000, direction=EAST, actuation=velocity, seed=201
+[2026-08-16T11:27:13] Save dir: C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\ActuationComparison\velocity_500k_seed201
+[2026-08-16T11:27:13] Ablation config: hold_decrement=3, hold_curriculum=on, curriculum_mode=eval
+[2026-08-16T13:52:50] Training complete in 8735.1s
+[2026-08-16T13:52:50] Episodes: 548
+[2026-08-16T13:52:50] Best reward: 26310.60
+[2026-08-16T13:52:50] Mean reward (100ep): 24784.90
+[2026-08-16T13:52:50] Final goal tolerance: 0.48
+[2026-08-16T13:52:50] Curriculum stage: 1
+[2026-08-16T13:52:50] Saved: {'model': 'C:\\Users\\ranjo\\OneDrive\\Desktop\\ARM-Model\\project_assets\\outputs\\ActuationComparison\\velocity_500k_seed201\\sac_model', 'history': 'C:\\Users\\ranjo\\OneDrive\\Desktop\\ARM-Model\\project_assets\\outputs\\ActuationComparison\\velocity_500k_seed201\\training_history.csv', 'stats': 'C:\\Users\\ranjo\\OneDrive\\Desktop\\ARM-Model\\project_assets\\outputs\\ActuationComparison\\velocity_500k_seed201\\training_stats.json'}
+[2026-08-16T13:52:50] Running Fitts' Law sweep (10 trials per condition)...
+[2026-08-16T13:53:12] Fitts sweep complete in 22.2s
+[2026-08-16T13:53:12] Fitts: MT = +0.0695 + +0.0291 * ID, R^2 = 0.0441 (n_conditions = 21, trials_per_condition = 10)
+[2026-08-16T13:53:12] Saved: C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\ActuationComparison\velocity_500k_seed201\fitts_law.json
+[2026-08-16T13:53:12] Saved: C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\ActuationComparison\velocity_500k_seed201\fitts_law.png
+[2026-08-16T13:53:12] Running 2/3 Power Law sweep (20 trials)...
+[2026-08-16T13:53:14] Power Law sweep complete in 1.5s
+[2026-08-16T13:53:14] Power Law: log V = -0.5078 + -0.4387 * log C, R = -0.2990, R^2 = 0.0894 (n_samples = 3735, n_trials = 0/20)
+[2026-08-16T13:53:14] Saved: C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\ActuationComparison\velocity_500k_seed201\power_law.json
+[2026-08-16T13:53:14] Saved: C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\ActuationComparison\velocity_500k_seed201\power_law.png
+[2026-08-16T13:53:14] Session complete. Total wall time: 2:26:01.372561
+[2026-08-16T13:53:14] ============================================================

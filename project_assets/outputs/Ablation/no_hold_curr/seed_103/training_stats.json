@@ -1,0 +1,12 @@
+{
+  "algorithm": "SAC",
+  "total_timesteps": 500000,
+  "total_episodes": 500,
+  "mean_reward": 60.665396730000005,
+  "best_reward": 227.840528,
+  "success_rate": 0.0,
+  "hold_progress": 0.0,
+  "gradient_norm": 0.0011967242245169984,
+  "training_time_sec": 8264.668641,
+  "stopped_early": false
+}

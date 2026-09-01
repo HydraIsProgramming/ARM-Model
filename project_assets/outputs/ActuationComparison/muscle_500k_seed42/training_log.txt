@@ -1,0 +1,22 @@
+[2026-08-15T15:03:37] Starting Fischer session: algorithm=SAC, timesteps=500,000, direction=EAST, actuation=muscle, seed=42
+[2026-08-15T15:03:37] Save dir: C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\ActuationComparison\muscle_500k_seed42
+[2026-08-15T15:03:37] Ablation config: hold_decrement=3, hold_curriculum=on, curriculum_mode=eval
+[2026-08-15T17:34:35] Training complete in 9056.5s
+[2026-08-15T17:34:35] Episodes: 528
+[2026-08-15T17:34:35] Best reward: 21843.87
+[2026-08-15T17:34:35] Mean reward (100ep): 21563.62
+[2026-08-15T17:34:35] Final goal tolerance: 0.6
+[2026-08-15T17:34:35] Curriculum stage: 0
+[2026-08-15T17:34:35] Saved: {'model': 'C:\\Users\\ranjo\\OneDrive\\Desktop\\ARM-Model\\project_assets\\outputs\\ActuationComparison\\muscle_500k_seed42\\sac_model', 'history': 'C:\\Users\\ranjo\\OneDrive\\Desktop\\ARM-Model\\project_assets\\outputs\\ActuationComparison\\muscle_500k_seed42\\training_history.csv', 'stats': 'C:\\Users\\ranjo\\OneDrive\\Desktop\\ARM-Model\\project_assets\\outputs\\ActuationComparison\\muscle_500k_seed42\\training_stats.json'}
+[2026-08-15T17:34:35] Running Fitts' Law sweep (10 trials per condition)...
+[2026-08-15T17:35:09] Fitts sweep complete in 33.1s
+[2026-08-15T17:35:09] Fitts: MT = -0.0002 + +0.0405 * ID, R^2 = 0.6304 (n_conditions = 19, trials_per_condition = 10)
+[2026-08-15T17:35:09] Saved: C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\ActuationComparison\muscle_500k_seed42\fitts_law.json
+[2026-08-15T17:35:09] Saved: C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\ActuationComparison\muscle_500k_seed42\fitts_law.png
+[2026-08-15T17:35:09] Running 2/3 Power Law sweep (20 trials)...
+[2026-08-15T17:35:11] Power Law sweep complete in 2.3s
+[2026-08-15T17:35:11] Power Law: log V = -0.0041 + -0.4196 * log C, R = -0.3789, R^2 = 0.1436 (n_samples = 3894, n_trials = 0/20)
+[2026-08-15T17:35:12] Saved: C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\ActuationComparison\muscle_500k_seed42\power_law.json
+[2026-08-15T17:35:12] Saved: C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\ActuationComparison\muscle_500k_seed42\power_law.png
+[2026-08-15T17:35:12] Session complete. Total wall time: 2:31:34.186207
+[2026-08-15T17:35:12] ============================================================

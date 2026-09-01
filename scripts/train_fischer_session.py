@@ -103,6 +103,38 @@ def parse_args() -> argparse.Namespace:
             '"2.0,-0.5;1.5,0.8;2.4,0.3" trains a reach-pull-place sequence.'
         ),
     )
+    # --- Ablation switches -------------------------------------------------
+    # These exist so run_ablation.py can disable one mechanism at a time.
+    # The defaults reproduce the full tuned configuration.
+    parser.add_argument(
+        "--hold-decrement",
+        type=int,
+        default=3,
+        help=(
+            "Steps of hold progress lost per step outside the goal region "
+            "(default 3, the tuned value; 5 was the original)."
+        ),
+    )
+    parser.add_argument(
+        "--no-hold-curriculum",
+        action="store_true",
+        help=(
+            "Disable the graduated hold curriculum; require the full 20-step "
+            "hold from the start of training."
+        ),
+    )
+    parser.add_argument(
+        "--curriculum-mode",
+        type=str,
+        default="eval",
+        choices=["eval", "stochastic"],
+        help=(
+            "'eval' (default) drives the curricula from periodic deterministic "
+            "evaluation and enables best-model checkpointing. 'stochastic' "
+            "uses the older training-policy success rate and saves only the "
+            "final model."
+        ),
+    )
     parser.add_argument(
         "--fitts-trials",
         type=int,
@@ -228,6 +260,11 @@ def main() -> int:
         log(f"Waypoint mode active: {len(waypoints)} waypoints, "
             f"current_waypoint_index=0 at every episode reset")
 
+    env.set_hold_decrement(args.hold_decrement)
+    log(f"Ablation config: hold_decrement={args.hold_decrement}, "
+        f"hold_curriculum={'off' if args.no_hold_curriculum else 'on'}, "
+        f"curriculum_mode={args.curriculum_mode}")
+
     # RLTrainerWithMetrics wraps Stable-Baselines3 with two things:
     #   1. A live metrics stream usable by the training GUI (we ignore it
     #      here because we are headless, but it is also the same data
@@ -253,8 +290,9 @@ def main() -> int:
     # (sac_model_best.zip) and both curricula. Only used in waypoint mode —
     # directional goals keep the classic stochastic-success curriculum.
     eval_env_fn = None
-    if waypoints is not None:
+    if waypoints is not None and args.curriculum_mode == "eval":
         _wp = [list(w) for w in waypoints]
+        _dec = args.hold_decrement
 
         def eval_env_fn():
             e = ArmTaskEnv(
@@ -262,10 +300,14 @@ def main() -> int:
                 actuation_mode=args.actuation_mode,
             )
             e.set_waypoints(_wp, tolerance=0.6)
+            e.set_hold_decrement(_dec)
             return e
 
         log("Best-model checkpointing active: deterministic eval every 25K "
             "steps, best snapshot saved to sac_model_best.zip")
+    elif waypoints is not None:
+        log("Curriculum mode 'stochastic': using training-policy success rate, "
+            "no best-model checkpointing (ablation condition)")
 
     trainer = RLTrainerWithMetrics(
         env=env,
@@ -274,6 +316,7 @@ def main() -> int:
         curriculum_kwargs=curriculum_kwargs,
         eval_env_fn=eval_env_fn,
         eval_save_dir=str(save_dir) if eval_env_fn is not None else None,
+        use_hold_curriculum=not args.no_hold_curriculum,
     )
 
     t0 = time.time()

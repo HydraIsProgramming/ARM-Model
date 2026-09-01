@@ -64,6 +64,7 @@ class RLTrainerWithMetrics:
         curriculum_kwargs: Optional[Dict[str, Any]] = None,
         eval_env_fn: Optional[Callable[[], ArmTaskEnv]] = None,
         eval_save_dir: Optional[str] = None,
+        use_hold_curriculum: bool = True,
     ):
         """
         Initialize trainer with metrics collection.
@@ -169,6 +170,7 @@ class RLTrainerWithMetrics:
         self.hold_curriculum_callback: Optional[HoldCurriculumCallback] = None
         self.eval_env_fn = eval_env_fn
         self.eval_save_dir = eval_save_dir
+        self.use_hold_curriculum = bool(use_hold_curriculum)
         self.eval_checkpoint_callback: Optional[EvalCheckpointCurriculumCallback] = None
 
         # RLock avoids deadlocks for nested metric reads.
@@ -215,6 +217,10 @@ class RLTrainerWithMetrics:
                 # mode — the deterministic success rate is the true skill
                 # signal (exploration noise systematically breaks holds).
                 import os
+                # A single-entry ladder pins the hold requirement at the full
+                # 20 steps for the whole run — the "no hold curriculum"
+                # ablation condition.
+                ladder = [10, 15, 20] if self.use_hold_curriculum else [20]
                 self.eval_checkpoint_callback = EvalCheckpointCurriculumCallback(
                     eval_env_fn=self.eval_env_fn,
                     save_path=os.path.join(
@@ -224,7 +230,7 @@ class RLTrainerWithMetrics:
                     n_eval_episodes=5,
                     initial_tolerance=self.curriculum_kwargs.get("initial_tolerance", 0.60),
                     min_tolerance=self.curriculum_kwargs.get("min_tolerance", 0.20),
-                    hold_ladder=[10, 15, 20],
+                    hold_ladder=ladder,
                     verbose=1,
                 )
                 callbacks.append(self.eval_checkpoint_callback)
@@ -234,16 +240,19 @@ class RLTrainerWithMetrics:
                 )
                 callbacks.append(self.curriculum_callback)
                 # Hold curriculum: start at 10 steps, graduate to 15 then 20
-                # as the agent learns to hold. Runs alongside the tolerance curriculum.
-                self.hold_curriculum_callback = HoldCurriculumCallback(
-                    initial_hold_steps=10,
-                    hold_ladder=[10, 15, 20],
-                    success_rate_threshold=0.60,
-                    window_size=50,
-                    min_episodes_before_advance=20,
-                    verbose=1,
-                )
-                callbacks.append(self.hold_curriculum_callback)
+                # as the agent learns to hold. Runs alongside the tolerance
+                # curriculum. Skipped entirely in the "no hold curriculum"
+                # ablation condition, leaving the env at its default 20.
+                if self.use_hold_curriculum:
+                    self.hold_curriculum_callback = HoldCurriculumCallback(
+                        initial_hold_steps=10,
+                        hold_ladder=[10, 15, 20],
+                        success_rate_threshold=0.60,
+                        window_size=50,
+                        min_episodes_before_advance=20,
+                        verbose=1,
+                    )
+                    callbacks.append(self.hold_curriculum_callback)
 
         try:
             result = self.trainer.train(
