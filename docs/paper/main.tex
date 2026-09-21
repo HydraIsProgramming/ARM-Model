@@ -806,6 +806,42 @@ limit on Fitts' Law, and extend the task with random waypoints, shoulder range
 limits, mirrored left and right arms, and longer waypoint sequences.
 
 %==============================================================================
+\section{Model Revision After This Study}
+\label{sec:revision}
+
+A code review carried out after the experiments above found that the arm they
+ran on was not a physical arm. It had no gravity, its joint inertias were
+uncoupled scalars four to seven times too small, the muscle force-velocity
+term acted as positive feedback because its sign was inverted, the
+force-length term was constant, joint-limit clipping never zeroed the joint
+velocity, and the policy's observation carried only a one-dimensional
+projection of the goal error, so the decision problem was not Markov. Every
+training episode also started from the same state, so the ``20 test
+episodes'' reported in the tables are one deterministic rollout repeated.
+None of this changes the negative answer to RQ2, which compares two actuators
+on the same (flawed) arm, but it does mean the numbers should not be read as
+properties of a human arm.
+
+The model has since been rebuilt and the code that produced this paper is
+kept under the tag \texttt{save-point-2026-09-21}. The revised arm is a
+two-link rigid body with the anthropometry of Winter~\cite{winter2009} for a
+75~kg adult (upper arm $0.30$~m, $2.1$~kg; forearm and hand $0.35$~m,
+$1.65$~kg), gravity, a coupled mass matrix with Coriolis terms, a human range
+of motion (shoulder $-150^{\circ}$ to $90^{\circ}$, elbow $0^{\circ}$ to
+$145^{\circ}$), torque limits of $25$ and $12$~N$\cdot$m, soft end-range
+stiffness and hard stops, integrated with a second-order method at 5~ms. Each
+joint is driven by an antagonist pair of Hill-type muscles with the hyperbolic
+force-velocity law and a fibre length that follows the joint angle. The
+observation now contains the goal position, the waypoint index and the hand
+velocity; the reward is potential-based on that augmented state; training
+episodes do not end on success, so the agent is paid to keep holding; the
+hold criterion is position plus hand speed, because a two-link arm cannot
+choose its hand orientation independently of its hand position; and every
+run is seeded end to end and written as a self-contained package that can be
+reloaded or continued. Results for the revised model are reported separately
+from this paper.
+
+%==============================================================================
 % Flush any pending floats here so nothing can appear after the references.
 \FloatBarrier
 
@@ -868,6 +904,10 @@ Engineering}, vol.~125, no.~1, pp.~70--77, 2003.
 F.~E. Zajac, ``Muscle and tendon: Properties, models, scaling, and application
 to biomechanics and motor control,'' \emph{Critical Reviews in Biomedical
 Engineering}, vol.~17, no.~4, pp.~359--411, 1989.
+
+\bibitem{winter2009}
+D.~A. Winter, \emph{Biomechanics and Motor Control of Human Movement}, 4th ed.
+Hoboken, NJ, USA: Wiley, 2009.
 
 \bibitem{bengio2009}
 Y.~Bengio, J.~Louradour, R.~Collobert, and J.~Weston, ``Curriculum learning,''

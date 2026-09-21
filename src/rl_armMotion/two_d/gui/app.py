@@ -1086,7 +1086,8 @@ class ArmControllerGUI:
             if wps is not None:
                 overrides["waypoints"] = wps
             if self.sim_package_dir is not None:
-                model, raw_env, _manifest = load_package(self.sim_package_dir, which=self.sim_model_path, **overrides)
+                model_zip = self.sim_model_path if self.sim_model_path.endswith(".zip") else self.sim_model_path + ".zip"
+                model, raw_env, _manifest = load_package(model_zip, **overrides)
             else:
                 from stable_baselines3 import SAC, PPO, A2C
                 alg_class = {"SAC": SAC, "PPO": PPO, "A2C": A2C}.get(self.sim_algorithm, SAC)
