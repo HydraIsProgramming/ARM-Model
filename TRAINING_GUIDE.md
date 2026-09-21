@@ -24,11 +24,15 @@ anthropometry for a 75 kg / 1.75 m adult:
 Dynamics (`utils/dynamics.py`): `M(q)q̈ + C(q,q̇)q̇ + G(q) = τ + τ_passive`,
 N-link generic (CRBA mass matrix, RNEA bias), RK2 integration in 4 sub-steps
 of 5 ms per 20 ms control step, viscous damping 0.3 N·m·s/rad, a soft spring
-within 10° of each limit (except full elbow extension, a bony stop) and hard
-stops that lock a joint pushed into them and zero its velocity. Peak gravity
-torque with the arm horizontal is 10.4 / 2.8 N·m (shoulder / elbow), so the
-limits are 2.4× / 4.3× gravity. The 2-link closed-form equations are the test
-oracle (`tests/test_dynamics.py`).
+(20 N·m/rad) within 10° of every limit and hard stops that lock a joint pushed
+into them and zero its velocity. The relaxed arm therefore rests with the
+elbow a few degrees flexed, as a human elbow does, and the start pose is
+10° ± 5–10° of elbow flexion: a fully straight arm puts the hand on the reach
+circle, a kinematic singularity where elbow flexion has no first-order effect
+on hand distance (the first Stage-A attempt stalled there on all five seeds).
+Peak gravity torque with the arm horizontal is 10.4 / 2.8 N·m (shoulder /
+elbow), so the limits are 2.4× / 4.3× gravity. The 2-link closed-form
+equations are the test oracle (`tests/test_dynamics.py`).
 
 Muscles (`utils/muscle_model.py`): one lumped Hill-type muscle per direction
 and joint, `F = a·F_max·f_L(L)·f_V(v)`, hyperbolic force-velocity
@@ -64,8 +68,9 @@ Observation (14-D, `OBS_VERSION = 2`): sin/cos of both joints, joint velocities 
 (x, y), |goal − hand|/reach, hand velocity / 2 m/s, waypoint progress k/(N−1), in-goal flag, hold progress.
 
 Reward: potential-based shaping `2·(γΦ' − Φ)` with `Φ = −|goal − hand|/reach`, dense `−0.5·|goal − hand|/reach`,
-effort `−0.02·|a|²`, smoothness `−0.05·|q̇|/8`, +1 per in-goal step at the final waypoint, +10 per
-intermediate waypoint, +50 once when the hold completes. Zero action for an episode scores about −340.
+effort `−0.02·|a|²`, smoothness `−0.05·|q̇|/8`, end-range avoidance `−0.1` per joint resting on a hard
+stop, +1 per in-goal step at the final waypoint, +10 per intermediate waypoint, +50 once when the hold
+completes. Zero action for an episode scores about −340.
 
 ## 3. Train
 

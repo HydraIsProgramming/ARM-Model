@@ -71,8 +71,10 @@ def test_arm_falls_under_gravity_and_settles_hanging(cfg):
     assert qd[0] < 0.0  # starts falling
     for _ in range(1000):  # 20 s with joint damping
         q, qd, _ = D.integrate(q, qd, np.zeros(2), cfg)
-    assert abs(q[0] + np.pi / 2) < 0.05
-    assert abs(q[1]) < 0.05
+    # Passive rest: arm hanging, elbow a few degrees flexed by the end-range
+    # spring (a relaxed human elbow is never fully straight).
+    assert abs(q[0] + np.pi / 2) < 0.15
+    assert 0.0 <= q[1] < np.deg2rad(12.0)
     assert np.all(np.abs(qd) < 0.05)
 
 

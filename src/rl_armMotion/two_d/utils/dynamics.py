@@ -299,9 +299,21 @@ def kinetic_energy(q: np.ndarray, qd: np.ndarray, cfg: ArmConfiguration) -> floa
 
 
 def potential_energy(q: np.ndarray, cfg: ArmConfiguration) -> float:
+    """Gravitational plus end-range spring potential energy."""
+    q = np.asarray(q, dtype=float)
     _, m, _, _ = _params(cfg)
     _, _, coms = link_frames(q, cfg)
-    return float(cfg.gravity * np.sum(m * coms[:, 1]))
+    E = float(cfg.gravity * np.sum(m * coms[:, 1]))
+    K = float(cfg.passive_limit_stiffness)
+    if K > 0.0:
+        qmin = np.asarray(cfg.joint_limits_min, dtype=float)
+        qmax = np.asarray(cfg.joint_limits_max, dtype=float)
+        m_min = np.asarray(cfg.passive_limit_margins_min, dtype=float)
+        m_max = np.asarray(cfg.passive_limit_margins_max, dtype=float)
+        over = np.where(m_max > 0.0, np.maximum(0.0, q - (qmax - m_max)), 0.0)
+        under = np.where(m_min > 0.0, np.maximum(0.0, (qmin + m_min) - q), 0.0)
+        E += float(0.5 * K * np.sum(over ** 2 + under ** 2))
+    return E
 
 
 def two_link_closed_form(q: np.ndarray, qd: np.ndarray, cfg: ArmConfiguration

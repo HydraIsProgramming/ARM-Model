@@ -226,7 +226,11 @@ class ArmConfiguration:
             com_offsets=[round(upper_com, 3), round(fore_com, 3)],
             damping=0.30,
             joint_damping=[0.30, 0.30],
-            initial_angles=[-np.pi / 2, 0.0],
+            # Relaxed human elbow rests ~10 deg flexed (passive tissue keeps it
+            # off full extension); starting straight would put the hand on
+            # the reach circle, a kinematic singularity where elbow flexion
+            # has no first-order effect on hand distance.
+            initial_angles=[-np.pi / 2, float(np.deg2rad(10.0))],
             joint_limits_min=[float(np.deg2rad(-150.0)), 0.0],          # flexion -60 deg
             joint_limits_max=[float(np.deg2rad(90.0)), float(np.deg2rad(145.0))],  # flexion 180 deg
             velocity_limits=8.0,
@@ -236,12 +240,11 @@ class ArmConfiguration:
             torque_limits=torque_limits,
             passive_limit_stiffness=20.0,
             passive_limit_margin=float(np.deg2rad(10.0)),
-            passive_limit_margins_min=[float(np.deg2rad(10.0)), 0.0],  # elbow: bony stop
             muscle_moment_arms=moment_arms,
             muscle_f_max=[t / r for t, r in zip(torque_limits, moment_arms)],  # 625, 400 N
             muscle_l_opt=[0.20, 0.10],
             muscle_v_max=6.0,
-            initial_angle_jitter_min=[float(np.deg2rad(-5.0)), 0.0],
+            initial_angle_jitter_min=[float(np.deg2rad(-5.0)), float(np.deg2rad(-5.0))],
             initial_angle_jitter_max=[float(np.deg2rad(5.0)), float(np.deg2rad(10.0))],
             side="right",
         )
@@ -266,7 +269,7 @@ class ArmConfiguration:
             com_offsets=[round(upper_com, 3), round(fore_com, 3), round(hand_com, 3)],
             damping=0.30,
             joint_damping=[0.30, 0.30, 0.10],
-            initial_angles=[-np.pi / 2, 0.0, 0.0],
+            initial_angles=[-np.pi / 2, float(np.deg2rad(10.0)), 0.0],
             joint_limits_min=[float(np.deg2rad(-150.0)), 0.0, float(np.deg2rad(-70.0))],
             joint_limits_max=[float(np.deg2rad(90.0)), float(np.deg2rad(145.0)),
                               float(np.deg2rad(70.0))],
@@ -277,12 +280,11 @@ class ArmConfiguration:
             torque_limits=torque_limits,
             passive_limit_stiffness=20.0,
             passive_limit_margin=float(np.deg2rad(10.0)),
-            passive_limit_margins_min=[float(np.deg2rad(10.0)), 0.0, float(np.deg2rad(10.0))],
             muscle_moment_arms=moment_arms,
             muscle_f_max=[t / r for t, r in zip(torque_limits, moment_arms)],
             muscle_l_opt=[0.20, 0.10, 0.05],
             muscle_v_max=6.0,
-            initial_angle_jitter_min=[float(np.deg2rad(-5.0)), 0.0, 0.0],
+            initial_angle_jitter_min=[float(np.deg2rad(-5.0)), float(np.deg2rad(-5.0)), 0.0],
             initial_angle_jitter_max=[float(np.deg2rad(5.0)), float(np.deg2rad(10.0)), 0.0],
             side="right",
         )

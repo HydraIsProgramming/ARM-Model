@@ -51,6 +51,7 @@ Reward (all distances normalised by reach R)
       - W_DIST   * |goal_k' - hand'| / R                 dense far-field gradient
       - W_EFFORT * |a|^2                                 effort (no co-contraction penalty)
       - W_SMOOTH * |qd'| / velocity_limit                mild smoothness
+      - W_LIMIT  * (number of joints on a hard stop)      end-range avoidance
       + R_IN_GOAL      if in_goal at the FINAL waypoint  hold stream
       + R_INTERMEDIATE on completing an intermediate waypoint
       + R_SUCCESS      once, when the final hold completes
@@ -146,6 +147,7 @@ class ArmTaskEnv(gym.Env):
     W_DIST: float = 0.5
     W_EFFORT: float = 0.02
     W_SMOOTH: float = 0.05
+    W_LIMIT: float = 0.1     # per joint resting on a hard stop (end-range is avoided by humans)
     R_IN_GOAL: float = 1.0
     R_INTERMEDIATE: float = 10.0
     R_SUCCESS: float = 50.0
@@ -823,11 +825,14 @@ class ArmTaskEnv(gym.Env):
         dist_term = -self.W_DIST * distance / self.reach
         effort = -self.W_EFFORT * float(np.dot(a, a))
         smooth = -self.W_SMOOTH * joint_speed / float(self.config.velocity_limits)
+        limit_term = -self.W_LIMIT * float(np.sum(at_limit))
         in_goal_term = self.R_IN_GOAL if (in_goal and self.is_final_waypoint) else 0.0
-        reward = shaping + dist_term + effort + smooth + in_goal_term + intermediate_bonus + success_bonus
+        reward = (shaping + dist_term + effort + smooth + limit_term + in_goal_term
+                  + intermediate_bonus + success_bonus)
         self._last_reward_terms = {
             "shaping": shaping, "distance": dist_term, "effort": effort, "smoothness": smooth,
-            "in_goal": in_goal_term, "intermediate": intermediate_bonus, "success": success_bonus,
+            "joint_limit": limit_term, "in_goal": in_goal_term, "intermediate": intermediate_bonus,
+            "success": success_bonus,
         }
         if not np.isfinite(reward):
             raise FloatingPointError("non-finite reward")
@@ -941,7 +946,7 @@ class ArmTaskEnv(gym.Env):
             "physics_substeps": int(self.config.physics_substeps),
             "reward_weights": {
                 "W_SHAPING": self.W_SHAPING, "W_DIST": self.W_DIST, "W_EFFORT": self.W_EFFORT,
-                "W_SMOOTH": self.W_SMOOTH, "R_IN_GOAL": self.R_IN_GOAL,
+                "W_SMOOTH": self.W_SMOOTH, "W_LIMIT": self.W_LIMIT, "R_IN_GOAL": self.R_IN_GOAL,
                 "R_INTERMEDIATE": self.R_INTERMEDIATE, "R_SUCCESS": self.R_SUCCESS,
             },
         }
