@@ -65,6 +65,7 @@ class RLTrainerWithMetrics:
         eval_env_fn: Optional[Callable[[], ArmTaskEnv]] = None,
         eval_save_dir: Optional[str] = None,
         use_hold_curriculum: bool = True,
+        orientation_ladder: Optional[List[float]] = None,
     ):
         """
         Initialize trainer with metrics collection.
@@ -171,6 +172,7 @@ class RLTrainerWithMetrics:
         self.eval_env_fn = eval_env_fn
         self.eval_save_dir = eval_save_dir
         self.use_hold_curriculum = bool(use_hold_curriculum)
+        self.orientation_ladder = orientation_ladder
         self.eval_checkpoint_callback: Optional[EvalCheckpointCurriculumCallback] = None
 
         # RLock avoids deadlocks for nested metric reads.
@@ -231,6 +233,7 @@ class RLTrainerWithMetrics:
                     initial_tolerance=self.curriculum_kwargs.get("initial_tolerance", 0.60),
                     min_tolerance=self.curriculum_kwargs.get("min_tolerance", 0.20),
                     hold_ladder=ladder,
+                    orientation_ladder=self.orientation_ladder,
                     verbose=1,
                 )
                 callbacks.append(self.eval_checkpoint_callback)

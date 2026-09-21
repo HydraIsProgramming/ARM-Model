@@ -124,6 +124,21 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--orientation-curriculum",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated orientation tolerances in degrees, widest first, "
+            'e.g. "40,25,18,12". Training starts at the widest and tightens '
+            "as deterministic evaluation succeeds; evaluation always scores "
+            "against the last (strictest) value. Off by default. Motivated by "
+            "measurement: once the infeasible-orientation defect was fixed, an "
+            "agent parked at the final waypoint satisfied position 85% and "
+            "velocity 76% of the time but orientation only 4%, making it the "
+            "binding constraint on the hold."
+        ),
+    )
+    parser.add_argument(
         "--curriculum-mode",
         type=str,
         default="eval",
@@ -134,6 +149,54 @@ def parse_args() -> argparse.Namespace:
             "uses the older training-policy success rate and saves only the "
             "final model."
         ),
+    )
+    # --- Speed / capacity knobs -------------------------------------------
+    # Profiling showed ~99% of wall-clock time is SAC gradient updates and
+    # only ~1% is environment stepping, so these are the levers that matter.
+    parser.add_argument(
+        "--net-arch",
+        type=str,
+        default="256,256",
+        help=(
+            "Policy/critic hidden layer sizes, comma separated (default "
+            "256,256). The observation is 11-dimensional, so 64,64 is ample "
+            "and measured ~1.5x faster per gradient step."
+        ),
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=256,
+        help="SAC minibatch size (default 256; 64 measured ~1.5x faster on CPU).",
+    )
+    parser.add_argument(
+        "--utd",
+        type=float,
+        default=1.0,
+        help=(
+            "Update-to-data ratio: gradient updates per environment step "
+            "(SB3 default 1.0). 0.5 halves training time; the replay buffer "
+            "still sees every transition."
+        ),
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="cpu",
+        help=(
+            "Torch device (default cpu). MEASURED on this project: the GPU is "
+            "3.5-5x SLOWER than the CPU here, because SAC issues many tiny "
+            "kernels per update (actor + 2 critics + 2 targets) and a small "
+            "MLP at batch 64 never saturates the device -- launch latency "
+            "dominates. Do not set 'auto': SB3 resolves it to cuda when a "
+            "CUDA build is present, which is the slow path. Revisit only if "
+            "the network and batch size grow by an order of magnitude."
+        ),
+    )
+    parser.add_argument(
+        "--skip-validators",
+        action="store_true",
+        help="Skip the Fitts' Law and power-law sweeps (saves ~15 s per run).",
     )
     parser.add_argument(
         "--fitts-trials",
@@ -309,14 +372,53 @@ def main() -> int:
         log("Curriculum mode 'stochastic': using training-policy success rate, "
             "no best-model checkpointing (ablation condition)")
 
+    # Build the speed/capacity hyperparameters. train_freq/gradient_steps
+    # implement the update-to-data ratio: at utd=0.5 we collect 2 environment
+    # steps per gradient update instead of 1, halving optimiser work.
+    net_arch = [int(x) for x in args.net_arch.split(",") if x.strip()]
+    hyperparams = {
+        "batch_size": args.batch_size,
+        "policy_kwargs": dict(net_arch=net_arch),
+        "device": args.device,
+    }
+    if args.utd != 1.0:
+        if args.utd <= 0:
+            raise ValueError(f"--utd must be positive, got {args.utd}")
+        if args.utd <= 1.0:
+            hyperparams["train_freq"] = max(1, int(round(1.0 / args.utd)))
+            hyperparams["gradient_steps"] = 1
+        else:
+            hyperparams["train_freq"] = 1
+            hyperparams["gradient_steps"] = int(round(args.utd))
+    log(f"Speed config: net_arch={net_arch}, batch={args.batch_size}, "
+        f"utd={args.utd}, device={args.device}")
+
+    orientation_ladder = None
+    if args.orientation_curriculum:
+        orientation_ladder = [
+            float(x) for x in args.orientation_curriculum.split(",") if x.strip()
+        ]
+        if len(orientation_ladder) < 2:
+            raise ValueError(
+                "--orientation-curriculum needs at least two values, "
+                f"got {orientation_ladder}")
+        if any(b > a for a, b in zip(orientation_ladder, orientation_ladder[1:])):
+            raise ValueError(
+                "--orientation-curriculum must be ordered widest to strictest, "
+                f"got {orientation_ladder}")
+        log(f"Orientation curriculum: {orientation_ladder} deg "
+            f"(evaluation always scores at {orientation_ladder[-1]} deg)")
+
     trainer = RLTrainerWithMetrics(
         env=env,
         total_timesteps=args.timesteps,
         algorithm=args.algorithm,
+        hyperparams=hyperparams,
         curriculum_kwargs=curriculum_kwargs,
         eval_env_fn=eval_env_fn,
         eval_save_dir=str(save_dir) if eval_env_fn is not None else None,
         use_hold_curriculum=not args.no_hold_curriculum,
+        orientation_ladder=orientation_ladder,
     )
 
     t0 = time.time()
@@ -339,6 +441,13 @@ def main() -> int:
         log(f"Best checkpoint: score={cp.get('best_score')} "
             f"at step {cp.get('best_saved_at')} -> "
             f"{save_dir / (args.algorithm.lower() + '_model_best.zip')}")
+
+    if args.skip_validators:
+        log("Validators skipped (--skip-validators).")
+        elapsed = datetime.now() - start_time
+        log(f"Session complete. Total wall time: {elapsed}")
+        log("=" * 60)
+        return 0
 
     # --- VALIDATE: FITTS' LAW -----------------------------------------
     log(f"Running Fitts' Law sweep ({args.fitts_trials} trials per condition)...")

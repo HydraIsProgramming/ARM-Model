@@ -334,7 +334,7 @@ success bonus ($150$), so their effect is small.
 The arm is \emph{in the goal region} when all three of
 \begin{equation}
 d < \rho, \qquad \phi < 12^{\circ}, \qquad
-\lVert \omega \rVert < 0.3\ \mathrm{rad/s}
+\lVert \omega \rVert < 0.5\ \mathrm{rad/s}
 \label{eq:ingoal}
 \end{equation}
 hold at the same time. The hold counter then changes as
@@ -554,9 +554,86 @@ Agents reliably reached the first two waypoints and reached the third, but
 could not stay there. The problem is not navigation, which is solved, but
 stopping.
 
-This makes sense given the actuator. Under velocity control, stopping is
-trivial: command zero speed. Under muscle control there is no such command, and
-the agent must balance two opposing muscles against leftover momentum.
+Our first explanation for this was that stopping is simply hard under muscle
+actuation: velocity control can command zero speed, whereas muscles must
+balance two opposing forces against leftover momentum. That explanation is
+wrong, and the real one is a defect in the task.
+
+\subsection{The hold criterion was geometrically impossible}
+\label{sec:infeasible}
+
+A 2-DOF planar arm has exactly two degrees of freedom. Choosing the
+end-effector position $(x,y)$ consumes both, so the end-effector orientation
+$\theta_0 + \theta_1$ is then \emph{determined} by inverse kinematics, up to
+the elbow-up/elbow-down branch. It is not a free variable.
+
+The hold criterion of (\ref{eq:ingoal}) nonetheless requires position and
+orientation to be satisfied at the same time, and the orientation it demanded
+was the direction from the shoulder to the goal. That value is correct only
+when the arm is fully extended. At an interior waypoint the two disagree
+sharply, as Table~\ref{tab:infeasible} shows.
+
+\begin{table}[htbp]
+\caption{Demanded vs.\ Achievable Orientation at Each Waypoint}
+\begin{center}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lccc}
+\toprule
+& \textbf{Demanded} & \textbf{Achievable} & \textbf{Gap} \\
+\midrule
+$W_1$ & $+123.7^{\circ}$ & $+165.5^{\circ}$ & $41.8^{\circ}$ \\
+$W_2$ & $+22.6^{\circ}$  & $+72.9^{\circ}$  & $50.3^{\circ}$ \\
+$W_3$ & $-90.0^{\circ}$  & $-59.2^{\circ}$  & $30.8^{\circ}$ \\
+\midrule
+\multicolumn{3}{l}{Orientation tolerance} & $12.0^{\circ}$ \\
+\bottomrule
+\end{tabular}
+\label{tab:infeasible}
+\end{center}
+\end{table}
+
+Every gap exceeds the tolerance by a factor of two and a half or more, so at
+the waypoint itself the hold can never be satisfied. Grid-sampling each
+tolerance ball shows that only $5$--$6\%$ of it admits a valid hold at the
+$0.6$~m evaluation radius, and that this share collapses to zero as the radius
+shrinks: $W_1$ and $W_2$ become impossible below $0.4$~m, and every waypoint is
+impossible below $0.1$~m.
+
+This single defect accounts for the results reported above and for several
+others that had been attributed to other causes:
+
+\begin{itemize}
+\item \textbf{Zero of thirty seeds completed a hold.} To succeed at all, an
+agent had to find a $5\%$ sliver of the goal region and stay inside it for
+twenty consecutive steps.
+\item \textbf{The successful policy scores $0/20$ at $0.4$~m}
+(Table~\ref{tab:champion}). That is not a precision limit of the policy: two
+of the three waypoints are geometrically impossible at that radius.
+\item \textbf{The tolerance curriculum always stalled.} It cannot pass roughly
+$0.4$~m, because below that the task it is advancing toward has no solution.
+This is the same stall identified in Section~\ref{sec:results}-C as the limit
+on the Fitts' Law fit.
+\end{itemize}
+
+The single-target reaching task was unaffected, because its directional goals
+sit at maximum reach where the demanded and achievable orientations coincide.
+This is why the motor-control results of
+Sections~\ref{sec:results}-A and \ref{sec:results}-C were never in question.
+
+Setting the target to the achievable inverse-kinematics value removes the
+defect: orientation error at each waypoint falls from $30$--$50^{\circ}$ to
+$0.00^{\circ}$, and feasibility now \emph{improves} as the tolerance tightens,
+reaching $100\%$ at $0.1$~m instead of collapsing to zero.
+
+Correcting the target is necessary but not sufficient. Applied directly as a
+per-step penalty it made training worse rather than better: agents that
+previously reached two of three waypoints reached none at all. The corrected
+target is a specific folded pose that has nothing to do with travelling to the
+goal, so charging it from far away sets the orientation term against the
+distance term and suppresses movement. Gating the penalty to the final three
+tolerance radii---leaving the hold criterion itself untouched---resolves the
+conflict. We report the failed intermediate version because the natural fix
+was actively harmful, and only the combination works.
 
 \subsection{Testing four possible fixes}
 \label{sec:ablation}

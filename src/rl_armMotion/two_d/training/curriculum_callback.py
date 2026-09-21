@@ -658,6 +658,8 @@ class EvalCheckpointCurriculumCallback(BaseCallback):
         hold_ladder: Optional[List[int]] = None,
         hold_threshold: float = 0.60,
         eval_tolerance: float = 0.60,
+        orientation_ladder: Optional[List[float]] = None,
+        orientation_threshold: float = 0.60,
         verbose: int = 0,
     ):
         super().__init__(verbose=verbose)
@@ -674,6 +676,18 @@ class EvalCheckpointCurriculumCallback(BaseCallback):
         self.hold_threshold = float(hold_threshold)
         self.eval_tolerance = float(eval_tolerance)
 
+        # Orientation ladder. None means the orientation tolerance is left at
+        # the environment default and never curriculum-controlled, which is
+        # the historical behaviour.
+        self.orientation_ladder: Optional[List[float]] = (
+            list(orientation_ladder) if orientation_ladder else None
+        )
+        self.orientation_threshold = float(orientation_threshold)
+        self._orient_idx: int = 0
+        self.current_orientation_deg: Optional[float] = (
+            self.orientation_ladder[0] if self.orientation_ladder else None
+        )
+
         self.current_tolerance: float = float(initial_tolerance)
         self._ladder_idx: int = 0
         self.current_hold_steps: int = self.hold_ladder[0]
@@ -686,6 +700,13 @@ class EvalCheckpointCurriculumCallback(BaseCallback):
     def _on_training_start(self) -> None:
         _apply_env_setting(self.training_env, "set_goal_tolerance", self.current_tolerance)
         _apply_env_setting(self.training_env, "set_hold_steps_required", self.current_hold_steps)
+        if self.current_orientation_deg is not None:
+            _apply_env_setting(self.training_env, "set_orientation_tolerance",
+                               self.current_orientation_deg)
+            if self.verbose:
+                print(f"[EvalCheckpoint] Orientation curriculum active: "
+                      f"{self.orientation_ladder} deg, advancing at "
+                      f"{self.orientation_threshold:.0%} eval success")
         if self.verbose:
             print(
                 f"[EvalCheckpoint] Active: eval every {self.eval_freq:,} steps, "
@@ -712,6 +733,12 @@ class EvalCheckpointCurriculumCallback(BaseCallback):
             env.set_goal_tolerance(self.eval_tolerance)
         if hasattr(env, "set_hold_steps_required"):
             env.set_hold_steps_required(self.hold_ladder[-1])
+        # Always score against the strict orientation tolerance, even while
+        # training is running under a relaxed one, so the reported success
+        # rate means the same thing throughout the run.
+        if self.orientation_ladder is not None and hasattr(
+                env, "set_orientation_tolerance"):
+            env.set_orientation_tolerance(self.orientation_ladder[-1])
 
         successes = 0
         waypoints_reached: List[int] = []
@@ -756,7 +783,24 @@ class EvalCheckpointCurriculumCallback(BaseCallback):
                 print(f"[EvalCheckpoint] New best model saved (score {score})")
 
         # --- Curriculum: at most ONE difficulty change per eval round ---
+        # Orientation is tightened first when it is under curriculum control,
+        # because measurement showed it is the binding constraint on the hold;
+        # there is no point lengthening the hold or shrinking the goal radius
+        # while the agent still cannot satisfy orientation at all.
         if (
+            self.orientation_ladder is not None
+            and self._orient_idx < len(self.orientation_ladder) - 1
+            and success_rate >= self.orientation_threshold
+        ):
+            self._orient_idx += 1
+            self.current_orientation_deg = self.orientation_ladder[self._orient_idx]
+            _apply_env_setting(self.training_env, "set_orientation_tolerance",
+                               self.current_orientation_deg)
+            if self.verbose:
+                print(f"[EvalCheckpoint] Orientation tolerance tightened to "
+                      f"{self.current_orientation_deg:.0f} deg "
+                      f"(eval success {success_rate:.0%})")
+        elif (
             self._ladder_idx < len(self.hold_ladder) - 1
             and success_rate >= self.hold_threshold
         ):
@@ -791,6 +835,8 @@ class EvalCheckpointCurriculumCallback(BaseCallback):
             "initial_tolerance": float(self.initial_tolerance),
             "current_hold_steps": int(self.current_hold_steps),
             "hold_ladder": self.hold_ladder,
+            "current_orientation_deg": self.current_orientation_deg,
+            "orientation_ladder": self.orientation_ladder,
             "recent_success_rate": self._last_eval_success_rate,
             "best_score": self.best_score,
             "best_saved_at": self.best_saved_at,

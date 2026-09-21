@@ -65,6 +65,26 @@ CONSISTENCY_RUNS  = 5
 #   available cores evenly so seeds don't fight each other for CPU time.
 THREADS_PER_SEED  = max(1, os.cpu_count() // SEEDS_PER_BATCH - 1)
 
+# ── Speed settings ────────────────────────────────────────────────────────────
+# Profiling on this machine showed ~99% of wall-clock time is SAC gradient
+# updates and only ~1% is environment stepping (12,000 env steps/s versus
+# 120 gradient updates/s). These three knobs are therefore the only ones that
+# meaningfully change run time.
+#
+# NET_ARCH: the observation is 11-dimensional and the action 4-dimensional, so
+#   [256,256] is heavily oversized. [64,64] measured ~1.4x faster per update.
+# BATCH_SIZE: 64 measured ~1.5x faster than 256 on CPU.
+# UTD: gradient updates per environment step. SB3 defaults to 1.0, which means
+#   500,000 updates for a 500K-step run. 0.5 halves optimiser work; every
+#   transition still enters the replay buffer.
+# DEVICE: cpu. The GPU was measured 3.5-5x SLOWER here -- SAC issues many tiny
+#   kernels per update and a small MLP at batch 64 never saturates the device,
+#   so launch latency dominates. Do not use "auto".
+NET_ARCH   = "64,64"
+BATCH_SIZE = 64
+UTD        = 0.5
+DEVICE     = "cpu"
+
 PYTHON      = sys.executable
 SCRIPT      = str(Path(__file__).parent / "scripts" / "train_fischer_session.py")
 OUTPUT_BASE = Path(__file__).parent / "project_assets" / "outputs" / "Parallel_Seeds"
@@ -300,6 +320,10 @@ def run_seed(seed_id: int, save_dir: Path) -> tuple:
         "--save-dir", str(save_dir),
         "--num-threads", str(THREADS_PER_SEED),
         "--seed", str(seed_id),
+        "--net-arch", NET_ARCH,
+        "--batch-size", str(BATCH_SIZE),
+        "--utd", str(UTD),
+        "--device", DEVICE,
     ]
     print(f"  [seed {seed_id:03d}] Starting (threads={THREADS_PER_SEED})...", flush=True)
     with open(log_path, "w") as f:
@@ -323,6 +347,54 @@ def run_seed(seed_id: int, save_dir: Path) -> tuple:
     return seed_id, rc
 
 
+def check_waypoints_feasible() -> bool:
+    """Refuse to start if the hold criterion is impossible at any waypoint.
+
+    A 2-DOF arm has two degrees of freedom, so fixing the end-effector
+    position fixes its orientation too. If the orientation the environment
+    demands differs from the one the arm can actually reach by more than the
+    orientation tolerance, no policy can ever complete the hold there --
+    previously this silently burned 70 hours across 30 seeds for 0 successes.
+    """
+    script = f"""
+import sys, json; sys.path.insert(0, 'src')
+from rl_armMotion.two_d.environments.task_env import ArmTaskEnv
+env = ArmTaskEnv(actuation_mode='muscle', goal_direction='EAST')
+env.set_waypoints({WAYPOINTS_LIST}, tolerance=0.6)
+out = []
+for i in range(len({WAYPOINTS_LIST})):
+    env._apply_waypoint(i)
+    out.append(env.hold_feasibility())
+print(json.dumps(out))
+"""
+    result = subprocess.run([PYTHON, "-c", script], capture_output=True,
+                            text=True, cwd=Path(__file__).parent)
+    try:
+        checks = json.loads(result.stdout.strip().splitlines()[-1])
+    except Exception:
+        print("  (feasibility check could not run; continuing)", flush=True)
+        return True
+
+    all_ok = True
+    for i, c in enumerate(checks, start=1):
+        if not c.get("reachable", False):
+            print(f"  WP{i} {c['position']}: UNREACHABLE -- {c.get('reason')}",
+                  flush=True)
+            all_ok = False
+        elif not c["feasible"]:
+            print(f"  WP{i} {c['position']}: INFEASIBLE -- needs orientation "
+                  f"{c['target_orientation_deg']:+.1f} deg but the arm can only "
+                  f"reach {c['achievable_orientation_deg']:+.1f} deg "
+                  f"(off by {c['orientation_error_deg']:.1f} deg, tolerance "
+                  f"{c['orientation_tolerance_deg']:.0f} deg)", flush=True)
+            all_ok = False
+        else:
+            print(f"  WP{i} {c['position']}: ok "
+                  f"(orientation error {c['orientation_error_deg']:.2f} deg)",
+                  flush=True)
+    return all_ok
+
+
 def main():
     print("=" * 60)
     print("AUTO SEED SEARCH")
@@ -331,8 +403,19 @@ def main():
     print(f"  Threads per seed: {THREADS_PER_SEED}")
     print(f"  Early kill at   : {EARLY_KILL_STEPS:,} steps if reward < {EARLY_KILL_THRESH}")
     print(f"  Max batches     : {MAX_BATCHES}")
+    print(f"  Net / batch / UTD: {NET_ARCH} / {BATCH_SIZE} / {UTD} on {DEVICE}")
     print(f"  Output          : {OUTPUT_BASE}")
     print("=" * 60, flush=True)
+
+    print("\nPre-flight: can the hold actually be satisfied at each waypoint?",
+          flush=True)
+    if not check_waypoints_feasible():
+        print("\nABORTING: at least one waypoint is impossible to hold at.",
+              flush=True)
+        print("No amount of training can succeed there. Fix the waypoints or "
+              "the orientation target before spending compute.", flush=True)
+        return
+    print("All waypoints feasible.\n", flush=True)
 
     # Resume from after the last seed that actually completed (has a saved model).
     # Directories without a model were killed mid-run and will be overwritten.
