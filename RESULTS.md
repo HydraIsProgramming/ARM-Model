@@ -37,6 +37,17 @@ consecutive passing rounds; (3) hand speed peaked at 4–5 m/s (symmetry 0.2–0
 quadratic penalty above 1.5 m/s was added for Stage B. Human-likeness reference ranges: straightness
 1.0–1.15, symmetry 0.35–0.55, dimensionless jerk < 60.
 
+## Human-arm v2 — Stage B warm-start experiment (negative result), 2026-09-21
+
+Alongside the five from-scratch Stage B seeds, five runs were warm-started from the matching Stage A
+packages (`--continue-from … --drop-buffer`: weights kept, replay buffer refilled with a 5K-step warm-up,
+curriculum restarted). After ~80K Stage B steps every warm-started run was at 0/5 on the 3-waypoint task
+at the 15 cm training tolerance, reaching 0–1 waypoints, while every from-scratch seed was at 5/5. The
+warm runs were stopped at ~380K total steps (packages kept in `C:/arm-model-runs/stageB/seed_*_warm`).
+A policy that has learned "A then C" has to unlearn the direct route once B is inserted, and refitting
+the critic on a small random buffer erodes it further. Conclusion: for a new waypoint sequence, train
+from scratch; use `--continue-from` (with the buffer) only to extend the same task.
+
 ---
 
 **Run date**: 2026-06-18
