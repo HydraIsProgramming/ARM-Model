@@ -70,6 +70,8 @@ class EvalCheckpointCurriculumCallback(BaseCallback):
         tolerance_ladder: Sequence[float] = DEFAULT_TOLERANCE_LADDER,
         hold_ladder: Sequence[int] = DEFAULT_HOLD_LADDER,
         advance_threshold: float = 0.8,
+        advance_consecutive: int = 2,
+        cooldown_rounds: int = 1,
         checkpoint_every: int = 100_000,
         save_replay_buffer: bool = True,
         resume_state: Optional[Dict[str, Any]] = None,
@@ -89,6 +91,12 @@ class EvalCheckpointCurriculumCallback(BaseCallback):
         if any(b < a for a, b in zip(self.hold_ladder, self.hold_ladder[1:])):
             raise ValueError("hold_ladder must be non-decreasing")
         self.advance_threshold = float(advance_threshold)
+        # A rung advances only after `advance_consecutive` successive rounds
+        # at >= advance_threshold, then waits `cooldown_rounds` rounds. Stage A
+        # showed policies that passed one round, tightened, and collapsed.
+        self.advance_consecutive = max(1, int(advance_consecutive))
+        self.cooldown_rounds = max(0, int(cooldown_rounds))
+        self._streak = 0
         self.checkpoint_every = int(checkpoint_every)
         self.save_replay_buffer = bool(save_replay_buffer)
         self.model_stem = model_stem
@@ -184,9 +192,13 @@ class EvalCheckpointCurriculumCallback(BaseCallback):
 
         # 3. curriculum advance (one ladder per round, cooldown one round)
         advanced = None
+        if train_res.success_rate >= self.advance_threshold:
+            self._streak += 1
+        else:
+            self._streak = 0
         if self._cooldown > 0:
             self._cooldown -= 1
-        elif train_res.success_rate >= self.advance_threshold:
+        elif self._streak >= self.advance_consecutive:
             if self.tolerance_idx < len(self.tolerance_ladder) - 1:
                 self.tolerance_idx += 1
                 advanced = f"tolerance -> {self.current_tolerance:.3f} m"
@@ -195,13 +207,15 @@ class EvalCheckpointCurriculumCallback(BaseCallback):
                 advanced = f"hold -> {self.current_hold_steps} steps"
             if advanced:
                 self._apply_training_difficulty()
-                self._cooldown = 1
+                self._cooldown = self.cooldown_rounds
+                self._streak = 0
 
         entry = {
             "step": int(self.num_timesteps),
             "train_tolerance": self.current_tolerance,
             "train_hold_steps": self.current_hold_steps,
             "train_success_rate": train_res.success_rate,
+            "train_streak": self._streak,
             "train_mean_waypoints": train_res.mean_waypoints,
             "prod_success_rate": prod_res.success_rate,
             "prod_mean_waypoints": prod_res.mean_waypoints,
@@ -249,6 +263,9 @@ class EvalCheckpointCurriculumCallback(BaseCallback):
             "num_timesteps": int(self.num_timesteps) if self.model is not None else 0,
             "rounds": self.rounds,
             "cooldown": self._cooldown,
+            "streak": self._streak,
+            "advance_consecutive": self.advance_consecutive,
+            "cooldown_rounds": self.cooldown_rounds,
             "history": self.history,
         }
 
@@ -264,6 +281,7 @@ class EvalCheckpointCurriculumCallback(BaseCallback):
         self.best_saved_at = st.get("best_saved_at")
         self.rounds = int(st.get("rounds", 0))
         self._cooldown = int(st.get("cooldown", 0))
+        self._streak = int(st.get("streak", 0))
         self.history = list(st.get("history", []))
         self.tolerance_idx = min(self.tolerance_idx, len(self.tolerance_ladder) - 1)
         self.hold_idx = min(self.hold_idx, len(self.hold_ladder) - 1)
@@ -284,6 +302,9 @@ class EvalCheckpointCurriculumCallback(BaseCallback):
             "eval_freq": int(self.eval_freq),
             "curriculum_stage": (int(self.tolerance_idx), int(self.hold_idx)),
             "rounds": self.rounds,
+            "streak": self._streak,
+            "advance_consecutive": self.advance_consecutive,
+            "cooldown_rounds": self.cooldown_rounds,
             "window_filled": self.n_train_eval_episodes,
             "window_size": self.n_train_eval_episodes,
             "episodes_since_last_decay": 0,

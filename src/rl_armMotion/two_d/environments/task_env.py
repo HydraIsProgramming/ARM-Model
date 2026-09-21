@@ -52,6 +52,7 @@ Reward (all distances normalised by reach R)
       - W_EFFORT * |a|^2                                 effort (no co-contraction penalty)
       - W_SMOOTH * |qd'| / velocity_limit                mild smoothness
       - W_LIMIT  * (number of joints on a hard stop)      end-range avoidance
+      - W_SPEED_EXCESS * max(0, |hand velocity| - 1.5)^2  human-like speed cap
       + R_IN_GOAL      if in_goal at the FINAL waypoint  hold stream
       + R_INTERMEDIATE on completing an intermediate waypoint
       + R_SUCCESS      once, when the final hold completes
@@ -148,6 +149,12 @@ class ArmTaskEnv(gym.Env):
     W_EFFORT: float = 0.02
     W_SMOOTH: float = 0.05
     W_LIMIT: float = 0.1     # per joint resting on a hard stop (end-range is avoided by humans)
+    # Hand speed above a human-like cap is penalised quadratically. Peak hand
+    # speed in human point-to-point reaching is ~1-1.5 m/s for 30-50 cm moves;
+    # without this the policy whips the hand at 4-5 m/s (bang-bang start,
+    # velocity-profile symmetry ~0.2 instead of ~0.45).
+    W_SPEED_EXCESS: float = 0.5
+    EE_SPEED_CAP: float = 1.5  # m/s
     R_IN_GOAL: float = 1.0
     R_INTERMEDIATE: float = 10.0
     R_SUCCESS: float = 50.0
@@ -826,13 +833,14 @@ class ArmTaskEnv(gym.Env):
         effort = -self.W_EFFORT * float(np.dot(a, a))
         smooth = -self.W_SMOOTH * joint_speed / float(self.config.velocity_limits)
         limit_term = -self.W_LIMIT * float(np.sum(at_limit))
+        speed_excess = -self.W_SPEED_EXCESS * max(0.0, ee_speed - self.EE_SPEED_CAP) ** 2
         in_goal_term = self.R_IN_GOAL if (in_goal and self.is_final_waypoint) else 0.0
-        reward = (shaping + dist_term + effort + smooth + limit_term + in_goal_term
+        reward = (shaping + dist_term + effort + smooth + limit_term + speed_excess + in_goal_term
                   + intermediate_bonus + success_bonus)
         self._last_reward_terms = {
             "shaping": shaping, "distance": dist_term, "effort": effort, "smoothness": smooth,
-            "joint_limit": limit_term, "in_goal": in_goal_term, "intermediate": intermediate_bonus,
-            "success": success_bonus,
+            "joint_limit": limit_term, "speed_excess": speed_excess, "in_goal": in_goal_term,
+            "intermediate": intermediate_bonus, "success": success_bonus,
         }
         if not np.isfinite(reward):
             raise FloatingPointError("non-finite reward")
@@ -946,7 +954,9 @@ class ArmTaskEnv(gym.Env):
             "physics_substeps": int(self.config.physics_substeps),
             "reward_weights": {
                 "W_SHAPING": self.W_SHAPING, "W_DIST": self.W_DIST, "W_EFFORT": self.W_EFFORT,
-                "W_SMOOTH": self.W_SMOOTH, "W_LIMIT": self.W_LIMIT, "R_IN_GOAL": self.R_IN_GOAL,
+                "W_SMOOTH": self.W_SMOOTH, "W_LIMIT": self.W_LIMIT,
+                "W_SPEED_EXCESS": self.W_SPEED_EXCESS, "EE_SPEED_CAP": self.EE_SPEED_CAP,
+                "R_IN_GOAL": self.R_IN_GOAL,
                 "R_INTERMEDIATE": self.R_INTERMEDIATE, "R_SUCCESS": self.R_SUCCESS,
             },
         }

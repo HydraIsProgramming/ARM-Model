@@ -1426,6 +1426,17 @@ Points: {len(self.trajectory_points)}
         self.root.bind("<Right>", self._handle_keyboard)
         self.root.bind("<t>", self._handle_keyboard)
 
+        if getattr(self, "sim_model_path", "") and getattr(self, "_pending_autostart", False):
+            if self.sim_model_label is not None:
+                self.sim_model_label.config(text=f"Model: {Path(self.sim_model_path).name} (SAC)")
+            if self.sim_toggle_button is not None:
+                self.sim_toggle_button.config(state="normal")
+            if hasattr(self, "_wp_choice_var"):
+                self._wp_choice_var.set(self.sim_waypoint_choice)
+            if hasattr(self, "_loop_var"):
+                self._loop_var.set(self.sim_loop)
+            self.root.after(300, self._start_simulation)
+
         def update_loop():
             """Main update loop"""
             if not self.running:
@@ -1495,10 +1506,39 @@ Points: {len(self.trajectory_points)}
         os._exit(0)
 
 
-def main():
-    """Entry point for GUI application"""
+def main(argv=None):
+    """Entry point for GUI application.
+
+    python -m rl_armMotion.two_d.gui.app [--package DIR|MODEL.zip] [--which best] [--waypoints 2|3|spread] [--autostart]
+    """
+    import argparse
+    parser = argparse.ArgumentParser(description="Interactive arm GUI")
+    parser.add_argument("--package", default=None, help="model package directory or a model .zip inside one")
+    parser.add_argument("--which", default="best", help="best | last | final")
+    parser.add_argument("--waypoints", default=None, help="1 | 2 | 3 | spread | 'x,y;x,y' (default: the package's set)")
+    parser.add_argument("--autostart", action="store_true", help="start the policy simulation immediately")
+    parser.add_argument("--no-loop", action="store_true")
+    args = parser.parse_args(argv)
+
     config = ArmConfiguration.get_preset(DEFAULT_PRESET)
     gui = ArmControllerGUI(config)
+    if args.package:
+        pkg = Path(args.package)
+        model_zip = pkg if pkg.is_file() else pkg / f"sac_model_{args.which}.zip"
+        if not model_zip.exists():
+            model_zip = pkg / "sac_model.zip"
+        gui.sim_model_path = gui._normalize_model_base(str(model_zip))
+        gui.sim_algorithm = "SAC"
+        mp = find_manifest(str(model_zip))
+        gui.sim_package_dir = str(mp.parent) if mp else None
+        gui.sim_manifest = read_manifest(mp) if mp else None
+        if args.waypoints:
+            w = args.waypoints.strip().lower()
+            gui.sim_waypoint_choice = {"1": "1 waypoint", "2": "2 waypoints", "3": "3 waypoints", "spread": "spread"}.get(w, "custom")
+            if gui.sim_waypoint_choice == "custom":
+                gui.sim_custom_waypoints = args.waypoints
+        gui.sim_loop = not args.no_loop
+        gui._pending_autostart = bool(args.autostart)
     gui.run()
 
 

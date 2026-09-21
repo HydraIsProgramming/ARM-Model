@@ -69,8 +69,9 @@ Observation (14-D, `OBS_VERSION = 2`): sin/cos of both joints, joint velocities 
 
 Reward: potential-based shaping `2·(γΦ' − Φ)` with `Φ = −|goal − hand|/reach`, dense `−0.5·|goal − hand|/reach`,
 effort `−0.02·|a|²`, smoothness `−0.05·|q̇|/8`, end-range avoidance `−0.1` per joint resting on a hard
-stop, +1 per in-goal step at the final waypoint, +10 per intermediate waypoint, +50 once when the hold
-completes. Zero action for an episode scores about −340.
+stop, human speed cap `−0.5·max(0, |hand velocity| − 1.5 m/s)²` (Stage A policies whipped the hand at
+4–5 m/s; humans peak at 1–1.5 m/s), +1 per in-goal step at the final waypoint, +10 per intermediate
+waypoint, +50 once when the hold completes. Zero action for an episode scores about −340.
 
 ## 3. Train
 
@@ -80,9 +81,10 @@ python scripts/train_fischer_session.py --timesteps 300000 --waypoints 2 --seed 
 
 Defaults: SAC, net 256×256, batch 256, buffer 300K, learning_starts 5000, γ 0.99, CPU (the GPU measured
 3.5–5× slower for this SAC), 4 threads. Curriculum: tolerance ladder 0.15 → 0.10 → 0.07 → 0.05 m then hold
-ladder 10 → 15 → 25 steps; a ladder advances when a 5-episode evaluation at the *current* difficulty
-succeeds ≥ 80 %. Every 20K steps a 10-episode evaluation at the production standard selects
-`sac_model_best.zip`.
+ladder 10 → 15 → 25 steps; a rung tightens after **two consecutive** 5-episode evaluations at the
+*current* difficulty succeed ≥ 80 % (`--advance-consecutive`, `--cooldown-rounds`; Stage A attempt 2
+advanced on a single round and several seeds collapsed right after tightening). Every 20K steps a
+10-episode evaluation at the production standard selects `sac_model_best.zip`.
 
 Campaign (5 seeds in parallel, report, promote the champion):
 
@@ -123,7 +125,10 @@ version differs from the code. Continue a run (killed or finished) into a **new*
 python scripts/train_fischer_session.py --continue-from C:/arm-model-runs/stageA/seed_1 --timesteps 100000 --save-dir C:/arm-model-runs/stageA/seed_1_cont
 ```
 
-The source package is never modified; the new manifest records its parent (`lineage`).
+The source package is never modified; the new manifest records its parent (`lineage`). To warm-start a
+*different* task from a trained policy (e.g. 3 waypoints from a 2-waypoint model) add `--drop-buffer`:
+the weights are kept, the replay buffer is refilled with a short on-policy warm-up and the curriculum
+restarts for the new task (`run_campaign.py --stage B --warm-start-from C:/arm-model-runs/stageA --suffix _warm`).
 
 ## 5. Reproducibility contract
 

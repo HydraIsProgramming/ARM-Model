@@ -39,6 +39,8 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--overwrite", action="store_true", help="Allow writing into a non-empty package directory.")
     p.add_argument("--continue-from", type=str, default=None,
                    help="Existing package to continue (model + replay buffer + curriculum); writes a NEW package.")
+    p.add_argument("--drop-buffer", action="store_true",
+                   help="With --continue-from: keep the weights only (warm start on a new task), refill the buffer.")
     p.add_argument("--algorithm", type=str, default="SAC", choices=["SAC", "PPO", "A2C"])
     # Task
     p.add_argument("--preset", type=str, default="2dof_human_right")
@@ -55,6 +57,9 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--tolerance-ladder", type=str, default="0.15,0.10,0.07,0.05")
     p.add_argument("--hold-ladder", type=str, default="10,15,25")
     p.add_argument("--eval-freq", type=int, default=20_000)
+    p.add_argument("--advance-consecutive", type=int, default=2,
+                   help="Successive >=80%% rounds needed before a curriculum rung tightens.")
+    p.add_argument("--cooldown-rounds", type=int, default=1)
     p.add_argument("--checkpoint-every", type=int, default=100_000)
     p.add_argument("--no-curriculum", action="store_true")
     # SAC
@@ -195,6 +200,9 @@ def main(argv=None) -> int:
         checkpoint_every=args.checkpoint_every,
         use_curriculum=not args.no_curriculum,
         continue_from=args.continue_from,
+        continue_drop_buffer=args.drop_buffer,
+        advance_consecutive=args.advance_consecutive,
+        cooldown_rounds=args.cooldown_rounds,
         cli_args=vars(args),
     )
     log(f"Resolved hyperparameters: {json.dumps(trainer.trainer.resolved_hyperparams, default=str)}")

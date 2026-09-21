@@ -11,6 +11,7 @@ from helpers import OraclePolicy
 
 
 def _make_callback(tmp_path, env_fn, model, train_env, **kw):
+    kw.setdefault("advance_consecutive", 1)
     cb = EvalCheckpointCurriculumCallback(run_dir=str(tmp_path), eval_env_fn=env_fn, eval_freq=100,
                                           verbose=0, save_replay_buffer=False, **kw)
     model.get_env = lambda: train_env   # BaseCallback.training_env reads model.get_env()
@@ -94,3 +95,17 @@ def test_state_persisted_and_resumed(tmp_path):
     assert cb2.current_tolerance == pytest.approx(0.05)
     assert train_env2.goal_tolerance == pytest.approx(0.05)
     assert cb2.best_score == state["best_score"]
+
+
+def test_advance_requires_consecutive_successes(tmp_path):
+    train_env = make_env(actuation_mode="torque", waypoints=2, tolerance=0.15, hold_steps=10)
+    eval_env = make_env(actuation_mode="torque", waypoints=2, terminate_on_success=True)
+    model = OraclePolicy(eval_env)
+    cb = _make_callback(tmp_path, lambda: eval_env, model, train_env,
+                        tolerance_ladder=(0.15, 0.05), advance_consecutive=2, cooldown_rounds=1)
+    cb.num_timesteps = 100
+    cb._run_round()
+    assert cb.tolerance_idx == 0 and cb.history[-1]["train_streak"] == 1   # one good round is not enough
+    cb.num_timesteps = 200
+    cb._run_round()
+    assert cb.tolerance_idx == 1 and cb.history[-1]["advanced"]            # second good round advances

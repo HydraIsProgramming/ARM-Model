@@ -62,6 +62,9 @@ class RLTrainerWithMetrics:
         eval_freq: int = 20_000,
         checkpoint_every: int = 100_000,
         continue_from: Optional[str] = None,
+        continue_drop_buffer: bool = False,
+        advance_consecutive: int = 2,
+        cooldown_rounds: int = 1,
         cli_args: Optional[Dict[str, Any]] = None,
         manifest_extra: Optional[Dict[str, Any]] = None,
         **legacy_kwargs: Any,
@@ -97,6 +100,9 @@ class RLTrainerWithMetrics:
         self.manifest_extra = dict(manifest_extra) if manifest_extra else {}
         self.run_dir: Optional[Path] = Path(run_dir or eval_save_dir).resolve() if (run_dir or eval_save_dir) else None
         self.continue_from: Optional[Path] = Path(continue_from).resolve() if continue_from else None
+        self.continue_drop_buffer = bool(continue_drop_buffer)
+        self.advance_consecutive = int(advance_consecutive)
+        self.cooldown_rounds = int(cooldown_rounds)
         self.lineage: List[Dict[str, Any]] = []
         self.resume_state: Optional[Dict[str, Any]] = None
         self.manifest: Optional[Dict[str, Any]] = None
@@ -199,17 +205,28 @@ class RLTrainerWithMetrics:
             raise FileNotFoundError(f"no {PACKAGE_FILES['last']} or {PACKAGE_FILES['final']} in {package}")
         AlgorithmClass = self.trainer.ALGORITHM_MAP[self.algorithm]
         device = self.trainer.hyperparams.get("device", "cpu")
+        requested_starts = self.trainer.hyperparams.get("learning_starts")
         self.trainer.model = AlgorithmClass.load(str(model_path), env=self.training_env, device=device)
-        # No second random warm-up: the buffer already holds experience.
-        if hasattr(self.trainer.model, "learning_starts"):
-            self.trainer.model.learning_starts = 0
         buf = package / PACKAGE_FILES["replay_buffer"]
-        if buf.exists() and hasattr(self.trainer.model, "load_replay_buffer"):
+        same_task = env_desc.get("waypoints") == self.env_description.get("waypoints")
+        if self.continue_drop_buffer or not same_task:
+            # Warm start on a different task (e.g. 2 -> 3 waypoints): keep the
+            # weights, refill the buffer with a short on-policy warm-up, and
+            # restart the curriculum for the new task.
+            buf = None
+            self.resume_state = None
+            if hasattr(self.trainer.model, "learning_starts"):
+                self.trainer.model.learning_starts = int(requested_starts or 2_000)
+        else:
+            # Same task: no second random warm-up, the buffer already holds experience.
+            if hasattr(self.trainer.model, "learning_starts"):
+                self.trainer.model.learning_starts = 0
+            cur = package / PACKAGE_FILES["curriculum"]
+            if cur.exists():
+                with open(cur, "r", encoding="utf-8") as f:
+                    self.resume_state = json.load(f)
+        if buf is not None and buf.exists() and hasattr(self.trainer.model, "load_replay_buffer"):
             self.trainer.model.load_replay_buffer(str(buf))
-        cur = package / PACKAGE_FILES["curriculum"]
-        if cur.exists():
-            with open(cur, "r", encoding="utf-8") as f:
-                self.resume_state = json.load(f)
         self.lineage = list(manifest.get("lineage", [])) + [{
             "parent_run_dir": str(package),
             "parent_model": model_path.name,
@@ -217,8 +234,8 @@ class RLTrainerWithMetrics:
             "parent_seed": manifest.get("seed"),
         }]
         print(f"[Trainer] continuing from {package} at {self.trainer.model.num_timesteps:,} steps "
-              f"(buffer {'loaded' if buf.exists() else 'absent'}, curriculum "
-              f"{'restored' if self.resume_state else 'fresh'})")
+              f"(buffer {'loaded' if (buf is not None and buf.exists()) else 'dropped'}, curriculum "
+              f"{'restored' if self.resume_state else 'fresh'}, learning_starts {self.trainer.model.learning_starts})")
 
     # ------------------------------------------------------------------ #
     def request_stop(self) -> None:
@@ -262,6 +279,8 @@ class RLTrainerWithMetrics:
                 "hold_ladder": self.hold_ladder,
                 "eval_freq": self.eval_freq,
                 "checkpoint_every": self.checkpoint_every,
+                "advance_consecutive": self.advance_consecutive,
+                "cooldown_rounds": self.cooldown_rounds,
             },
             lineage=self.lineage,
             extra={"total_timesteps": int(self.total_timesteps), "n_envs": self.n_envs, **payload},
@@ -288,6 +307,8 @@ class RLTrainerWithMetrics:
                 eval_freq=self.eval_freq,
                 tolerance_ladder=self.tolerance_ladder,
                 hold_ladder=self.hold_ladder,
+                advance_consecutive=self.advance_consecutive,
+                cooldown_rounds=self.cooldown_rounds,
                 checkpoint_every=self.checkpoint_every,
                 resume_state=self.resume_state,
                 model_stem=f"{self.algorithm.lower()}_model",
