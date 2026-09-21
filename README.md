@@ -283,72 +283,64 @@ pytest project_assets/tests/test_task_env.py -v
 pytest --cov=src/rl_armMotion
 ```
 
-## 8. Headless Batch Training (no GUI)
+## 8. Headless Training (no GUI)
 
-For long training runs (500K steps), use the CLI script directly — this is faster and logs everything to a file.
+Every run writes a self-contained **package** directory (model checkpoints, replay buffer, curriculum
+state, `run_manifest.json` with the seed, thread count, library versions and the full env description).
+Keep training output outside OneDrive (`ARM_MODEL_OUTPUT_DIR`, default `C:/arm-model-runs`).
 
 ### Single seed
 ```bash
-python scripts/train_fischer_session.py \
-    --timesteps 500000 \
-    --actuation-mode muscle \
-    --goal-direction EAST \
-    --waypoints "2.3,-1.0;1.0,1.5;2.5,0.0" \
-    --save-dir ./project_assets/outputs/my_run
+python scripts/train_fischer_session.py --timesteps 300000 --waypoints 2 --seed 1 --save-dir C:/arm-model-runs/stageA/seed_1
 ```
 
-### Automated parallel seed search (recommended)
-Runs 5 seeds in parallel, kills weak seeds early, auto-evaluates, stops when a 3/3 winner is found:
+### Staged campaign (recommended)
+Five seeds in parallel, evaluated at the standard, champion package promoted:
 ```bash
-python run_auto_search.py
+python run_campaign.py --stage A          # 2 waypoints, 300K steps per seed
+python run_campaign.py --stage B          # 3 waypoints, 600K steps per seed
+python run_campaign.py --stage A --report # re-evaluate existing packages only
 ```
-Outputs go to `project_assets/outputs/Parallel_Seeds/seed_NNN/`. Champion model is copied to `project_assets/outputs/CHAMPION/` with a full replication report.
+Pass = at least 3 of 5 seeds at ≥ 80 % success. A failed stage means the env/reward/curriculum needs
+fixing, not more seeds.
 
-### Monitor progress
-```powershell
-# Windows PowerShell — check all seeds in the current batch
-foreach ($i in 1..5) {
-    $log = "project_assets\outputs\Parallel_Seeds\seed_{0:D3}\stdout.log" -f $i
-    $lines = Get-Content $log -ErrorAction SilentlyContinue
-    $ts = ($lines | Select-String "total_timesteps" | Select-Object -Last 1) -replace ".*\|\s*total_timesteps\s*\|\s*(\d+)\s*\|.*",'$1'
-    $rew = ($lines | Select-String "ep_rew_mean" | Select-Object -Last 1) -replace ".*\|\s*ep_rew_mean\s*\|\s*([^\s|]+)\s*\|.*",'$1'
-    $pct = if ($ts -match '^\d+$') { [math]::Round([int]$ts/500000*100,1) } else { 0 }
-    "seed_{0:D3}: {1}% | reward={2}" -f $i, $pct, $rew
-}
+### Continue a run (killed or finished) into a new package
+```bash
+python scripts/train_fischer_session.py --continue-from C:/arm-model-runs/stageA/seed_1 --timesteps 100000 --save-dir C:/arm-model-runs/stageA/seed_1_cont
 ```
 
-## 9. Loading and Evaluating a Saved Model
+## 9. Loading, Evaluating and Demonstrating a Saved Model
 
 ```python
 import sys; sys.path.insert(0, 'src')
-from stable_baselines3 import SAC
-from rl_armMotion.two_d.environments.task_env import ArmTaskEnv
+from rl_armMotion.two_d.evaluation import load_package, evaluate_policy
 
-model = SAC.load('project_assets/outputs/CHAMPION/sac_model')
-env = ArmTaskEnv(actuation_mode='muscle', goal_direction='EAST')
-env.set_waypoints([[2.3, -1.0], [1.0, 1.5], [2.5, 0.0]], tolerance=0.6)
+model, env, manifest = load_package('C:/arm-model-runs/stageA/seed_1', which='best', terminate_on_success=True)
+print(evaluate_policy(model, env).summary_line())   # 20 seeded episodes at the evaluation standard
+```
 
-obs, _ = env.reset()
-for step in range(800):
-    action, _ = model.predict(obs, deterministic=True)
-    obs, reward, terminated, truncated, info = env.step(action)
-    print(f"Step {step}: waypoint {info['current_waypoint_index']}/3 | hold {info['hold_counter']}/{info['hold_steps_required']}")
-    if terminated:
-        print(f"SUCCESS — 3/3 waypoints in {step} steps")
-        break
+```bash
+python scripts/evaluate_trained_model.py C:/arm-model-runs/stageA/seed_1 --episodes 20
+python scripts/show_waypoints.py C:/arm-model-runs/stageA/seed_1 --episodes 3 --gif demo.gif
+python -m rl_armMotion.two_d.gui.app     # Load Model -> sac_model_best.zip inside a package -> Run Simulation
 ```
 
 ## 10. Important Warnings
 
-- **NEVER fine-tune a working model.** SAC's exploration noise destroys the hold behaviour. Each new training phase must start from scratch.
-- **Do NOT change the reward weights** without re-training from scratch — the policy is sensitive to the 10-term reward structure.
-- **Do NOT change the observation space** — the 11D structure is what the policy was trained on.
-- The champion model lives in `project_assets/outputs/CHAMPION/` — never overwrite it.
+- **Never fine-tune a working model in place.** Use `--continue-from`, which restores the replay buffer and
+  curriculum and writes a *new* package; the source package is never modified.
+- **Changing the observation layout bumps `OBS_VERSION`.** `load_package` refuses models trained on a
+  different layout instead of running them in the wrong env.
+- Reward weights, tolerances and ladders are recorded in every manifest; change them only for a new
+  training run.
+- Models under `project_assets/outputs/CHAMPION*` and `fischer_waypoints_v2_500k` were trained on the
+  earlier 1.8 m gravity-free arm. They are history, not loadable by the current env; never overwrite them.
 
 ## 11. Notes
 
-- Preferred model file for simulation: `.zip` model generated by save action or `run_auto_search.py`
-- Training artefacts per run: `sac_model.zip`, `training_history.csv`, `training_stats.json`, `fitts_law.png`, `power_law.png`
+- Package contents: `run_manifest.json`, `sac_model_best.zip`, `sac_model_last.zip`, `sac_model.zip`,
+  `replay_buffer.pkl`, `curriculum_state.json`, `best_eval.json`, `final_eval.json`, `checkpoints/`,
+  `training_history.csv`, `training_stats.json`, `fitts_law.png`, `power_law.png`
 - Documentation pages:
   - `rl_intro.html` — RL concepts intro
   - `arm_rl_flowchart.html` — training workflow diagram
