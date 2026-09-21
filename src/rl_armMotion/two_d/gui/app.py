@@ -1319,8 +1319,7 @@ class ArmControllerGUI:
             hold_pct = int(round(100.0 * float(info.get("hold_progress", 0.0))))
             reached = int(info.get("waypoints_reached", 0))
             state = "HOLD COMPLETE" if info.get("success") else ("settling" if info.get("in_goal_region") else "moving")
-            title = (f"Waypoint {min(k + 1, n_wp)}/{n_wp}  |  hold {hold_pct}%  |  {state}  |  "
-                     f"reached {reached}/{n_wp}")
+            title = f"WP {min(k + 1, n_wp)}/{n_wp} | hold {hold_pct}% | {state} | {reached}/{n_wp} reached"
             if self.sim_hold_bar is not None:
                 self.sim_hold_bar["value"] = hold_pct
             if self.sim_progress_label is not None:
@@ -1329,7 +1328,7 @@ class ArmControllerGUI:
 
         self.ax.set_xlabel("X (m)  [+x = in front of the body]")
         self.ax.set_ylabel("Y (m)")
-        self.ax.set_title(title)
+        self.ax.set_title(title, fontsize=9 if info is not None else 10)
         self.ax.grid(True, alpha=0.3)
         self.ax.legend(loc="upper right")
 
