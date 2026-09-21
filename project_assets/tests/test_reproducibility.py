@@ -48,6 +48,12 @@ def test_manifest_and_package_roundtrip(tmp_path):
     assert man["hyperparameters"]["buffer_size"] == 300_000
     model, env, m = load_package(tmp_path / "run", which="best", terminate_on_success=True)
     assert env.obs_dim == man["env"]["obs_dim"]
+    # The manifest holds the training-START difficulty; a reloaded model is
+    # measured at the production standard unless asked otherwise.
+    assert man["env"]["goal_tolerance"] == pytest.approx(0.15) and man["env"]["hold_steps_required"] == 10
+    assert env.goal_tolerance == pytest.approx(0.05) and env.hold_steps_required == 25
+    raw = load_package(tmp_path / "run", which="best", standard=None)[1]
+    assert raw.goal_tolerance == pytest.approx(0.15)
     res = evaluate_policy(model, env, n_episodes=2, seed=0)
     assert res.n == 2
 

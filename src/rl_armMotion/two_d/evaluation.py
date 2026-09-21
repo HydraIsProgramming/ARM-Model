@@ -34,7 +34,7 @@ __all__ = [
     "EvalStandard", "EVAL_STANDARD", "WAYPOINT_A", "WAYPOINT_B", "WAYPOINT_C",
     "CANONICAL_WAYPOINTS", "WAYPOINTS_SPREAD", "resolve_waypoints", "make_env",
     "detect_actuation_mode", "EpisodeResult", "EvalResult", "evaluate_policy",
-    "find_manifest", "read_manifest", "env_from_manifest", "load_package",
+    "find_manifest", "read_manifest", "env_from_manifest", "load_package", "standard_overrides",
     "PACKAGE_FILES", "DEFAULT_PRESET", "OBS_VERSION",
 ]
 
@@ -415,15 +415,43 @@ def env_from_manifest(manifest: Union[str, Path, Dict[str, Any]], **overrides: A
     return ArmTaskEnv.from_description(desc, **overrides)
 
 
+def standard_overrides(standard: Optional[EvalStandard] = EVAL_STANDARD) -> Dict[str, Any]:
+    """Env settings that put a rebuilt env at the evaluation standard.
+
+    A run manifest records the env as it was at the START of training
+    (curriculum tolerance 0.15 m, hold 10), so a model reloaded from it must
+    be measured at the production standard, not at its warm-up difficulty.
+    """
+    if standard is None:
+        return {}
+    return {
+        "goal_tolerance": standard.tolerance,
+        "hold_steps_required": standard.hold_steps,
+        "hold_decrement": standard.hold_decrement,
+        "ee_speed_tolerance": standard.ee_speed_tolerance,
+        "joint_speed_tolerance": standard.joint_speed_tolerance,
+        "intermediate_hold_steps": standard.intermediate_hold_steps,
+        "max_episode_steps": standard.max_steps,
+    }
+
+
 def load_package(
     run_dir: Union[str, Path],
     which: str = "best",
     device: str = "cpu",
+    standard: Optional[EvalStandard] = EVAL_STANDARD,
     **env_overrides: Any,
 ) -> Tuple[Any, ArmTaskEnv, Dict[str, Any]]:
     """(model, env, manifest) for a saved run. ``which`` = best | last | final |
-    step_XXXXXX | a path to a model zip. Refuses obs-version mismatches."""
+    step_XXXXXX | a path to a model zip. The env is rebuilt from the manifest
+    and set to ``standard`` (pass ``standard=None`` to keep the manifest's
+    training-start settings); ``env_overrides`` win over both. Refuses
+    obs-version mismatches."""
     from stable_baselines3 import SAC, PPO, A2C
+
+    overrides = standard_overrides(standard)
+    overrides.update(env_overrides)
+    env_overrides = overrides
 
     run = Path(run_dir)
     if run.is_file():
