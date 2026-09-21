@@ -12,6 +12,33 @@
 > `run_campaign.py` (Stage A / B tables and `campaign_report.json` in the
 > run directory) and will replace this file once Stage B passes.
 
+## Human-arm v2 — Stage A (2 waypoints), 2026-09-21
+
+Five seeds × 300K steps, `run_campaign.py --stage A`, muscle actuation, preset `2dof_human_right`.
+Each seed's best checkpoint re-evaluated on 20 fresh randomised episodes at the evaluation standard
+(5 cm tolerance, 25-step / 0.5 s hold, hand speed < 0.10 m/s).
+
+| seed | success | final error | time to hold | straightness | symmetry | dim. jerk |
+|---|---|---|---|---|---|---|
+| 1 | 20/20 | 4.1 cm | 1.2 s | 1.17 | 0.32 | 16 |
+| 2 | 0/20 | 6.9 cm | nan s | 1.18 | 0.39 | 12 |
+| 3 | 20/20 | 3.9 cm | 3.2 s | 1.34 | 0.20 | 562 |
+| 4 | 4/20 | 4.8 cm | 4.1 s | 1.39 | 0.13 | 3014 |
+| 5 | 20/20 | 2.8 cm | 1.1 s | 1.18 | 0.41 | 13 |
+
+Mean success 0.64 ± 0.50 over seeds; **3/5 seeds ≥ 80 % → PASS**. Champion: seed 5
+(`project_assets/outputs/CHAMPION_HUMAN_V1_A/`, full package with replay buffer in
+`C:/arm-model-runs/stageA/seed_5`). Wall time 113 min for the stage (5 runs in parallel).
+
+Observations that fed back into the code: (1) all seeds initially stalled with a straight arm on the reach
+circle — fixed by a flexed elbow rest pose, an elbow end-range spring and a joint-limit penalty; (2) several
+seeds passed one evaluation round, tightened a curriculum rung and collapsed — the ladder now requires two
+consecutive passing rounds; (3) hand speed peaked at 4–5 m/s (symmetry 0.2–0.4 vs human ≈ 0.45) — a
+quadratic penalty above 1.5 m/s was added for Stage B. Human-likeness reference ranges: straightness
+1.0–1.15, symmetry 0.35–0.55, dimensionless jerk < 60.
+
+---
+
 **Run date**: 2026-06-18
 **Run script**: `scripts/train_fischer_session.py`
 
