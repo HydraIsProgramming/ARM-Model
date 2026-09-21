@@ -322,8 +322,10 @@ class FittsLawValidator:
         condition. Defaults to np.random.default_rng(seed).
     """
 
-    DEFAULT_DISTANCES = (0.20, 0.40, 0.60, 0.80, 1.00, 1.20)  # metres
-    DEFAULT_WIDTHS = (0.02, 0.04, 0.08, 0.12, 0.20, 0.30)      # metres
+    # Human-scale arm (reach 0.65 m). Widths stay inside the env's
+    # max_curriculum_tolerance so set_goal_tolerance accepts them.
+    DEFAULT_DISTANCES = (0.15, 0.25, 0.35, 0.45)   # metres
+    DEFAULT_WIDTHS = (0.03, 0.05, 0.08, 0.12)      # metres
 
     def __init__(
         self,
@@ -509,10 +511,19 @@ class FittsLawValidator:
         # validator does not depend on env-internal state names.
         start_pos = self._extract_end_effector(obs, fallback_info=_info)
 
-        goal_pos = start_pos + distance * np.array([math.cos(angle), math.sin(angle)],
-                                                    dtype=np.float32)
+        goal_pos = self._place_feasible_goal(start_pos, distance, angle, width)
+        if goal_pos is None:
+            # No reachable target at this (D, W) from the start pose: a failed
+            # trial, not a policy failure (recorded with zero steps).
+            return FittsLawTrial(distance=float(distance), width=float(width),
+                                 angle_rad=float(angle), success=False,
+                                 movement_time_sec=None, steps_taken=0,
+                                 final_distance=float("nan"))
         self.env.set_goal_position(goal_pos)
         self.env.set_goal_tolerance(width)
+        # The observation returned by reset() described the old goal; refresh it.
+        if hasattr(self.env, "get_observation"):
+            obs = self.env.get_observation()
 
         steps_taken = 0
         success = False
@@ -572,6 +583,23 @@ class FittsLawValidator:
             return float(-math.pi / 2.0 + math.pi * t)  # in (-pi/2, +pi/2)
         # Random jitter for the remainder
         return float(self.rng.uniform(-math.pi / 2.0, math.pi / 2.0))
+
+    def _place_feasible_goal(self, start_pos: np.ndarray, distance: float, angle: float,
+                             width: float, attempts: int = 40) -> Optional[np.ndarray]:
+        """Goal at (distance, angle) from the start; if the env can report
+        feasibility and the point is not holdable, retry other angles."""
+        feas = getattr(self.env, "waypoint_feasibility", None)
+        angles = [angle] + [float(self.rng.uniform(-math.pi / 2.0, math.pi / 2.0)) for _ in range(attempts)]
+        for a in angles:
+            goal = start_pos + distance * np.array([math.cos(a), math.sin(a)], dtype=np.float32)
+            if feas is None:
+                return goal
+            try:
+                if feas(goal, width).get("feasible", False):
+                    return goal
+            except Exception:
+                return goal
+        return None
 
     @staticmethod
     def _extract_end_effector(obs: Any, fallback_info: Optional[Dict[str, Any]]) -> np.ndarray:

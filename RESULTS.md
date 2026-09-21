@@ -1,5 +1,17 @@
 # Empirical Results — Fischer 2021 Methodology on the 2-DOF Arm
 
+> **Retraction notice (2026-09-21).** Everything below was measured on the earlier
+> 1.8 m, gravity-free arm with the 11-D observation, before the human-arm v2
+> rebuild. Those runs are historical and must not be cited as results of the
+> current model: (1) the "92×" headline comparison between muscle and velocity
+> actuation was confounded (100K vs 500K budgets, unmatched seeds) and is
+> **reversed** by the matched-seed comparison in `docs/paper/main.tex`; (2) the
+> environment had no gravity, uncoupled inertia, an inverted muscle velocity
+> sign and a non-Markov observation, and its evaluations repeated one
+> deterministic rollout. Results for the human-arm model are produced by
+> `run_campaign.py` (Stage A / B tables and `campaign_report.json` in the
+> run directory) and will replace this file once Stage B passes.
+
 **Run date**: 2026-06-18
 **Run script**: `scripts/train_fischer_session.py`
 

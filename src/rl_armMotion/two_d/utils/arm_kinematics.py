@@ -71,6 +71,9 @@ class ArmKinematics:
             y += config.link_lengths[i] * np.sin(cumulative_angle)
             positions[i + 1] = [x, y, 0]
 
+        # A left arm is the same sagittal-plane chain seen from the other
+        # side: mirror x. Dynamics are side-independent.
+        positions[:, 0] *= float(getattr(config, "mirror_sign", 1.0))
         return positions
 
     @staticmethod
@@ -171,87 +174,6 @@ class ArmController:
         self.angles[joint_id] = new_angle
         self.velocities[joint_id] = delta_clamped / self.config.dt
         self.positions = self._compute_positions()
-
-    def apply_muscle_activation(
-        self,
-        joint_id: int,
-        activation: float,
-        muscle,
-        moment_arm: float = 0.05,
-        inertia_override: float = None,
-    ) -> float:
-        """Drive a joint with a Hill-type muscle activation command.
-
-        Converts an activation in [0, 1] into an effective angular velocity
-        through the muscle's force-length-velocity-activation product, scales
-        the resulting torque by the supplied moment arm, integrates one
-        timestep at the configured ``self.config.dt``, and applies the
-        corresponding angular increment via ``increment_joint``.
-
-        This routes the existing kinematic controller through the Hill-type
-        muscle model from rl_armMotion.two_d.utils.muscle_model, giving the
-        2-DOF arm the same biomechanical actuation law that Fischer et al.
-        (2021) ran inside MuJoCo. The integration is a single-step explicit
-        Euler step, which is sufficient for the per-tick control loop the
-        existing pipeline uses.
-
-        Parameters
-        ----------
-        joint_id : int
-            Index of the joint to drive (0 .. dof-1).
-        activation : float
-            Neural drive in [0, 1]. Clipped internally by the muscle.
-        muscle : HillTypeMuscle
-            The muscle model. Must expose ``force(activation, length, velocity)``.
-        moment_arm : float, default 0.05
-            Effective moment arm in metres at which the muscle force acts on
-            the joint. The default 5 cm is a reasonable order of magnitude
-            for upper-extremity flexor muscles (Murray et al., 1995, J.
-            Biomech. 28:513). Higher moment arm => more torque per Newton.
-        inertia_override : float, optional
-            Override the joint inertia used for the F = I * alpha integration.
-            Defaults to ``self.config.inertias[joint_id]``.
-
-        Returns
-        -------
-        float
-            The angular velocity (rad/s) that was applied to the joint
-            after muscle modulation, before joint-limit and velocity-limit
-            clipping in ``increment_joint``.
-        """
-        if not 0 <= joint_id < self.dof:
-            raise IndexError(f"Joint {joint_id} out of range [0, {self.dof-1}]")
-
-        # Map joint kinematic state to muscle fibre state. For a planar
-        # single-muscle-per-joint approximation, we treat fibre length as
-        # tracking joint angle around the optimal-length pose at angle 0
-        # and fibre velocity as the joint angular velocity scaled by the
-        # moment arm.
-        l_opt = muscle.params.optimal_length
-        fibre_length = l_opt + moment_arm * float(self.angles[joint_id])
-        fibre_velocity = moment_arm * float(self.velocities[joint_id]) / l_opt
-
-        force = muscle.force(activation, fibre_length, fibre_velocity)
-        torque = force * moment_arm
-
-        inertia = (
-            inertia_override
-            if inertia_override is not None
-            else float(self.config.inertias[joint_id])
-        )
-        if inertia <= 0.0:
-            raise ValueError(
-                f"Joint {joint_id} has non-positive inertia {inertia}"
-            )
-
-        # Single-step explicit Euler: alpha = tau / I, dv = alpha * dt,
-        # v_new = v_old + dv, dtheta = v_new * dt.
-        ang_accel = torque / inertia
-        new_velocity = float(self.velocities[joint_id]) + ang_accel * self.config.dt
-        delta_angle = new_velocity * self.config.dt
-
-        self.increment_joint(joint_id, delta_angle)
-        return new_velocity
 
     def set_home_position(self) -> None:
         """Reset all joints to home (initial configured) position"""

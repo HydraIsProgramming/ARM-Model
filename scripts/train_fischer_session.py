@@ -1,506 +1,255 @@
 """
-Long Fischer-style training run script.
+Train one SAC policy on the human-arm waypoint task and write a model package.
 
-Trains SAC with the full Fischer 2021 protocol (adaptive curriculum,
-motor babbling) on the 2-DOF arm for the configured number of timesteps,
-saves the model, and runs both validation harnesses (Fitts' Law,
-2/3 Power Law) on the trained policy, writing JSON and PNG outputs.
+    python scripts/train_fischer_session.py --timesteps 300000 --waypoints 2 --seed 1 \
+        --save-dir project_assets/outputs/stageA/seed_1
 
-Run from the project root with the venv activated:
+The run directory becomes a self-contained package (run_manifest.json,
+sac_model_best.zip, sac_model_last.zip, replay_buffer.pkl,
+curriculum_state.json, best_eval.json, checkpoints/) that
+rl_armMotion.two_d.evaluation.load_package can reload, evaluate or demo, and
+that ``--continue-from`` can train further into a NEW package.
 
-    python scripts/train_fischer_session.py --timesteps 300000 \
-        --save-dir ./project_assets/outputs/fischer_300k_session \
-        --goal-direction EAST
-
-The script is deliberately CPU-only and self-contained; it does not
-depend on the GUIs.
+Reproducibility contract: same --seed, --num-threads, library versions and
+manifest => identical weights (tests/test_reproducibility.py).
 """
 
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
 
-# Ensure the package import works whether the script is invoked from
-# the repo root or from anywhere else.
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Fischer 2021 SAC training session (no GUI)",
-    )
-    parser.add_argument(
-        "--timesteps",
-        type=int,
-        default=300_000,
-        help="Total SAC training timesteps (default: 300000).",
-    )
-    parser.add_argument(
-        "--num-threads",
-        type=int,
-        default=0,
-        help="PyTorch CPU thread count (0 = use all available, set to cores/num_seeds for parallel runs).",
-    )
-    parser.add_argument(
-        "--seed",
-        type=int,
-        default=None,
-        help=(
-            "RNG seed for torch/numpy/random. When set, the run is exactly "
-            "reproducible: the same seed + same config always trains the same "
-            "model. Leave unset for uncontrolled (random) initialisation."
-        ),
-    )
-    parser.add_argument(
-        "--save-dir",
-        type=str,
-        default="./project_assets/outputs/fischer_300k_session",
-        help="Output directory for model, history, JSON results, and PNG plots.",
-    )
-    parser.add_argument(
-        "--algorithm",
-        type=str,
-        default="SAC",
-        choices=["SAC", "PPO", "A2C"],
-        help="RL algorithm (default: SAC).",
-    )
-    parser.add_argument(
-        "--goal-direction",
-        type=str,
-        default="EAST",
-        choices=["EAST", "WEST", "NORTH", "HEIGHT"],
-        help="Goal direction for the training task (default: EAST).",
-    )
-    parser.add_argument(
-        "--actuation-mode",
-        type=str,
-        default="velocity",
-        choices=["velocity", "muscle"],
-        help=(
-            "Actuation mode for the training environment. velocity (default) "
-            "issues direct joint-velocity commands in [-1, 1] per joint; "
-            "muscle issues Hill-type antagonist-pair activations in [0, 1] "
-            "per joint, following the Fischer et al. (2021) biomechanical "
-            "actuation model."
-        ),
-    )
-    parser.add_argument(
-        "--waypoints",
-        type=str,
-        default=None,
-        help=(
-            'Optional waypoint sequence as "x1,y1;x2,y2;x3,y3". If supplied, '
-            'overrides --goal-direction and trains in waypoint mode. The '
-            'agent must visit the waypoints in order; intermediate waypoints '
-            'advance on touch (position within tolerance), the final '
-            'waypoint requires the full hold criterion. Example: '
-            '"2.0,-0.5;1.5,0.8;2.4,0.3" trains a reach-pull-place sequence.'
-        ),
-    )
-    # --- Ablation switches -------------------------------------------------
-    # These exist so run_ablation.py can disable one mechanism at a time.
-    # The defaults reproduce the full tuned configuration.
-    parser.add_argument(
-        "--hold-decrement",
-        type=int,
-        default=3,
-        help=(
-            "Steps of hold progress lost per step outside the goal region "
-            "(default 3, the tuned value; 5 was the original)."
-        ),
-    )
-    parser.add_argument(
-        "--no-hold-curriculum",
-        action="store_true",
-        help=(
-            "Disable the graduated hold curriculum; require the full 20-step "
-            "hold from the start of training."
-        ),
-    )
-    parser.add_argument(
-        "--orientation-curriculum",
-        type=str,
-        default=None,
-        help=(
-            "Comma-separated orientation tolerances in degrees, widest first, "
-            'e.g. "40,25,18,12". Training starts at the widest and tightens '
-            "as deterministic evaluation succeeds; evaluation always scores "
-            "against the last (strictest) value. Off by default. Motivated by "
-            "measurement: once the infeasible-orientation defect was fixed, an "
-            "agent parked at the final waypoint satisfied position 85% and "
-            "velocity 76% of the time but orientation only 4%, making it the "
-            "binding constraint on the hold."
-        ),
-    )
-    parser.add_argument(
-        "--curriculum-mode",
-        type=str,
-        default="eval",
-        choices=["eval", "stochastic"],
-        help=(
-            "'eval' (default) drives the curricula from periodic deterministic "
-            "evaluation and enables best-model checkpointing. 'stochastic' "
-            "uses the older training-policy success rate and saves only the "
-            "final model."
-        ),
-    )
-    # --- Speed / capacity knobs -------------------------------------------
-    # Profiling showed ~99% of wall-clock time is SAC gradient updates and
-    # only ~1% is environment stepping, so these are the levers that matter.
-    parser.add_argument(
-        "--net-arch",
-        type=str,
-        default="256,256",
-        help=(
-            "Policy/critic hidden layer sizes, comma separated (default "
-            "256,256). The observation is 11-dimensional, so 64,64 is ample "
-            "and measured ~1.5x faster per gradient step."
-        ),
-    )
-    parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=256,
-        help="SAC minibatch size (default 256; 64 measured ~1.5x faster on CPU).",
-    )
-    parser.add_argument(
-        "--utd",
-        type=float,
-        default=1.0,
-        help=(
-            "Update-to-data ratio: gradient updates per environment step "
-            "(SB3 default 1.0). 0.5 halves training time; the replay buffer "
-            "still sees every transition."
-        ),
-    )
-    parser.add_argument(
-        "--device",
-        type=str,
-        default="cpu",
-        help=(
-            "Torch device (default cpu). MEASURED on this project: the GPU is "
-            "3.5-5x SLOWER than the CPU here, because SAC issues many tiny "
-            "kernels per update (actor + 2 critics + 2 targets) and a small "
-            "MLP at batch 64 never saturates the device -- launch latency "
-            "dominates. Do not set 'auto': SB3 resolves it to cuda when a "
-            "CUDA build is present, which is the slow path. Revisit only if "
-            "the network and batch size grow by an order of magnitude."
-        ),
-    )
-    parser.add_argument(
-        "--skip-validators",
-        action="store_true",
-        help="Skip the Fitts' Law and power-law sweeps (saves ~15 s per run).",
-    )
-    parser.add_argument(
-        "--fitts-trials",
-        type=int,
-        default=10,
-        help="Trials per condition for the Fitts' Law sweep (default: 10).",
-    )
-    parser.add_argument(
-        "--power-trials",
-        type=int,
-        default=20,
-        help="Trials for the 2/3 Power Law sweep (default: 20).",
-    )
-    parser.add_argument(
-        "--validator-seed",
-        type=int,
-        default=42,
-        help="RNG seed for both validators (default: 42).",
-    )
-    return parser.parse_args()
+def parse_args(argv=None) -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="SAC training run on the human-arm waypoint task")
+    p.add_argument("--timesteps", type=int, default=300_000)
+    p.add_argument("--seed", type=int, default=1, help="Seeds SAC, the env, the action space and torch.")
+    p.add_argument("--num-threads", type=int, default=4, help="torch CPU threads (part of the reproducibility contract).")
+    p.add_argument("--save-dir", type=str, default=None,
+                   help="Package directory (default: $ARM_MODEL_OUTPUT_DIR/run_<timestamp>).")
+    p.add_argument("--overwrite", action="store_true", help="Allow writing into a non-empty package directory.")
+    p.add_argument("--continue-from", type=str, default=None,
+                   help="Existing package to continue (model + replay buffer + curriculum); writes a NEW package.")
+    p.add_argument("--algorithm", type=str, default="SAC", choices=["SAC", "PPO", "A2C"])
+    # Task
+    p.add_argument("--preset", type=str, default="2dof_human_right")
+    p.add_argument("--actuation-mode", type=str, default="muscle", choices=["muscle", "torque"])
+    p.add_argument("--waypoints", type=str, default="2",
+                   help='2 | 3 | spread | "x,y;x,y;..." | none (single goal from --goal-direction).')
+    p.add_argument("--goal-direction", type=str, default="EAST", choices=["EAST", "NORTH", "HEIGHT", "WEST"])
+    p.add_argument("--hold-decrement", type=int, default=None, help="Default: evaluation standard (5).")
+    p.add_argument("--intermediate-hold-steps", type=int, default=None)
+    p.add_argument("--hand-load-range", type=str, default="0,0", help="kg range randomised at reset, e.g. 0,1")
+    p.add_argument("--obs-noise", type=str, default=None, help="sigma_angle_rad,sigma_velocity e.g. 0.01,0.05")
+    p.add_argument("--sensory-delay", type=int, default=0, help="Observation delay in control steps.")
+    # Curriculum
+    p.add_argument("--tolerance-ladder", type=str, default="0.15,0.10,0.07,0.05")
+    p.add_argument("--hold-ladder", type=str, default="10,15,25")
+    p.add_argument("--eval-freq", type=int, default=20_000)
+    p.add_argument("--checkpoint-every", type=int, default=100_000)
+    p.add_argument("--no-curriculum", action="store_true")
+    # SAC
+    p.add_argument("--net-arch", type=str, default="256,256")
+    p.add_argument("--batch-size", type=int, default=256)
+    p.add_argument("--utd", type=float, default=1.0, help="gradient updates per env step; 1/utd must be an integer if < 1")
+    p.add_argument("--gamma", type=float, default=None, help="Default: project default 0.99 (matches env.discount).")
+    p.add_argument("--buffer-size", type=int, default=None)
+    p.add_argument("--learning-starts", type=int, default=None)
+    p.add_argument("--learning-rate", type=float, default=None)
+    p.add_argument("--device", type=str, default="cpu", help="cpu (the GPU measured 3.5-5x slower for this SAC).")
+    p.add_argument("--n-envs", type=int, default=1, help="DummyVecEnv workers; diversifies the buffer, no speed-up.")
+    # Validators
+    p.add_argument("--skip-validators", action="store_true")
+    p.add_argument("--fitts-trials", type=int, default=8)
+    p.add_argument("--power-trials", type=int, default=16)
+    p.add_argument("--validator-seed", type=int, default=42)
+    return p.parse_args(argv)
 
 
-def main() -> int:
-    """End-to-end Fischer 2021 training session.
+def _parse_floats(s):
+    return [float(x) for x in str(s).split(",") if x.strip()]
 
-    Order of operations:
-      1. Parse CLI flags (algorithm, timestep budget, actuation mode,
-         goal direction or explicit waypoints, validator parameters,
-         save directory).
-      2. Construct the Gymnasium environment with the requested
-         actuation and goal mode.
-      3. Wrap the env in the RLTrainerWithMetrics, which auto-attaches
-         the AdaptiveCurriculumCallback for SAC (so motor babbling +
-         curriculum decay both happen during training without any
-         further setup).
-      4. Train.
-      5. Save the trained model, training history CSV, and stats JSON.
-      6. Run the Fitts' Law validator against the trained policy.
-      7. Run the 2/3 Power Law validator against the trained policy.
-      8. Save JSON + PNG outputs for both validators.
-      9. Log the regression summary lines so the saved training_log.txt
-         is self-documenting.
 
-    All output paths are absolute and reported in the log so the run is
-    fully reproducible.
-    """
-    args = parse_args()
+def main(argv=None) -> int:
+    args = parse_args(argv)
 
-    # Local imports so a quick --help does not require torch / SB3 to be on
-    # the path (useful when triaging a misconfigured environment).
+    import numpy as np
     import torch
-    if args.num_threads > 0:
-        torch.set_num_threads(args.num_threads)
-
-    # Seed everything for reproducibility. This is what makes "seed_007" a
-    # real seed: rerunning with --seed 7 reproduces the exact same model.
-    if args.seed is not None:
-        import random
-        random.seed(args.seed)
-        import numpy as np
-        np.random.seed(args.seed)
-        torch.manual_seed(args.seed)
+    torch.set_num_threads(max(1, int(args.num_threads)))
 
     from rl_armMotion.two_d.environments.task_env import ArmTaskEnv
+    from rl_armMotion.two_d.evaluation import (
+        EVAL_STANDARD, PACKAGE_FILES, evaluate_policy, make_env, resolve_waypoints,
+    )
     from rl_armMotion.two_d.training.ppo_trainer_wrapper import RLTrainerWithMetrics
-    from rl_armMotion.two_d.validation import FittsLawValidator, PowerLawValidator
+    from rl_armMotion.two_d.training.reproducibility import set_global_seed
 
-    save_dir = Path(args.save_dir).resolve()
+    # --- output directory --------------------------------------------------
+    if args.save_dir:
+        save_dir = Path(args.save_dir).resolve()
+    else:
+        base = Path(os.environ.get("ARM_MODEL_OUTPUT_DIR", PROJECT_ROOT / "project_assets" / "outputs"))
+        save_dir = (base / f"run_{datetime.now().strftime('%Y%m%d-%H%M%S')}_seed{args.seed}").resolve()
+    existing = [n for n in (PACKAGE_FILES["best"], PACKAGE_FILES["last"], PACKAGE_FILES["final"], "training_log.txt")
+                if (save_dir / n).exists()]
+    if existing and not args.overwrite:
+        print(f"[ABORT] {save_dir} already holds {existing}. Use --overwrite, a new --save-dir, "
+              f"or --continue-from to train it further into a new directory.")
+        return 2
+    if args.continue_from and Path(args.continue_from).resolve() == save_dir:
+        print("[ABORT] --continue-from must differ from --save-dir (the source package is never modified).")
+        return 2
     save_dir.mkdir(parents=True, exist_ok=True)
-
-    start_time = datetime.now()
     log_path = save_dir / "training_log.txt"
 
     def log(msg: str) -> None:
-        """Append a timestamped line to both stdout and the training log file.
-
-        Using both makes the script equally usable interactively (you see the
-        log scroll on stdout) and as a background task (the log file persists
-        if the process is detached, and is the only artefact if the parent
-        terminal goes away).
-        """
         line = f"[{datetime.now().isoformat(timespec='seconds')}] {msg}"
         print(line, flush=True)
-        with log_path.open("a") as f:
+        with log_path.open("a", encoding="utf-8") as f:
             f.write(line + "\n")
 
-    # Parse waypoints (if any) before logging so the log records them.
-    waypoints = None
-    if args.waypoints:
-        try:
-            waypoints = [
-                [float(x) for x in pair.split(",")]
-                for pair in args.waypoints.split(";")
-            ]
-            assert all(len(wp) == 2 for wp in waypoints), "each waypoint must have x,y"
-            assert len(waypoints) >= 1, "need at least one waypoint"
-        except Exception as exc:
-            raise ValueError(
-                f"could not parse --waypoints {args.waypoints!r}: {exc}. "
-                f"Expected format: 'x1,y1;x2,y2;x3,y3'"
-            ) from exc
+    set_global_seed(args.seed)
+    log(f"Run: {args.algorithm} {args.timesteps:,} steps, seed {args.seed}, threads {torch.get_num_threads()}, "
+        f"device {args.device}, preset {args.preset}, actuation {args.actuation_mode}, waypoints {args.waypoints}")
+    log(f"Package dir: {save_dir}")
 
-    log(f"Starting Fischer session: algorithm={args.algorithm}, "
-        f"timesteps={args.timesteps:,}, direction={args.goal_direction}, "
-        f"actuation={args.actuation_mode}"
-        + (f", waypoints={waypoints}" if waypoints else "")
-        + (f", seed={args.seed}" if args.seed is not None else ", seed=unset"))
-    log(f"Save dir: {save_dir}")
-
-    # --- TRAIN ---------------------------------------------------------
-    # The env is the central object — both the trainer and the validators
-    # need a copy of it. We construct it once here with the requested
-    # actuation mode (velocity or muscle) and goal mode (direction-based
-    # via goal_direction, or arbitrary waypoint sequence via set_waypoints).
-    env = ArmTaskEnv(
-        goal_direction=args.goal_direction,
+    # --- environment -------------------------------------------------------
+    waypoints = resolve_waypoints(None if args.waypoints.lower() == "none" else args.waypoints)
+    hand_load = tuple(_parse_floats(args.hand_load_range)) if args.hand_load_range else (0.0, 0.0)
+    obs_noise = tuple(_parse_floats(args.obs_noise)) if args.obs_noise else None
+    env_kwargs = dict(
+        preset=args.preset,
         actuation_mode=args.actuation_mode,
+        goal_direction=args.goal_direction,
+        terminate_on_success=False,
+        hand_load_range=hand_load,
+        obs_noise_std=obs_noise,
+        sensory_delay_steps=args.sensory_delay,
     )
-    if waypoints is not None:
-        # Override the directional goal with a sequence of explicit waypoints.
-        # The agent must visit them in order; intermediate waypoints advance
-        # on touch, the final waypoint requires the full hold criterion.
-        env.set_waypoints(waypoints)
-        log(f"Waypoint mode active: {len(waypoints)} waypoints, "
-            f"current_waypoint_index=0 at every episode reset")
+    tolerance_ladder = _parse_floats(args.tolerance_ladder)
+    hold_ladder = [int(x) for x in _parse_floats(args.hold_ladder)]
+    env = make_env(waypoints=waypoints, tolerance=tolerance_ladder[0], hold_steps=hold_ladder[0], **env_kwargs)
+    if args.hold_decrement is not None:
+        env.set_hold_decrement(args.hold_decrement)
+    if args.intermediate_hold_steps is not None:
+        env.set_intermediate_hold_steps(args.intermediate_hold_steps)
+    if waypoints:
+        for i, wp in enumerate(waypoints):
+            f = env.waypoint_feasibility(wp, EVAL_STANDARD.tolerance)
+            log(f"  waypoint {i} {wp}: {'feasible' if f['feasible'] else 'INFEASIBLE'} - {f.get('reason')}"
+                + (f", joints {np.round(f['joint_angles_deg'], 1).tolist()} deg" if f.get('joint_angles_deg') else ""))
+            if not f["feasible"]:
+                log("[ABORT] infeasible waypoint; fix the waypoint set before spending compute.")
+                return 3
+    log(f"Env: obs_dim {env.obs_dim}, action_dim {env.action_dim}, dt {env.dt}, "
+        f"train tol {env.goal_tolerance} m, hold {env.hold_steps_required}, decrement {env.hold_decrement}")
 
-    env.set_hold_decrement(args.hold_decrement)
-    log(f"Ablation config: hold_decrement={args.hold_decrement}, "
-        f"hold_curriculum={'off' if args.no_hold_curriculum else 'on'}, "
-        f"curriculum_mode={args.curriculum_mode}")
-
-    # RLTrainerWithMetrics wraps Stable-Baselines3 with two things:
-    #   1. A live metrics stream usable by the training GUI (we ignore it
-    #      here because we are headless, but it is also the same data
-    #      that ends up in the saved training_history.csv).
-    #   2. Auto-attach of the AdaptiveCurriculumCallback when the algorithm
-    #      is SAC — which is the default. The callback shrinks the goal
-    #      tolerance during training following Fischer's protocol; see
-    #      curriculum_callback.py for details.
-    # In waypoint mode, stop the tolerance curriculum at 0.20 m instead of
-    # Fischer's 0.02 m precision floor. Winners are evaluated at 0.6 m, so
-    # training below ~0.2 m buys no evaluated precision while making even
-    # the touch-and-go intermediate waypoints brutally hard — seeds burn
-    # their remaining budget failing at a precision the task never tests.
-    curriculum_kwargs = {"min_tolerance": 0.20} if waypoints is not None else None
-    if curriculum_kwargs:
-        log(f"Waypoint mode: tolerance curriculum floor raised to "
-            f"{curriculum_kwargs['min_tolerance']} m (eval standard is 0.6 m)")
-
-    # Eval env factory for the checkpoint/curriculum callback: a fresh env
-    # configured exactly like the training env. Periodic deterministic
-    # evaluation on this env (every 25K steps, production standard: 0.6 m
-    # tolerance + full 20-step hold) drives best-model checkpointing
-    # (sac_model_best.zip) and both curricula. Only used in waypoint mode —
-    # directional goals keep the classic stochastic-success curriculum.
-    eval_env_fn = None
-    if waypoints is not None and args.curriculum_mode == "eval":
-        _wp = [list(w) for w in waypoints]
-        _dec = args.hold_decrement
-
-        def eval_env_fn():
-            e = ArmTaskEnv(
-                goal_direction=args.goal_direction,
-                actuation_mode=args.actuation_mode,
-            )
-            e.set_waypoints(_wp, tolerance=0.6)
-            e.set_hold_decrement(_dec)
-            return e
-
-        log("Best-model checkpointing active: deterministic eval every 25K "
-            "steps, best snapshot saved to sac_model_best.zip")
-    elif waypoints is not None:
-        log("Curriculum mode 'stochastic': using training-policy success rate, "
-            "no best-model checkpointing (ablation condition)")
-
-    # Build the speed/capacity hyperparameters. train_freq/gradient_steps
-    # implement the update-to-data ratio: at utd=0.5 we collect 2 environment
-    # steps per gradient update instead of 1, halving optimiser work.
+    # --- hyperparameters ---------------------------------------------------
     net_arch = [int(x) for x in args.net_arch.split(",") if x.strip()]
-    hyperparams = {
-        "batch_size": args.batch_size,
-        "policy_kwargs": dict(net_arch=net_arch),
-        "device": args.device,
-    }
+    hyperparams = {"batch_size": args.batch_size, "policy_kwargs": dict(net_arch=net_arch), "device": args.device}
+    if args.gamma is not None:
+        hyperparams["gamma"] = args.gamma
+    if args.buffer_size is not None:
+        hyperparams["buffer_size"] = args.buffer_size
+    if args.learning_starts is not None:
+        hyperparams["learning_starts"] = args.learning_starts
+    if args.learning_rate is not None:
+        hyperparams["learning_rate"] = args.learning_rate
     if args.utd != 1.0:
         if args.utd <= 0:
-            raise ValueError(f"--utd must be positive, got {args.utd}")
-        if args.utd <= 1.0:
-            hyperparams["train_freq"] = max(1, int(round(1.0 / args.utd)))
+            raise ValueError("--utd must be positive")
+        if args.utd < 1.0:
+            inv = 1.0 / args.utd
+            if abs(inv - round(inv)) > 1e-9:
+                raise ValueError(f"--utd {args.utd}: 1/utd must be an integer (got {inv:.3f})")
+            hyperparams["train_freq"] = int(round(inv))
             hyperparams["gradient_steps"] = 1
         else:
+            if abs(args.utd - round(args.utd)) > 1e-9:
+                raise ValueError("--utd > 1 must be an integer")
             hyperparams["train_freq"] = 1
             hyperparams["gradient_steps"] = int(round(args.utd))
-    log(f"Speed config: net_arch={net_arch}, batch={args.batch_size}, "
-        f"utd={args.utd}, device={args.device}")
-
-    orientation_ladder = None
-    if args.orientation_curriculum:
-        orientation_ladder = [
-            float(x) for x in args.orientation_curriculum.split(",") if x.strip()
-        ]
-        if len(orientation_ladder) < 2:
-            raise ValueError(
-                "--orientation-curriculum needs at least two values, "
-                f"got {orientation_ladder}")
-        if any(b > a for a, b in zip(orientation_ladder, orientation_ladder[1:])):
-            raise ValueError(
-                "--orientation-curriculum must be ordered widest to strictest, "
-                f"got {orientation_ladder}")
-        log(f"Orientation curriculum: {orientation_ladder} deg "
-            f"(evaluation always scores at {orientation_ladder[-1]} deg)")
+    gamma_for_env = hyperparams.get("gamma", 0.99)
+    env.discount = float(gamma_for_env)
 
     trainer = RLTrainerWithMetrics(
         env=env,
         total_timesteps=args.timesteps,
         algorithm=args.algorithm,
         hyperparams=hyperparams,
-        curriculum_kwargs=curriculum_kwargs,
-        eval_env_fn=eval_env_fn,
-        eval_save_dir=str(save_dir) if eval_env_fn is not None else None,
-        use_hold_curriculum=not args.no_hold_curriculum,
-        orientation_ladder=orientation_ladder,
+        run_dir=str(save_dir),
+        seed=args.seed,
+        n_envs=args.n_envs,
+        tolerance_ladder=tolerance_ladder,
+        hold_ladder=hold_ladder,
+        eval_freq=args.eval_freq,
+        checkpoint_every=args.checkpoint_every,
+        use_curriculum=not args.no_curriculum,
+        continue_from=args.continue_from,
+        cli_args=vars(args),
     )
+    log(f"Resolved hyperparameters: {json.dumps(trainer.trainer.resolved_hyperparams, default=str)}")
 
     t0 = time.time()
     result = trainer.train()
     train_secs = time.time() - t0
-    log(f"Training complete in {train_secs:.1f}s")
-    log(f"Episodes: {result['final_metrics'].get('episodes', 0):,}")
-    log(f"Best reward: {result['final_metrics'].get('best_reward', 0):.2f}")
-    log(f"Mean reward (100ep): {result['final_metrics'].get('mean_reward', 0):.2f}")
-    log(f"Final goal tolerance: "
-        f"{result['final_metrics'].get('curriculum', {}).get('current_tolerance', 'n/a')}")
-    log(f"Curriculum stage: "
-        f"{result['final_metrics'].get('curriculum', {}).get('curriculum_stage', 'n/a')}")
+    log(f"Training complete in {train_secs:.1f}s ({trainer.trainer.model.num_timesteps:,} total steps)")
+    log(f"Episodes: {result['final_metrics'].get('episodes', 0):,}; mean reward (100 ep): "
+        f"{result['final_metrics'].get('mean_reward', 0):.2f}")
+    cur = result["final_metrics"].get("curriculum", {})
+    log(f"Curriculum: tolerance {cur.get('current_tolerance')} m, hold {cur.get('current_hold_steps')}, "
+        f"best score {cur.get('best_score')} at step {cur.get('best_saved_at')}")
 
-    # --- SAVE MODEL ----------------------------------------------------
     save_paths = trainer.save_model_and_results(str(save_dir))
-    log(f"Saved: {save_paths}")
-    if trainer.eval_checkpoint_callback is not None:
-        cp = trainer.eval_checkpoint_callback.get_progress()
-        log(f"Best checkpoint: score={cp.get('best_score')} "
-            f"at step {cp.get('best_saved_at')} -> "
-            f"{save_dir / (args.algorithm.lower() + '_model_best.zip')}")
+    log(f"Saved package: {save_paths}")
+
+    # --- final production evaluation of the best checkpoint -----------------
+    best_path = save_dir / PACKAGE_FILES["best"]
+    from rl_armMotion.two_d.evaluation import load_package
+    if best_path.exists():
+        model, eval_env, _ = load_package(save_dir, which="best", terminate_on_success=True)
+        res = evaluate_policy(model, eval_env, n_episodes=EVAL_STANDARD.n_episodes * 2, seed=EVAL_STANDARD.seed + 500)
+        res.save(save_dir / "final_eval.json")
+        log(f"FINAL (best checkpoint, {res.n} episodes): {res.summary_line()}")
+        hl = res.human_likeness_summary()
+        log(f"Human-likeness: straightness {hl['straightness']:.2f}, symmetry {hl['symmetry']:.2f}, "
+            f"submovements {hl['submovements']:.1f}, jerk {hl['dimensionless_jerk']:.0f}")
 
     if args.skip_validators:
         log("Validators skipped (--skip-validators).")
-        elapsed = datetime.now() - start_time
-        log(f"Session complete. Total wall time: {elapsed}")
         log("=" * 60)
         return 0
 
-    # --- VALIDATE: FITTS' LAW -----------------------------------------
-    log(f"Running Fitts' Law sweep ({args.fitts_trials} trials per condition)...")
-    fl = FittsLawValidator(
-        model=trainer.trainer.model,
-        env=ArmTaskEnv(actuation_mode=args.actuation_mode),
-    )
-    t0 = time.time()
-    fl_result = fl.run(
-        n_trials_per_condition=args.fitts_trials,
-        max_steps_per_trial=200,
-        seed=args.validator_seed,
-    )
-    log(f"Fitts sweep complete in {time.time() - t0:.1f}s")
-    log(f"Fitts: {fl_result.regression_summary()}")
-    fl_json = save_dir / "fitts_law.json"
-    fl_png = save_dir / "fitts_law.png"
-    fl_result.save_json(str(fl_json))
-    fl_result.plot(
-        save_path=str(fl_png),
-        show=False,
-        title=f"Fitts' Law - {args.algorithm} ({args.timesteps:,} steps)",
-    )
-    log(f"Saved: {fl_json}")
-    log(f"Saved: {fl_png}")
-
-    # --- VALIDATE: 2/3 POWER LAW --------------------------------------
-    log(f"Running 2/3 Power Law sweep ({args.power_trials} trials)...")
-    pl = PowerLawValidator(
-        model=trainer.trainer.model,
-        env=ArmTaskEnv(actuation_mode=args.actuation_mode),
-    )
-    t0 = time.time()
-    pl_result = pl.run(
-        n_trials=args.power_trials,
-        max_steps_per_trial=200,
-        seed=args.validator_seed,
-    )
-    log(f"Power Law sweep complete in {time.time() - t0:.1f}s")
-    log(f"Power Law: {pl_result.regression_summary()}")
-    pl_json = save_dir / "power_law.json"
-    pl_png = save_dir / "power_law.png"
-    pl_result.save_json(str(pl_json))
-    pl_result.plot(
-        save_path=str(pl_png),
-        show=False,
-        title=f"2/3 Power Law - {args.algorithm} ({args.timesteps:,} steps)",
-    )
-    log(f"Saved: {pl_json}")
-    log(f"Saved: {pl_png}")
-
-    elapsed = datetime.now() - start_time
-    log(f"Session complete. Total wall time: {elapsed}")
+    # --- validators (single-goal env at the same standard) -----------------
+    from rl_armMotion.two_d.validation import FittsLawValidator, PowerLawValidator
+    val_env = make_env(waypoints=None, terminate_on_success=True, **{k: v for k, v in env_kwargs.items() if k != "terminate_on_success"})
+    model = trainer.trainer.model
+    try:
+        fl = FittsLawValidator(model=model, env=val_env)
+        t0 = time.time()
+        fl_result = fl.run(n_trials_per_condition=args.fitts_trials, max_steps_per_trial=200, seed=args.validator_seed)
+        log(f"Fitts sweep {time.time() - t0:.1f}s: {fl_result.regression_summary()}")
+        fl_result.save_json(str(save_dir / "fitts_law.json"))
+        fl_result.plot(save_path=str(save_dir / "fitts_law.png"), show=False,
+                       title=f"Fitts' Law - {args.algorithm} ({args.timesteps:,} steps)")
+        pl = PowerLawValidator(model=model, env=val_env)
+        t0 = time.time()
+        pl_result = pl.run(n_trials=args.power_trials, max_steps_per_trial=200, seed=args.validator_seed)
+        log(f"Power law {time.time() - t0:.1f}s: {pl_result.regression_summary()}")
+        pl_result.save_json(str(save_dir / "power_law.json"))
+        pl_result.plot(save_path=str(save_dir / "power_law.png"), show=False,
+                       title=f"2/3 Power Law - {args.algorithm} ({args.timesteps:,} steps)")
+    except Exception as exc:
+        log(f"Validators failed: {exc!r}")
     log("=" * 60)
     return 0
 

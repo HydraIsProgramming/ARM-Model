@@ -27,7 +27,9 @@ from .arm_kinematics import (
 from .muscle_model import (
     HillTypeMuscle,
     MuscleParameters,
+    JointMusclePair,
 )
+from . import dynamics
 
 __all__ = [
     "ParallelEnvironmentRunner",
@@ -43,4 +45,6 @@ __all__ = [
     "ArmState",
     "HillTypeMuscle",
     "MuscleParameters",
+    "JointMusclePair",
+    "dynamics",
 ]

@@ -3,33 +3,35 @@
 **CP493 Directed Research — Wilfrid Laurier University**  
 **Student:** Ranjot Sandhu | **Supervisor:** [Professor Name]
 
-Reinforcement-learning implementation of Fischer et al. (2021) on a 2-DOF planar robotic arm. The agent learns to navigate to a sequence of 3 workspace waypoints using Hill-type muscle actuation and an adaptive curriculum — the same methodology used in Fischer's 7-DOF MuJoCo arm.
+Reinforcement-learning implementation of Fischer et al. (2021) on a planar **human arm**: a 2-link rigid-body model with gravity, human anthropometry and range of motion, driven by Hill-type antagonist muscle pairs. A SAC policy learns to move the hand through an ordered set of waypoints and hold still at the last one. See [`TRAINING_GUIDE.md`](TRAINING_GUIDE.md) for the full model, task, training and packaging reference.
 
 ## 1. Project Overview
 
 ### Research Goal
 Train a SAC policy that:
-1. Visits 3 ordered waypoints in the 2D workspace (touch-and-go at intermediate waypoints).
-2. Holds the final waypoint stably for 20 consecutive steps (position + orientation within tolerance + near-zero velocity).
-3. Uses biomechanically realistic Hill-type muscle actuation (4 muscles: shoulder extensor/flexor + elbow extensor/flexor).
+1. Visits 2 (Stage A) then 3 (Stage B) ordered waypoints, settling briefly at each intermediate one.
+2. Holds the final waypoint still for 25 consecutive control steps (0.5 s): hand within 5 cm, hand speed < 0.10 m/s, joint speed < 1 rad/s.
+3. Does so with biomechanically grounded actuation (one Hill-type muscle per direction and joint) on an arm with gravity, human inertia, torque limits and range of motion.
 
 ### Environment Summary
-- **Environment class:** `rl_armMotion.two_d.environments.task_env.ArmTaskEnv`
-- **Arm geometry:** Shoulder fixed at [1.0, 0.0] m; upper arm 1.0 m; forearm 0.8 m; max reach 1.8 m
-- **Action space:** 4D continuous [0, 1] — muscle activation per antagonist pair (muscle mode) or 2D [-1,1] joint velocities (velocity mode)
-- **Observation space:** 11D — [sin θ₀, cos θ₀, sin θ₁, cos θ₁, ω₀, ω₁, height_error, orientation_error, gradient_norm, in_goal_region, hold_progress]
-- **Algorithm:** SAC (Soft Actor-Critic) — the only algorithm that successfully learns the hold behaviour; PPO was tested and failed
-- **Curriculum:** Adaptive tolerance decay (Fischer 2021 protocol) + adaptive hold curriculum (new)
+- **Environment class:** `rl_armMotion.two_d.environments.task_env.ArmTaskEnv` (preset `2dof_human_right`)
+- **Arm:** shoulder fixed at [1.0, 0.0] m; upper arm 0.30 m / 2.1 kg; forearm + hand 0.35 m / 1.65 kg (Winter 2009); reach 0.65 m; shoulder ROM −150°…+90°, elbow 0°…145°; torque limits 25 / 12 N·m; gravity 9.81 m/s²
+- **Dynamics:** `M(q)q̈ + C(q,q̇)q̇ + G(q) = τ + τ_passive`, RK2 at 5 ms, 50 Hz control (`utils/dynamics.py`)
+- **Action space:** 4-D [0, 1] muscle activations (`muscle` mode) or 2-D [−1, 1] normalised joint torques (`torque` mode)
+- **Observation space:** 14-D (`OBS_VERSION` 2) — sin/cos joints, joint velocities, goal − hand (x, y), |goal − hand|, hand velocity, waypoint progress, in-goal flag, hold progress
+- **Algorithm:** SAC (project defaults: net 256×256, batch 256, buffer 300K, learning_starts 5000, γ 0.99, CPU)
+- **Curriculum:** evaluation-driven tolerance ladder 0.15 → 0.05 m then hold ladder 10 → 25 steps; best checkpoint chosen by a seeded 10-episode evaluation at the production standard
 
-### Key Training Parameters (do not change without re-training)
+### Key Training Parameters
 | Parameter | Value | Why |
 |-----------|-------|-----|
-| Total timesteps | 500,000 | Empirically determined sweet spot |
+| Timesteps | 300,000 (Stage A) / 600,000 (Stage B) | 600 / 1200 episodes of 10 s |
 | Network architecture | MLP [256, 256] | Standard SAC default |
-| Hold steps required | 10 → 15 → 20 (curriculum) | Graduated hold makes learning tractable |
-| Hold decrement | 3 (per step outside zone) | Reduced from 5 to avoid brittle hold |
-| Orientation tolerance | 12° | Matches Fischer et al. |
-| Velocity tolerance | 0.3 rad/s | Matches Fischer et al. |
+| Hold steps required | 10 → 15 → 25 (curriculum) | 25 steps = 0.5 s at 50 Hz |
+| Hold decrement | 5 per step outside the goal | Ablation result; one value everywhere |
+| Position tolerance | 0.15 → 0.05 m (curriculum); 0.05 m at evaluation | 5 cm ≈ Fischer's precision target |
+| Hand-speed tolerance | 0.10 m/s | scale-aware "stopped" test |
+| Seeds | 5 per stage, matched across stages | seeds measure variance; they are not a search |
 
 ### Available RL Algorithms in GUI
 - **SAC** (recommended — only algorithm that solves the task)

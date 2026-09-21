@@ -157,9 +157,13 @@ class RLTrainer(BaseTrainer):
         if algorithm not in self.ALGORITHM_MAP:
             raise ValueError(f"Algorithm {algorithm} not supported. Choose from {list(self.ALGORITHM_MAP.keys())}")
 
-        # Set defaults for algorithm if not provided
-        if hyperparams is None:
-            hyperparams = self._get_default_hyperparams(algorithm)
+        # Project defaults ALWAYS apply; caller-supplied values override them
+        # key by key. (Previously any non-None dict silently discarded the
+        # project defaults, so the CLI trained with SB3's buffer_size=1e6 and
+        # learning_starts=100 while the GUI used the project values.)
+        merged = dict(self._get_default_hyperparams(algorithm))
+        merged.update(hyperparams or {})
+        hyperparams = merged
 
         super().__init__(env, algorithm, hyperparams)
 
@@ -168,12 +172,40 @@ class RLTrainer(BaseTrainer):
         self.model = AlgorithmClass(
             policy="MlpPolicy",
             env=env,
-            verbose=1,
+            verbose=hyperparams.pop("verbose", 1) if "verbose" in hyperparams else 1,
             **hyperparams,
         )
 
         self.start_time = None
         self.train_start_time = None
+
+    @property
+    def resolved_hyperparams(self) -> Dict[str, Any]:
+        """The hyperparameters the model actually uses (for the run manifest)."""
+        m = self.model
+        out: Dict[str, Any] = {"algorithm": self.algorithm}
+        for key in ("gamma", "learning_rate", "buffer_size", "learning_starts", "batch_size",
+                    "tau", "train_freq", "gradient_steps", "ent_coef", "target_entropy",
+                    "n_steps", "n_epochs", "gae_lambda", "clip_range", "seed", "device"):
+            if hasattr(m, key):
+                val = getattr(m, key)
+                if key == "train_freq" and hasattr(val, "frequency"):
+                    val = (int(val.frequency), str(val.unit.value) if hasattr(val.unit, "value") else str(val.unit))
+                if key == "device":
+                    val = str(val)
+                if callable(val):
+                    val = _make_pickle_safe(val)
+                out[key] = _make_pickle_safe(val)
+        try:
+            out["net_arch"] = [int(x) for x in m.policy.net_arch] if hasattr(m.policy, "net_arch") else None
+        except Exception:
+            out["net_arch"] = None
+        try:
+            out["n_envs"] = int(m.n_envs)
+        except Exception:
+            pass
+        out["policy_kwargs"] = _make_pickle_safe(getattr(m, "policy_kwargs", {}))
+        return out
 
     @staticmethod
     def _get_default_hyperparams(algorithm: str) -> Dict[str, Any]:
@@ -191,9 +223,222 @@ class RLTrainer(BaseTrainer):
             },
             "SAC": {
                 "learning_rate": 3e-4,
-                "buffer_size": 200_000,   # was 1_000_000; sufficient for this task, less memory
+                "buffer_size": 300_000,      # 600 episodes of 500 steps
                 "batch_size": 256,
-                "learning_starts": 1000,  # begin learning after warm-up steps
+                "learning_starts": 5_000,    # 10 full episodes of random warm-up
+                "gamma": 0.99,               # 2 s horizon at 50 Hz; matches env.discount
+                "tau": 0.005,
+                "ent_coef": "auto",
+                "policy_kwargs": {"net_arch": [256, 256]},
+                "device": "cpu",             # measured 3.5-5x faster than the GPU here
+            },
+            "A3C": {
+                "learning_rate": 7e-4,
+                "n_steps": 5,
+            },
+            "A2C": {
+                "learning_rate": 7e-4,
+                "n_steps": 5,
+            },
+            "DQN": {
+                "learning_rate": 1e-4,
+                "buffer_size": 200_000,  # was 1_000_000; sufficient for this task
+                "batch_size": 32,
+            },
+        }
+        return defaults.get(algorithm, {})
+
+    def train(
+        self,
+        total_timesteps: int,
+        callback=None,
+        patience: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        Train the model.
+
+        Args:
+            total_timesteps: Total timesteps to train
+            callback: Training callback
+            patience: Early stopping patience (episodes without improvement)
+
+        Returns:
+            Training history dictionary
+        """
+        self.train_start_time = datetime.now()
+        self.start_time = self.train_start_time
+
+        try:
+            self.model.learn(
+                total_timesteps=total_timesteps,
+                callback=callback,
+                progress_bar=False,
+            )
+        except KeyboardInterrupt:
+            print("\nTraining interrupted by user")
+
+        return {
+            "history": self.training_history,
+            "best_reward": float(self.best_reward),
+            "total_timesteps": self.model.num_timesteps,
+            "training_duration": (datetime.now() - self.train_start_time).total_seconds(),
+        }
+
+    def evaluate(
+        self,
+        env: Optional[ArmTaskEnv] = None,
+        num_episodes: int = 10,
+        deterministic: bool = True,
+        seed: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Evaluate with the project-wide evaluator (seeded, randomised resets)."""
+        from rl_armMotion.two_d.evaluation import evaluate_policy
+
+        eval_env = env or self.env
+        result = evaluate_policy(self.model, eval_env, n_episodes=num_episodes,
+                                 seed=seed, deterministic=deterministic, human_likeness=False)
+        rewards = [e.episode_return for e in result.episodes]
+        lengths = [e.steps for e in result.episodes]
+        out = {
+            "mean_reward": float(np.mean(rewards)) if rewards else 0.0,
+            "std_reward": float(np.std(rewards)) if rewards else 0.0,
+            "min_reward": float(np.min(rewards)) if rewards else 0.0,
+            "max_reward": float(np.max(rewards)) if rewards else 0.0,
+            "mean_length": float(np.mean(lengths)) if lengths else 0.0,
+            "episode_rewards": rewards,
+            "episode_lengths": lengths,
+            "success_rate": result.success_rate,
+            "mean_waypoints_reached": result.mean_waypoints,
+        }
+        out.update(result.summary())
+        return out
+
+    def save(self, filepath: str) -> None:
+        """Save the trained model."""
+        pass
+
+    @abstractmethod
+    def load(self, filepath: str) -> None:
+        """Load a trained model."""
+        pass
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Get current training statistics."""
+        return {
+            "algorithm": self.algorithm,
+            "best_reward": float(self.best_reward),
+            "episodes": len(self.training_history["episode_rewards"]),
+            "total_timesteps": sum(self.training_history["episode_lengths"]),
+            "mean_reward": float(np.mean(self.training_history["episode_rewards"])) if self.training_history["episode_rewards"] else 0.0,
+        }
+
+
+class RLTrainer(BaseTrainer):
+    """Concrete trainer for Stable-Baselines3 algorithms."""
+
+    ALGORITHM_MAP = {
+        "PPO": PPO,
+        "SAC": SAC,
+        "A2C": A2C,
+        "DQN": DQN,
+    }
+    if A3C is not None:
+        ALGORITHM_MAP["A3C"] = A3C
+
+    def __init__(
+        self,
+        env: Optional[ArmTaskEnv] = None,
+        algorithm: str = "PPO",
+        hyperparams: Optional[Dict] = None,
+    ):
+        """
+        Initialize RL trainer with Stable-Baselines3.
+
+        Args:
+            env: ArmTaskEnv instance (created if None)
+            algorithm: Algorithm name from ALGORITHM_MAP
+            hyperparams: Algorithm-specific hyperparameters
+        """
+        if env is None:
+            env = ArmTaskEnv()
+
+        if algorithm not in self.ALGORITHM_MAP:
+            raise ValueError(f"Algorithm {algorithm} not supported. Choose from {list(self.ALGORITHM_MAP.keys())}")
+
+        # Project defaults ALWAYS apply; caller-supplied values override them
+        # key by key. (Previously any non-None dict silently discarded the
+        # project defaults, so the CLI trained with SB3's buffer_size=1e6 and
+        # learning_starts=100 while the GUI used the project values.)
+        merged = dict(self._get_default_hyperparams(algorithm))
+        merged.update(hyperparams or {})
+        hyperparams = merged
+
+        super().__init__(env, algorithm, hyperparams)
+
+        # Create model
+        AlgorithmClass = self.ALGORITHM_MAP[algorithm]
+        self.model = AlgorithmClass(
+            policy="MlpPolicy",
+            env=env,
+            verbose=hyperparams.pop("verbose", 1) if "verbose" in hyperparams else 1,
+            **hyperparams,
+        )
+
+        self.start_time = None
+        self.train_start_time = None
+
+    @property
+    def resolved_hyperparams(self) -> Dict[str, Any]:
+        """The hyperparameters the model actually uses (for the run manifest)."""
+        m = self.model
+        out: Dict[str, Any] = {"algorithm": self.algorithm}
+        for key in ("gamma", "learning_rate", "buffer_size", "learning_starts", "batch_size",
+                    "tau", "train_freq", "gradient_steps", "ent_coef", "target_entropy",
+                    "n_steps", "n_epochs", "gae_lambda", "clip_range", "seed", "device"):
+            if hasattr(m, key):
+                val = getattr(m, key)
+                if key == "train_freq" and hasattr(val, "frequency"):
+                    val = (int(val.frequency), str(val.unit.value) if hasattr(val.unit, "value") else str(val.unit))
+                if key == "device":
+                    val = str(val)
+                if callable(val):
+                    val = _make_pickle_safe(val)
+                out[key] = _make_pickle_safe(val)
+        try:
+            out["net_arch"] = [int(x) for x in m.policy.net_arch] if hasattr(m.policy, "net_arch") else None
+        except Exception:
+            out["net_arch"] = None
+        try:
+            out["n_envs"] = int(m.n_envs)
+        except Exception:
+            pass
+        out["policy_kwargs"] = _make_pickle_safe(getattr(m, "policy_kwargs", {}))
+        return out
+
+    @staticmethod
+    def _get_default_hyperparams(algorithm: str) -> Dict[str, Any]:
+        """Get default hyperparameters for algorithm."""
+        defaults = {
+            "PPO": {
+                "learning_rate": linear_decay(3e-4, 3e-5),
+                "gamma": 0.99,       # was 0.995; better for ~800-step episodes
+                "gae_lambda": 0.95,  # was 0.98; reduces variance, faster convergence
+                "ent_coef": 0.01,    # was 0.005; more exploration early in training
+                "n_steps": 1024,     # was 4096; 4x more frequent gradient updates
+                "batch_size": 128,   # was 256; scaled down to match shorter rollouts
+                "n_epochs": 8,       # was 10; balanced with smaller batch size
+                "clip_range": 0.2,
+            },
+            "SAC": {
+                "learning_rate": 3e-4,
+                "buffer_size": 300_000,      # 600 episodes of 500 steps
+                "batch_size": 256,
+                "learning_starts": 5_000,    # 10 full episodes of random warm-up
+                "gamma": 0.99,               # 2 s horizon at 50 Hz; matches env.discount
+                "tau": 0.005,
+                "ent_coef": "auto",
+                "policy_kwargs": {"net_arch": [256, 256]},
+                "device": "cpu",             # measured 3.5-5x faster than the GPU here
             },
             "A3C": {
                 "learning_rate": 7e-4,

@@ -138,8 +138,8 @@ class TrainingGUI:
         # switches to the Hill-type antagonist-pair action space ([0, 1]
         # extensor/flexor activations per joint) and routes the env's step
         # through Hill-type muscle dynamics following Fischer et al. (2021).
-        self.ACTUATION_MODES = ["velocity", "muscle"]
-        self.actuation_mode_var = tk.StringVar(value="velocity")
+        self.ACTUATION_MODES = ["muscle", "torque"]
+        self.actuation_mode_var = tk.StringVar(value="muscle")
         self.actuation_mode_combo = None
         # matplotlib connection id for the canvas click handler; None when
         # the handler is not currently attached (Direction mode or training
@@ -713,9 +713,12 @@ class TrainingGUI:
 
         try:
             model = self.trainer.trainer.model
-            # Use a fresh env so the validators do not interfere with the
-            # trainer's in-memory env state.
-            env = ArmTaskEnv()
+            # A fresh single-goal env built like the training env so the
+            # validators run the policy in-distribution.
+            from rl_armMotion.two_d.evaluation import make_env
+            env = make_env(actuation_mode=self.trainer.env.actuation_mode,
+                           preset=self.trainer.env.preset_name,
+                           terminate_on_success=True)
             timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
             output_path = Path(output_dir)
             output_path.mkdir(parents=True, exist_ok=True)
@@ -805,7 +808,7 @@ class TrainingGUI:
             mode = self.goal_mode_var.get()
             actuation = self.actuation_mode_var.get().strip().lower()
             if actuation not in self.ACTUATION_MODES:
-                actuation = "velocity"
+                actuation = "muscle"
 
             if mode == "Single Point":
                 if self.clicked_target is None:
@@ -837,6 +840,8 @@ class TrainingGUI:
                     actuation_mode=actuation,
                 )
 
+            from datetime import datetime as _dt
+            run_dir = Path(self.save_dir) / f"gui_run_{_dt.now().strftime('%Y%m%d-%H%M%S')}"
             self.trainer = RLTrainerWithMetrics(
                 env=training_env,
                 total_timesteps=self.total_timesteps,
@@ -844,6 +849,8 @@ class TrainingGUI:
                 metrics_queue=self.metrics_queue,
                 should_stop=lambda: not self.training_active,
                 check_freq=100,
+                run_dir=str(run_dir),
+                seed=int(self.seed_var.get()) if hasattr(self, "seed_var") else None,
             )
 
             result = self.trainer.train()

@@ -1,159 +1,221 @@
 """
-Visualize a trained SAC model navigating 3 waypoints.
-Shows an animated matplotlib window with the arm path and waypoint markers.
+Animate a trained policy moving the human arm through its waypoints.
 
-Usage:
-    python scripts/show_waypoints.py [model_zip_path] [--waypoints "x1,y1;x2,y2;x3,y3"]
+    python scripts/show_waypoints.py <package_dir_or_model.zip> [--n-waypoints 2|3 | --waypoints "x,y;x,y"]
+                                     [--episodes 3] [--seed 0] [--gif out.gif] [--no-smooth]
 
-Defaults to seed_001 with its original training waypoints.
+The env is rebuilt from the package's run_manifest.json (same preset,
+tolerances, waypoints as training). Links are drawn from the joint angles the
+env reports each step; the hand trail, tolerance circles, active-waypoint
+highlight and hold progress are all taken from ``info``.
 """
 
-import sys
+from __future__ import annotations
+
 import argparse
-import time
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-from matplotlib.animation import FuncAnimation
+import sys
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+import numpy as np
 
-from stable_baselines3 import SAC
-from rl_armMotion.two_d.environments.task_env import ArmTaskEnv
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-# ── defaults ─────────────────────────────────────────────────────────────────
-DEFAULT_MODEL = str(Path(__file__).parent.parent /
-                    "project_assets/outputs/Parallel_Seeds/seed_001/sac_model")
-DEFAULT_WAYPOINTS = [[2.3, -1.0], [1.0, 1.5], [2.5, 0.0]]   # seed_001 training waypoints
-TOLERANCE = 0.6
-
-WP_COLORS  = ["#2ecc71", "#3498db", "#e74c3c"]   # green, blue, red
-WP_LABELS  = ["WP1", "WP2", "WP3"]
+from rl_armMotion.two_d.environments.task_env import ActionSmoother  # noqa: E402
+from rl_armMotion.two_d.evaluation import (  # noqa: E402
+    CANONICAL_WAYPOINTS, EVAL_STANDARD, detect_actuation_mode, find_manifest, load_package, make_env,
+    resolve_waypoints,
+)
 
 
-def parse_args():
-    p = argparse.ArgumentParser()
-    p.add_argument("model", nargs="?", default=DEFAULT_MODEL)
-    p.add_argument("--waypoints", default=None,
-                   help='e.g. "2.3,-1.0;1.0,1.5;2.5,0.0"')
-    p.add_argument("--tolerance", type=float, default=TOLERANCE)
-    return p.parse_args()
+def parse_args(argv=None) -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="Animate a trained policy through its waypoints")
+    p.add_argument("model", help="package directory, or a model .zip inside one")
+    p.add_argument("--which", default="best", help="best | last | final | step_XXXXXXX")
+    p.add_argument("--n-waypoints", type=int, default=None, choices=[1, 2, 3])
+    p.add_argument("--waypoints", default=None, help='"x,y;x,y;..." or "spread"')
+    p.add_argument("--tolerance", type=float, default=None, help="default: evaluation standard")
+    p.add_argument("--episodes", type=int, default=1)
+    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--no-smooth", action="store_true", help="disable the demo action smoother")
+    p.add_argument("--smooth-alpha", type=float, default=0.3)
+    p.add_argument("--stop-on-success", action="store_true", help="end the episode when the hold completes")
+    p.add_argument("--gif", default=None, help="write the animation to this GIF (PillowWriter)")
+    p.add_argument("--mp4", default=None, help="write the animation to this MP4 (needs ffmpeg)")
+    p.add_argument("--fps", type=int, default=25)
+    p.add_argument("--no-show", action="store_true")
+    return p.parse_args(argv)
 
 
-def run_episode(model, env):
-    obs, _ = env.reset()
-    positions, waypoint_times = [], {}
-    for step in range(800):
+def build(args) -> Tuple[Any, Any]:
+    """(model, env) from a package; falls back to a bare zip + canonical env."""
+    overrides: Dict[str, Any] = {"terminate_on_success": bool(args.stop_on_success)}
+    wps = None
+    if args.waypoints:
+        wps = resolve_waypoints(args.waypoints)
+    elif args.n_waypoints:
+        wps = resolve_waypoints(args.n_waypoints)
+    if wps is not None:
+        overrides["waypoints"] = wps
+    if args.tolerance is not None:
+        overrides["goal_tolerance"] = args.tolerance
+    if find_manifest(args.model) is not None:
+        model, env, _ = load_package(args.model, which=args.which, **overrides)
+    else:
+        from stable_baselines3 import SAC
+        model = SAC.load(str(Path(args.model).with_suffix("")), device="cpu")
+        env = make_env(actuation_mode=detect_actuation_mode(model),
+                       waypoints=wps if wps is not None else 2,
+                       tolerance=args.tolerance, terminate_on_success=bool(args.stop_on_success))
+        model.set_env(env)
+    if not args.no_smooth and env.actuation_mode == "muscle":
+        env = ActionSmoother(env, alpha=args.smooth_alpha)
+    return model, env
+
+
+def run_episode(model, env, seed: int, max_steps: Optional[int] = None) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """Roll out one episode; returns per-step frames (from ``info``) and the final info."""
+    base = getattr(env, "unwrapped", env)
+    max_steps = int(base.max_episode_steps if max_steps is None else max_steps)
+    obs, info = env.reset(seed=seed)
+    frames = [_frame(info)]
+    for _ in range(max_steps):
         action, _ = model.predict(obs, deterministic=True)
-        obs, _, term, trunc, info = env.step(action)
-        # record end-effector position via controller
-        ee = env.controller.get_end_effector_position()
-        x, y = ee[0], ee[1]
-        positions.append((x, y, info.get("current_waypoint_index", 0)))
-
-        wp = info.get("current_waypoint_index", 0)
-        if wp not in waypoint_times:
-            waypoint_times[wp] = step
-
+        obs, _r, term, trunc, info = env.step(action)
+        frames.append(_frame(info))
         if term or trunc:
             break
+    return frames, info
 
-    return positions, waypoint_times, info
+
+def _frame(info: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "links": np.asarray(info["link_positions"], dtype=float),
+        "hand": np.asarray(info["end_effector_position"], dtype=float),
+        "wp_index": int(info["current_waypoint_index"]),
+        "hold": float(info["hold_progress"]),
+        "in_goal": bool(info["in_goal_region"]),
+        "success": bool(info["success"]),
+        "reached": int(info["waypoints_reached"]),
+        "step": int(info["step"]),
+        "speed": float(info.get("ee_speed", 0.0)),
+    }
 
 
-def main():
-    args = parse_args()
+def animate(frames_by_episode: List[List[Dict[str, Any]]], env, title: str, fps: int = 25,
+            gif: Optional[str] = None, mp4: Optional[str] = None, show: bool = True):
+    import matplotlib
+    if not show:
+        matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.animation import FuncAnimation, PillowWriter
 
-    waypoints = DEFAULT_WAYPOINTS
-    if args.waypoints:
-        waypoints = [[float(v) for v in seg.split(",")] for seg in args.waypoints.split(";")]
+    base = getattr(env, "unwrapped", env)
+    wps = [np.asarray(w, dtype=float) for w in (base.waypoints or [base.goal_position])]
+    tol = float(base.goal_tolerance)
+    shoulder = np.asarray(base.shoulder_base_position, dtype=float)
+    reach = float(base.reach)
+    n_wp = len(wps)
+    colours = plt.cm.tab10(np.arange(max(n_wp, 1)) % 10)
 
-    print(f"Loading model: {args.model}")
-    model = SAC.load(args.model)
-
-    env = ArmTaskEnv(actuation_mode="muscle", goal_direction="EAST")
-    env.set_waypoints(waypoints, tolerance=args.tolerance)
-
-    print("Running episode...")
-    positions, wp_times, final_info = run_episode(model, env)
-    reached = final_info.get("num_waypoints", 0)
-    print(f"Result: {reached}/3 waypoints reached")
-    print(f"Waypoint arrival steps: {wp_times}")
-
-    # ── Build animation ───────────────────────────────────────────────────────
-    xs = [p[0] for p in positions]
-    ys = [p[1] for p in positions]
-    wps = [p[2] for p in positions]
-
-    fig, ax = plt.subplots(figsize=(8, 8))
+    fig, ax = plt.subplots(figsize=(7.5, 7.5))
     fig.patch.set_facecolor("#1a1a2e")
     ax.set_facecolor("#16213e")
-
-    ax.set_xlim(-2.5, 3.5)
-    ax.set_ylim(-2.5, 2.5)
+    ax.set_xlim(shoulder[0] - 1.1 * reach, shoulder[0] + 1.1 * reach)
+    ax.set_ylim(shoulder[1] - 1.1 * reach, shoulder[1] + 1.1 * reach)
     ax.set_aspect("equal")
-    ax.set_xlabel("X (m)", color="white")
-    ax.set_ylabel("Y (m)", color="white")
     ax.tick_params(colors="white")
-    for spine in ax.spines.values():
-        spine.set_edgecolor("#444")
+    for sp in ax.spines.values():
+        sp.set_edgecolor("#444")
+    ax.set_xlabel("x (m)  [+x = in front of the body]", color="white")
+    ax.set_ylabel("y (m)", color="white")
 
-    # workspace boundary
-    circle = plt.Circle((1.0, 0.0), 1.8, color="#ffffff22", fill=False, linestyle="--", linewidth=0.8)
-    ax.add_patch(circle)
-    ax.plot(1.0, 0.0, "o", color="#aaaaaa", markersize=5)   # shoulder
+    # Torso / head silhouette (side view) so the audience reads a human arm.
+    torso_w, torso_h = 0.22 * reach, 0.9 * reach
+    ax.add_patch(plt.Rectangle((shoulder[0] - torso_w, shoulder[1] - torso_h), torso_w, torso_h,
+                               color="#ffffff14", zorder=0))
+    ax.add_patch(plt.Circle((shoulder[0] - 0.5 * torso_w, shoulder[1] + 0.32 * reach), 0.17 * reach,
+                            color="#ffffff14", zorder=0))
+    ax.add_patch(plt.Circle(tuple(shoulder), reach, color="#ffffff22", fill=False, linestyle="--", linewidth=0.8))
 
-    # waypoint markers
-    for i, (wx, wy) in enumerate(waypoints):
-        c = plt.Circle((wx, wy), args.tolerance, color=WP_COLORS[i], alpha=0.18, fill=True)
-        ax.add_patch(c)
-        ax.plot(wx, wy, "*", color=WP_COLORS[i], markersize=18, zorder=5)
-        ax.text(wx+0.08, wy+0.12, WP_LABELS[i], color=WP_COLORS[i], fontsize=12, fontweight="bold")
+    for i, (wp, c) in enumerate(zip(wps, colours)):
+        ax.add_patch(plt.Circle(tuple(wp), tol, color=c, alpha=0.18))
+        ax.add_patch(plt.Circle(tuple(wp), tol, color=c, fill=False, linewidth=1.0))
+        ax.plot(wp[0], wp[1], "*", color=c, markersize=16, zorder=5)
+        ax.text(wp[0] + 0.02, wp[1] + 0.03, f"WP{i + 1}", color=c, fontsize=11, fontweight="bold")
+    if n_wp >= 2:
+        arr = np.asarray(wps)
+        ax.plot(arr[:, 0], arr[:, 1], "--", color="#ffffff55", linewidth=0.8)
 
-    # path trail (will be filled in)
-    trail_line, = ax.plot([], [], "-", color="#ffffff55", linewidth=1.2, zorder=3)
-    dot, = ax.plot([], [], "o", color="white", markersize=9, zorder=6)
+    trail, = ax.plot([], [], "-", color="#ffffff66", linewidth=1.2, zorder=3)
+    links, = ax.plot([], [], "-o", color="#f5f5f5", linewidth=4, markersize=7, zorder=4)
+    hand, = ax.plot([], [], "o", color="white", markersize=10, zorder=6)
+    active, = ax.plot([], [], "o", color="none", markeredgecolor="yellow", markersize=34, markeredgewidth=2, zorder=5)
+    ttl = ax.set_title(title, color="white", fontsize=12)
+    status = ax.text(0.02, 0.97, "", transform=ax.transAxes, color="white", fontsize=10, va="top",
+                     bbox=dict(boxstyle="round,pad=0.3", facecolor="#00000088"))
+    bar_bg = ax.add_patch(plt.Rectangle((0.02, 0.02), 0.30, 0.03, transform=ax.transAxes, color="#ffffff33"))
+    bar = ax.add_patch(plt.Rectangle((0.02, 0.02), 0.0, 0.03, transform=ax.transAxes, color="#2ecc71"))
 
-    title = ax.set_title("", color="white", fontsize=13)
-    status_text = ax.text(0.02, 0.97, "", transform=ax.transAxes,
-                          color="white", fontsize=10, va="top",
-                          bbox=dict(boxstyle="round,pad=0.3", facecolor="#00000088"))
+    seq = [(e, j) for e, fr in enumerate(frames_by_episode) for j in range(len(fr))]
+    dt = float(base.dt)
+    stride = max(1, int(round(1.0 / (fps * dt))))
+    idxs = list(range(0, len(seq), stride))
 
-    patches = [mpatches.Patch(color=WP_COLORS[i], label=WP_LABELS[i]) for i in range(len(waypoints))]
-    ax.legend(handles=patches, loc="lower right", facecolor="#222", edgecolor="#555", labelcolor="white")
+    def update(k):
+        e, j = seq[idxs[k]]
+        ep_frames = frames_by_episode[e]
+        f = ep_frames[j]
+        L = f["links"]
+        links.set_data(L[:, 0], L[:, 1])
+        hand.set_data([f["hand"][0]], [f["hand"][1]])
+        xs = [fr["hand"][0] for fr in ep_frames[:j + 1]]
+        ys = [fr["hand"][1] for fr in ep_frames[:j + 1]]
+        trail.set_data(xs, ys)
+        wp = wps[min(f["wp_index"], n_wp - 1)]
+        active.set_data([wp[0]], [wp[1]])
+        hand.set_color(colours[min(f["wp_index"], n_wp - 1)])
+        bar.set_width(0.30 * f["hold"])
+        bar.set_color("#2ecc71" if f["in_goal"] else "#e67e22")
+        state = "HOLD COMPLETE" if f["success"] else ("settling" if f["in_goal"] else "moving")
+        status.set_text(f"episode {e + 1}/{len(frames_by_episode)}   t = {f['step'] * dt:4.2f} s\n"
+                        f"waypoints reached: {f['reached']}/{n_wp}   heading: WP{min(f['wp_index'] + 1, n_wp)}\n"
+                        f"hand speed: {f['speed']:.2f} m/s   hold: {int(round(100 * f['hold']))}%   {state}")
+        return links, hand, trail, active, bar, status
 
-    skip = max(1, len(positions) // 300)  # cap animation frames for speed
-
-    def init():
-        trail_line.set_data([], [])
-        dot.set_data([], [])
-        return trail_line, dot, title, status_text
-
-    def update(frame):
-        idx = min(frame * skip, len(positions) - 1)
-        trail_line.set_data(xs[:idx+1], ys[:idx+1])
-        dot.set_data([xs[idx]], [ys[idx]])
-        wp_now = wps[idx]
-        color = WP_COLORS[min(wp_now, 2)]
-        dot.set_color(color)
-        pct = int(idx / max(len(positions)-1, 1) * 100)
-        title.set_text(f"SAC — 2-DOF Arm  |  Step {idx}/{len(positions)-1}  |  Heading → {WP_LABELS[min(wp_now, 2)]}")
-        status_text.set_text(
-            f"Waypoints reached: {wp_now}/3\n"
-            f"End-effector: ({xs[idx]:.2f}, {ys[idx]:.2f})\n"
-            f"Final result: {reached}/3"
-        )
-        return trail_line, dot, title, status_text
-
-    n_frames = len(positions) // skip + 1
-    ani = FuncAnimation(fig, update, frames=n_frames, init_func=init,
-                        interval=30, blit=True, repeat=True)
-
+    ani = FuncAnimation(fig, update, frames=len(idxs), interval=1000.0 / fps, blit=False, repeat=True)
     plt.tight_layout()
-    print("Showing animation... close the window to exit.")
-    plt.show()
+    if gif:
+        ani.save(gif, writer=PillowWriter(fps=fps))
+        print(f"wrote {gif}")
+    if mp4:
+        try:
+            ani.save(mp4, writer="ffmpeg", fps=fps)
+            print(f"wrote {mp4}")
+        except Exception as exc:
+            print(f"mp4 export failed ({exc}); is ffmpeg installed?")
+    if show:
+        plt.show()
+    plt.close(fig)
+    return ani
+
+
+def main(argv=None) -> int:
+    args = parse_args(argv)
+    model, env = build(args)
+    base = getattr(env, "unwrapped", env)
+    print(f"env: preset {base.preset_name}, {base.actuation_mode} actuation, {base.num_waypoints} waypoints, "
+          f"tolerance {base.goal_tolerance} m, hold {base.hold_steps_required} steps")
+    episodes = []
+    for e in range(args.episodes):
+        frames, info = run_episode(model, env, seed=args.seed + e)
+        episodes.append(frames)
+        print(f"episode {e + 1}: reached {info['waypoints_reached']}/{info['num_waypoints']} waypoints, "
+              f"success={info['success']} at step {info['success_step']}, final distance {info['goal_distance']:.3f} m")
+    title = f"{Path(args.model).name}  -  {base.actuation_mode} arm, {base.num_waypoints} waypoints"
+    animate(episodes, env, title, fps=args.fps, gif=args.gif, mp4=args.mp4, show=not args.no_show)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

@@ -311,7 +311,7 @@ class PowerLawValidator:
         self,
         n_trials: int = 30,
         max_steps_per_trial: int = 1000,
-        distance_range: Tuple[float, float] = (0.30, 1.20),
+        distance_range: Tuple[float, float] = (0.15, 0.45),
         goal_tolerance: float = 0.05,
         velocity_threshold: float = 0.01,
         curvature_threshold: float = 0.10,
@@ -327,7 +327,7 @@ class PowerLawValidator:
             Number of independent goal-reaching trials.
         max_steps_per_trial : int, default 1000
             Per-trial step cap.
-        distance_range : (low, high), default (0.30, 1.20)
+        distance_range : (low, high), default (0.15, 0.45)
             Goal distances are sampled uniformly from this metre range.
         goal_tolerance : float, default 0.05
             Position tolerance W (metres). Used only as the trial-success
@@ -454,8 +454,23 @@ class PowerLawValidator:
         goal_pos = start_pos + distance * np.array(
             [math.cos(angle), math.sin(angle)], dtype=np.float32
         )
+        feas = getattr(self.env, "waypoint_feasibility", None)
+        if feas is not None:
+            for _ in range(40):
+                try:
+                    ok = feas(goal_pos, tolerance).get("feasible", False)
+                except Exception:
+                    ok = True
+                if ok:
+                    break
+                angle = float(self.rng.uniform(-math.pi / 2.0, math.pi / 2.0))
+                goal_pos = start_pos + distance * np.array(
+                    [math.cos(angle), math.sin(angle)], dtype=np.float32
+                )
         self.env.set_goal_position(goal_pos)
         self.env.set_goal_tolerance(tolerance)
+        if hasattr(self.env, "get_observation"):
+            obs = self.env.get_observation()
 
         positions: List[List[float]] = [list(map(float, start_pos))]
         success = False

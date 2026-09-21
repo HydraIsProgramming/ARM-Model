@@ -1,174 +1,159 @@
-# Training Guide
+# Training Guide (human-arm v2)
 
-How to train a working model on this project, and what was wrong before.
+How to train, save, reload and demonstrate a model on the human-arm waypoint
+task, and what changed from the earlier 1.8 m gravity-free arm.
 
 ---
 
-## 1. The defect that broke everything (fixed)
+## 1. The arm
 
-**A 2-DOF arm cannot choose its end-effector orientation.** Two joints give two
-degrees of freedom; fixing the hand's position `(x, y)` consumes both, so the
-orientation `θ₀ + θ₁` is then *determined* by inverse kinematics.
+`ArmConfiguration.get_preset("2dof_human_right")` — a right arm seen from the
+right side (+x in front of the body, +y up, gravity down), Winter (2009)
+anthropometry for a 75 kg / 1.75 m adult:
 
-The hold criterion nevertheless required position **and** orientation at once,
-and the orientation it demanded was the shoulder-to-goal axis direction. That
-value is correct only when the arm is fully extended. At the waypoints:
+| | upper arm | forearm + hand (hand centre) |
+|---|---|---|
+| length | 0.30 m | 0.35 m |
+| mass | 2.10 kg | 1.65 kg |
+| COM from proximal joint | 0.131 m | 0.175 m |
+| inertia about COM | 0.0196 kg m² | 0.0237 kg m² |
+| range of motion | θ₀ ∈ [−150°, +90°] (flexion −60°…180°) | θ₁ ∈ [0°, 145°] |
+| torque limit | 25 N·m | 12 N·m |
+| muscle pair (moment arm, F_max, L_opt) | 0.04 m, 625 N, 0.20 m | 0.03 m, 400 N, 0.10 m |
 
-| Waypoint | Demanded | Achievable | Gap | Tolerance |
-|---|---|---|---|---|
-| W1 `[0.2, 1.2]` | +123.7° | +165.5° | **41.8°** | 12° |
-| W2 `[2.2, 0.5]` | +22.6° | +72.9° | **50.3°** | 12° |
-| W3 `[1.0, -1.6]` | −90.0° | −59.2° | **30.8°** | 12° |
+Dynamics (`utils/dynamics.py`): `M(q)q̈ + C(q,q̇)q̇ + G(q) = τ + τ_passive`,
+N-link generic (CRBA mass matrix, RNEA bias), RK2 integration in 4 sub-steps
+of 5 ms per 20 ms control step, viscous damping 0.3 N·m·s/rad, a soft spring
+within 10° of each limit (except full elbow extension, a bony stop) and hard
+stops that lock a joint pushed into them and zero its velocity. Peak gravity
+torque with the arm horizontal is 10.4 / 2.8 N·m (shoulder / elbow), so the
+limits are 2.4× / 4.3× gravity. The 2-link closed-form equations are the test
+oracle (`tests/test_dynamics.py`).
 
-Only **5–6%** of each goal region admitted a valid hold, and that share fell to
-zero as the tolerance tightened — W1 and W2 become impossible below 0.4 m,
-everything below 0.1 m.
+Muscles (`utils/muscle_model.py`): one lumped Hill-type muscle per direction
+and joint, `F = a·F_max·f_L(L)·f_V(v)`, hyperbolic force-velocity
+(a = 0.25, unloaded joint speed ≈ 12 rad/s), Gaussian force-length with the
+fibre at optimal length mid-range and ≥ 40 % force at the range ends,
+eccentric plateau 1.5·F_max, net torque clipped to the joint limit.
+Activation is instantaneous by default (`activation_time_constants` adds a
+first-order filter and appends the activations to the observation).
 
-This one defect explains:
+`3dof_human_right` adds a wrist on the same code (Stage D).
 
-- **0 of 30 seeds ever completed a hold** across ~70 hours of training.
-- The old champion scoring **0/20 at 0.4 m tolerance** — not a precision limit,
-  two waypoints are geometrically impossible there.
-- The tolerance curriculum **always stalling** near 0.4 m.
-- The capped Fitts' Law fit (its grid tests down to 0.02 m targets).
+## 2. The task
 
-Single-target `EAST`/`WEST`/`NORTH` goals were unaffected, because they sit at
-maximum reach where the two orientations coincide. That is why the motor-control
-results were never in question.
+Waypoints in the workspace frame (shoulder at [1.0, 0.0]):
 
-### The fix has two parts, and you need both
+| set | points |
+|---|---|
+| 1 | A = (1.45, 0.15) |
+| 2 | A, C = (1.50, −0.25) |
+| 3 | A, B = (1.25, 0.45), C |
+| spread | the old wide triangle scaled to 0.65 m reach (first point 6° from the shoulder limit) |
 
-1. **Target the achievable orientation.** `_set_explicit_goal_state` now takes
-   the value inverse kinematics produces at the goal. Orientation error at each
-   waypoint drops from 30–50° to **0.00°**, and feasibility now *improves* as
-   tolerance tightens (100% at 0.1 m).
+- Intermediate waypoints: hand inside the tolerance and slow for 5 steps (0.1 s), then the next becomes active.
+- Final waypoint: `in_goal` for 25 consecutive steps (0.5 s) = **success**. `in_goal` = distance < tolerance
+  AND hand speed < 0.10 m/s AND joint speed < 1.0 rad/s. Hand orientation is not a criterion for a
+  2-link arm (it is determined by position).
+- Training episodes do **not** end on success: the agent is paid +1 per step for staying still at the
+  final waypoint until the 500-step (10 s) limit. Evaluation and demos may stop at success.
+- Evaluation standard (`evaluation.EVAL_STANDARD`): tolerance 0.05 m, hold 25 steps, decrement 5,
+  20 seeded episodes with randomised start poses (±5° shoulder, 0–10° elbow).
 
-2. **Gate the orientation penalty by proximity.** Part 1 alone made training
-   *worse*: agents that reached 2 of 3 waypoints reached **none**. The corrected
-   target is a specific folded pose unrelated to travelling there, so charging
-   it every step from far away sets orientation against distance and suppresses
-   movement. `_orientation_gate()` ramps the penalty from 0 at three tolerance
-   radii to 1 at the goal. **The hold criterion itself is unchanged and still
-   strict** — only the shaping term is gated.
+Observation (14-D, `OBS_VERSION = 2`): sin/cos of both joints, joint velocities / 8, (goal − hand)/reach
+(x, y), |goal − hand|/reach, hand velocity / 2 m/s, waypoint progress k/(N−1), in-goal flag, hold progress.
 
-Check any waypoint set before spending compute:
+Reward: potential-based shaping `2·(γΦ' − Φ)` with `Φ = −|goal − hand|/reach`, dense `−0.5·|goal − hand|/reach`,
+effort `−0.02·|a|²`, smoothness `−0.05·|q̇|/8`, +1 per in-goal step at the final waypoint, +10 per
+intermediate waypoint, +50 once when the hold completes. Zero action for an episode scores about −340.
+
+## 3. Train
+
+```bash
+python scripts/train_fischer_session.py --timesteps 300000 --waypoints 2 --seed 1 --save-dir C:/arm-model-runs/stageA/seed_1
+```
+
+Defaults: SAC, net 256×256, batch 256, buffer 300K, learning_starts 5000, γ 0.99, CPU (the GPU measured
+3.5–5× slower for this SAC), 4 threads. Curriculum: tolerance ladder 0.15 → 0.10 → 0.07 → 0.05 m then hold
+ladder 10 → 15 → 25 steps; a ladder advances when a 5-episode evaluation at the *current* difficulty
+succeeds ≥ 80 %. Every 20K steps a 10-episode evaluation at the production standard selects
+`sac_model_best.zip`.
+
+Campaign (5 seeds in parallel, report, promote the champion):
+
+```bash
+python run_campaign.py --stage A
+```
+
+Stage A = 2 waypoints × 300K steps; B = 3 waypoints × 600K; C = 3 waypoints + hand load + sensory
+noise/delay. Pass = ≥ 3 of 5 seeds at ≥ 80 % success. If a stage fails, fix the env/reward/curriculum;
+do not add seeds. Keep training output outside OneDrive (`ARM_MODEL_OUTPUT_DIR`, default `C:/arm-model-runs`).
+
+## 4. The package a run writes
+
+```
+<run_dir>/
+  run_manifest.json      seed, threads, versions, git commit, env.describe(), resolved hyperparameters, lineage
+  sac_model_best.zip     best production-eval checkpoint   <- demos load this
+  sac_model_last.zip     most recent checkpoint (every eval round)
+  replay_buffer.pkl      SB3 replay buffer (every 50K steps and at the end)
+  curriculum_state.json  ladder indices, best score, per-round history
+  best_eval.json         per-episode rows for the best checkpoint
+  final_eval.json        20-episode evaluation of the best checkpoint at the end of the run
+  checkpoints/step_XXXXXXX.zip
+```
+
+Reload anywhere:
 
 ```python
-env.hold_feasibility()          # per-waypoint feasibility report
+from rl_armMotion.two_d.evaluation import load_package, evaluate_policy
+model, env, manifest = load_package("C:/arm-model-runs/stageA/seed_1", which="best", terminate_on_success=True)
+print(evaluate_policy(model, env).summary_line())
 ```
 
-`run_auto_search.py` runs this automatically and refuses to start if a waypoint
-is impossible.
-
----
-
-## 2. Where training time actually goes
-
-Profiled on this machine:
-
-| | Throughput | Cost of a 500K run |
-|---|---|---|
-| Environment stepping | 12,172 steps/s | **0.7 min** |
-| SAC gradient updates | ~120 updates/s | **~70 min** |
-
-**99% of wall-clock is gradient updates.** SAC does one update per environment
-step by default, so the simulator is irrelevant to run time. Optimising the
-environment is wasted effort; the levers are network width, batch size, and the
-update-to-data ratio.
-
-### The GPU is slower — do not use it
-
-| Config | CPU | GPU (RTX 4070 SUPER) |
-|---|---|---|
-| net [256,256], batch 256 | 98 upd/s | 28 upd/s |
-| net [64,64], batch 64 | 134 upd/s | 26 upd/s |
-
-**3.5–5× slower on GPU.** SAC fires many tiny kernels per update (actor, two
-critics, two targets) and a small MLP at batch 64 never saturates the device —
-launch latency dominates. `--device` defaults to `cpu`. **Do not set `auto`**:
-Stable-Baselines3 resolves it to CUDA when a CUDA build is present, silently
-selecting the slow path. Revisit only if the network and batch grow by an order
-of magnitude.
-
-### Speed knobs (measured)
-
-| Change | Speedup | Risk |
-|---|---|---|
-| `--net-arch 64,64` (from 256,256) | ~1.4× | untested for final quality |
-| `--batch-size 64` (from 256) | ~1.5× | untested for final quality |
-| `--utd 0.5` (from 1.0) | 2× | halves optimiser work |
-
-These were **not** used for the champion runs. Getting a working model matters
-more than run time, and all three are unproven at this task. Reach for them only
-when iterating on something else.
-
----
-
-## 3. How to train
+`load_package` rebuilds the exact training env from the manifest and refuses a model whose observation
+version differs from the code. Continue a run (killed or finished) into a **new** package:
 
 ```bash
-python run_final_search.py
+python scripts/train_fischer_session.py --continue-from C:/arm-model-runs/stageA/seed_1 --timesteps 100000 --save-dir C:/arm-model-runs/stageA/seed_1_cont
 ```
 
-Trains matched seeds, evaluates both the best checkpoint and the final model,
-and promotes a winner to `project_assets/outputs/CHAMPION_V2/` with a
-replication report. `--report` re-evaluates existing runs without retraining.
+The source package is never modified; the new manifest records its parent (`lineage`).
 
-Configuration it uses, and why:
+## 5. Reproducibility contract
 
-- **net [256,256], batch 256, utd 1.0** — the hyperparameters every successful
-  run in this project has used.
-- **hold decrement 5** — the ablation found the only 20/20 policy under this
-  value, not the 3 that had been adopted on intuition.
-- **device cpu** — see above.
+Same `run_manifest.json` (seed, `--num-threads`, library versions in `requirements-lock.txt`,
+env description, resolved hyperparameters) ⇒ identical weights. The seed reaches SAC (its own RNG
+and the action space), the env (`reset(seed)`), torch (`use_deterministic_algorithms`) and numpy.
+`tests/test_reproducibility.py::test_same_seed_same_weights_different_seed_differs` proves it. Different
+seeds with the same config are how you *measure* variance; seed search is not a method.
 
-### If the hold still will not train
-
-Measurement on a model that reaches all three waypoints but never holds:
-
-| Condition | Best reached | Tolerance | Fails |
-|---|---|---|---|
-| Position | 0.146 m | 0.60 m | 14.7% |
-| **Orientation** | **0.2°** | **12°** | **95.8%** |
-| Velocity | 0.003 | 0.50 | 23.7% |
-
-Every condition is individually satisfiable — the arm passes through the correct
-pose but does not settle in it. Orientation is the binding constraint, and it
-was the only one of the three with no curriculum. Enable one:
+## 6. Demo
 
 ```bash
---orientation-curriculum "40,25,18,12"
+python scripts/show_waypoints.py C:/arm-model-runs/stageA/seed_1 --episodes 3 --gif demo_2wp.gif
+python -m rl_armMotion.two_d.gui.app        # Load Model -> pick sac_model_best.zip in a package -> Run Simulation
 ```
 
-Training starts at 40° and tightens as deterministic evaluation succeeds.
-Evaluation always scores at the strictest value, so reported success means the
-same thing throughout.
+The GUI draws the torso silhouette, the waypoints with their tolerance circles (green visited, red
+active, grey pending), a hold-progress bar and the reached count; the waypoint selector can override
+the package's set (1 / 2 / 3 / spread / custom) and "Loop" replays episodes with new seeds.
 
----
+## 7. Tests
 
-## 4. Practical notes
+```bash
+python -m pytest -q                       # everything (the reproducibility tests train small SACs, ~1 min)
+python -m pytest -q -m "not slow"
+```
 
-- **Long runs get killed.** Background processes have died repeatedly around
-  75 minutes. The best-checkpoint file (`sac_model_best.zip`) is written every
-  25K steps, so an interrupted run is not a total loss — evaluate what it saved.
-- **Process name is `python3.11`, not `python`.** `Get-Process python` returns
-  nothing even while training runs. Check log file growth instead.
-- **Models trained before the orientation fix are not comparable.** The fix
-  changes observation component 8 (signed orientation error), so older policies
-  are out of distribution and score worse than they did originally.
-- **Never fine-tune a working model.** SAC exploration noise destroys the hold.
-  Train from scratch.
+`test_dynamics` (closed-form oracle, energy, gravity, stops), `test_muscle_model`, `test_task_env`
+(bounds, seeding, reward terms, transition consistency, hovering < holding), `test_feasibility`,
+`test_evaluation`, `test_curriculum`, `test_reproducibility`, `test_validators_and_demo`.
 
----
+## 8. Practical notes
 
-## 5. Scripts
-
-| Script | Purpose |
-|---|---|
-| `run_final_search.py` | Train seeds, evaluate, promote a champion |
-| `run_auto_search.py` | Broader seed search, with a feasibility pre-flight |
-| `run_config_ablation.py` | Isolate which hyperparameter causes a regression |
-| `run_actuation_comparison.py` | Matched-budget velocity vs muscle comparison |
-| `run_ablation.py` | Ablate the four terminal-hold mechanisms |
-| `scripts/train_fischer_session.py` | Single training run; all CLI flags |
-| `scripts/show_waypoints.py` | Animate a trained policy through the waypoints |
+- Process name is `python3.11`; check package logs (`training_log.txt`, `stdout.log`) rather than `Get-Process python`.
+- Long detached runs have been killed around 75 min in the past; every package is continuable to within
+  20K steps (`sac_model_last.zip`) and 50K steps with its buffer.
+- Models trained before human-arm v2 (`CHAMPION`, `fischer_waypoints_v2_500k`, ...) are on a different
+  arm and observation; `load_package` refuses them and they are kept only as history.

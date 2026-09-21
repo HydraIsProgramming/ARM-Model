@@ -35,3 +35,11 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+
+# --- Training packages (large / regenerable) ---
+replay_buffer.pkl
+checkpoints/
+*.trajectories.npz
+stdout.log
+project_assets/outputs/**/replay_buffer.pkl
+project_assets/outputs/**/checkpoints/

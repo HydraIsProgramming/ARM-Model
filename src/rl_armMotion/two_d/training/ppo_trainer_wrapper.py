@@ -1,51 +1,40 @@
-"""Training wrappers with GUI-friendly metrics streaming for RL algorithms."""
+"""Training wrapper: metrics streaming for the GUI, curriculum/checkpoint
+callback, run manifests and model packages.
 
+Every run (CLI or GUI) writes a self-contained package directory (see
+evaluation.py for the layout) so a saved model can be reloaded in the exact
+env it was trained in, evaluated, demonstrated, or trained further with
+``continue_from``.
+"""
+
+from __future__ import annotations
+
+import json
+import os
 import queue
 import threading
 from collections import deque
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 import numpy as np
 
 from rl_armMotion.two_d.environments.task_env import ArmTaskEnv
+from rl_armMotion.two_d.evaluation import EVAL_STANDARD, PACKAGE_FILES, EvalStandard, read_manifest
 from rl_armMotion.two_d.models.callbacks import GUICallback
 from rl_armMotion.two_d.models.trainers import RLTrainer
 from rl_armMotion.two_d.training.curriculum_callback import (
-    AdaptiveCurriculumCallback,
+    DEFAULT_HOLD_LADDER,
+    DEFAULT_TOLERANCE_LADDER,
     EvalCheckpointCurriculumCallback,
-    HoldCurriculumCallback,
 )
+from rl_armMotion.two_d.training.reproducibility import set_global_seed, write_run_manifest
 
 
 class RLTrainerWithMetrics:
-    """Wrapper around RLTrainer that streams metrics for GUI visualisation
-    and auto-attaches the Fischer 2021 adaptive curriculum when training
-    with SAC.
-
-    This class is the bridge between the bare Stable-Baselines3 trainer
-    and the rest of the Fischer integration. Two responsibilities:
-
-    1. Metrics pipeline. During training, an internal SB3 callback
-       (TrainingGUICallback, defined further down in this file) inspects
-       each rollout, extracts per-episode reward / loss / entropy /
-       distance-to-goal / curriculum stage, and pushes the snapshot
-       through the optional metrics_queue or metrics_callback so the
-       training GUI can refresh its live plots. Headless callers (such
-       as the train_fischer_session.py script) leave both queue and
-       callback unset and the metrics simply accumulate in memory for
-       the final training_history.csv export.
-
-    2. Curriculum auto-attach. If the algorithm is SAC and the caller
-       does not explicitly disable it, this wrapper attaches an
-       AdaptiveCurriculumCallback (from training/curriculum_callback.py)
-       alongside the metrics callback. The curriculum starts the goal
-       tolerance at 0.60 m and shrinks it multiplicatively each time the
-       rolling 50-episode success rate exceeds 80 %, following the
-       Fischer protocol. Callers wanting to opt out pass
-       use_curriculum=False; callers wanting to tune the curriculum
-       defaults pass curriculum_kwargs={'initial_tolerance': ..., ...}.
-    """
+    """Wrapper around RLTrainer that streams metrics for GUI visualisation,
+    attaches the evaluation-driven curriculum for SAC and writes packages."""
 
     SUPPORTED_ALGORITHMS = ("PPO", "SAC", "A2C")
 
@@ -64,40 +53,23 @@ class RLTrainerWithMetrics:
         curriculum_kwargs: Optional[Dict[str, Any]] = None,
         eval_env_fn: Optional[Callable[[], ArmTaskEnv]] = None,
         eval_save_dir: Optional[str] = None,
-        use_hold_curriculum: bool = True,
-        orientation_ladder: Optional[List[float]] = None,
+        run_dir: Optional[str] = None,
+        seed: Optional[int] = None,
+        n_envs: int = 1,
+        standard: EvalStandard = EVAL_STANDARD,
+        tolerance_ladder: Optional[Sequence[float]] = None,
+        hold_ladder: Optional[Sequence[int]] = None,
+        eval_freq: int = 20_000,
+        checkpoint_every: int = 100_000,
+        continue_from: Optional[str] = None,
+        cli_args: Optional[Dict[str, Any]] = None,
+        manifest_extra: Optional[Dict[str, Any]] = None,
+        **legacy_kwargs: Any,
     ):
-        """
-        Initialize trainer with metrics collection.
-
-        Args:
-            env: ArmTaskEnv instance (created if None)
-            total_timesteps: Total timesteps to train
-            algorithm: Training algorithm (PPO/SAC/A2C)
-            hyperparams: Optional algorithm hyperparameters
-            preload_model_path: Optional saved model base-path for warm-start
-            metrics_queue: Queue for thread-safe metrics passing to GUI
-            metrics_callback: Optional callback for metrics updates
-            should_stop: Optional external stop callback
-            check_freq: Steps between periodic metrics updates
-            use_curriculum: If True, attaches an AdaptiveCurriculumCallback
-                that shrinks the goal tolerance as the success rate rises,
-                following Fischer et al. (2021), Sci. Rep. 11:14445. If None
-                (the default) the curriculum is enabled automatically when
-                the algorithm is SAC and disabled otherwise. Set to False
-                to disable explicitly.
-            curriculum_kwargs: Optional override of AdaptiveCurriculumCallback
-                constructor parameters (e.g., initial_tolerance, decay_factor).
-            eval_env_fn: Optional zero-argument factory returning a fresh env
-                configured like the training env (same actuation mode and
-                waypoints). When provided together with eval_save_dir, the
-                trainer uses EvalCheckpointCurriculumCallback: periodic
-                deterministic evaluation drives best-model checkpointing and
-                both curricula, REPLACING the stochastic-success
-                AdaptiveCurriculumCallback + HoldCurriculumCallback pair.
-            eval_save_dir: Directory where the best-model snapshot
-                (sac_model_best.zip) is written during training.
-        """
+        for key in ("use_hold_curriculum", "orientation_ladder"):
+            legacy_kwargs.pop(key, None)
+        if legacy_kwargs:
+            raise TypeError(f"unexpected keyword arguments: {sorted(legacy_kwargs)}")
         if env is None:
             env = ArmTaskEnv()
 
@@ -108,28 +80,64 @@ class RLTrainerWithMetrics:
                 f"Choose from {list(self.SUPPORTED_ALGORITHMS)}"
             )
 
-        self.env = env
+        self.env = env                       # template env (metrics, describe())
+        self.env_description = env.describe()
         self.total_timesteps = total_timesteps
         self.preload_model_path = preload_model_path
         self.metrics_queue = metrics_queue
         self.metrics_callback = metrics_callback
         self.check_freq = check_freq
         self._external_should_stop = should_stop
+        self.seed = seed
+        self.n_envs = max(1, int(n_envs))
+        self.standard = standard
+        self.eval_freq = int(eval_freq)
+        self.checkpoint_every = int(checkpoint_every)
+        self.cli_args = dict(cli_args) if cli_args else {}
+        self.manifest_extra = dict(manifest_extra) if manifest_extra else {}
+        self.run_dir: Optional[Path] = Path(run_dir or eval_save_dir).resolve() if (run_dir or eval_save_dir) else None
+        self.continue_from: Optional[Path] = Path(continue_from).resolve() if continue_from else None
+        self.lineage: List[Dict[str, Any]] = []
+        self.resume_state: Optional[Dict[str, Any]] = None
+        self.manifest: Optional[Dict[str, Any]] = None
 
-        # Initialize trainer
-        self.trainer = RLTrainer(
-            env=env,
-            algorithm=self.algorithm,
-            hyperparams=hyperparams,
-        )
+        # --- seeding: everything downstream of here derives from `seed` ----
+        set_global_seed(seed)
+        hyperparams = dict(hyperparams or {})
+        if seed is not None:
+            hyperparams.setdefault("seed", int(seed))
+            env.reset(seed=int(seed))
+            env.action_space.seed(int(seed))
+
+        # --- vectorised envs (DummyVecEnv; env stepping is ~1% of wall time)
+        if self.n_envs > 1:
+            from stable_baselines3.common.env_util import make_vec_env
+            from stable_baselines3.common.vec_env import DummyVecEnv
+            desc = self.env_description
+
+            def _factory():
+                return ArmTaskEnv.from_description(desc)
+
+            training_env = make_vec_env(_factory, n_envs=self.n_envs, seed=seed, vec_env_cls=DummyVecEnv)
+            if self.algorithm == "SAC":
+                # Keep the update-to-data ratio at 1 gradient step per env step.
+                hyperparams.setdefault("train_freq", 1)
+                hyperparams.setdefault("gradient_steps", self.n_envs)
+        else:
+            training_env = env
+        self.training_env = training_env
+
+        self.trainer = RLTrainer(env=training_env, algorithm=self.algorithm, hyperparams=hyperparams)
+
+        # --- continue an earlier package: model + replay buffer + curriculum
+        if self.continue_from is not None:
+            self._load_continuation(self.continue_from)
 
         # Metrics tracking
         self.episode_rewards = deque(maxlen=1000)
         self.episode_lengths = deque(maxlen=1000)
         self.episode_goals_reached = deque(maxlen=1000)
         self.episode_goal_distances = deque(maxlen=1000)
-
-        # Algorithm metrics
         self.policy_losses = deque(maxlen=10000)
         self.value_losses = deque(maxlen=10000)
         self.entropies = deque(maxlen=10000)
@@ -139,17 +147,18 @@ class RLTrainerWithMetrics:
         self.latest_end_effector_position = np.zeros(2, dtype=float)
         self.latest_shoulder_position = np.array(self.env.shoulder_base_position, dtype=float)
         self.goal_height = float(self.env.goal_height)
-        self.goal_position = np.asarray(getattr(self.env, "goal_position", np.zeros(2)), dtype=float)
-        self.goal_direction = str(getattr(self.env, "goal_direction", "HEIGHT"))
+        self.goal_position = np.asarray(self.env.goal_position, dtype=float)
+        self.goal_direction = str(self.env.goal_direction)
         self.latest_height_error = 0.0
         self.latest_orientation_error = 0.0
         self.latest_hold_counter = 0
-        self.latest_hold_steps_required = int(getattr(self.env, "hold_steps_required", 1))
+        self.latest_hold_steps_required = int(self.env.hold_steps_required)
         self.latest_hold_progress = 0.0
         self.latest_in_goal_region = False
         self.latest_gradient_norm = 0.0
+        self.latest_waypoint_index = 0
+        self.latest_waypoints = self.env_description.get("waypoints")
 
-        # Aggregated statistics
         self.best_reward = -float("inf")
         self.best_distance = float("inf")
         self.timesteps_trained = 0
@@ -158,32 +167,64 @@ class RLTrainerWithMetrics:
         self.training_active = False
         self.stop_requested = False
 
-        # Curriculum configuration. If unspecified, default-on for SAC because
-        # the adaptive curriculum is the methodology Fischer et al. (2021)
-        # validated for SAC; PPO/A2C keep the static tolerance unless the
-        # caller explicitly opts in.
         if use_curriculum is None:
             self.use_curriculum = self.algorithm == "SAC"
         else:
             self.use_curriculum = bool(use_curriculum)
         self.curriculum_kwargs = dict(curriculum_kwargs) if curriculum_kwargs else {}
-        self.curriculum_callback: Optional[AdaptiveCurriculumCallback] = None
-        self.hold_curriculum_callback: Optional[HoldCurriculumCallback] = None
+        self.tolerance_ladder = list(tolerance_ladder) if tolerance_ladder else list(
+            self.curriculum_kwargs.get("tolerance_ladder", DEFAULT_TOLERANCE_LADDER))
+        self.hold_ladder = list(hold_ladder) if hold_ladder else list(
+            self.curriculum_kwargs.get("hold_ladder", DEFAULT_HOLD_LADDER))
         self.eval_env_fn = eval_env_fn
-        self.eval_save_dir = eval_save_dir
-        self.use_hold_curriculum = bool(use_hold_curriculum)
-        self.orientation_ladder = orientation_ladder
         self.eval_checkpoint_callback: Optional[EvalCheckpointCurriculumCallback] = None
+        self.curriculum_callback = None  # legacy attribute read by older GUI code
 
-        # RLock avoids deadlocks for nested metric reads.
         self.metrics_lock = threading.RLock()
 
+    # ------------------------------------------------------------------ #
+    # Continuation
+    # ------------------------------------------------------------------ #
+    def _load_continuation(self, package: Path) -> None:
+        manifest = read_manifest(package)
+        env_desc = manifest.get("env", {})
+        if int(env_desc.get("obs_version", -1)) != int(self.env_description.get("obs_version", -2)):
+            raise ValueError("cannot continue: observation version differs from the current env")
+        if tuple(env_desc.get("config", {}).get("link_lengths", ())) != tuple(self.env_description["config"]["link_lengths"]):
+            raise ValueError("cannot continue: arm preset differs from the package")
+        model_path = package / PACKAGE_FILES["last"]
+        if not model_path.exists():
+            model_path = package / PACKAGE_FILES["final"]
+        if not model_path.exists():
+            raise FileNotFoundError(f"no {PACKAGE_FILES['last']} or {PACKAGE_FILES['final']} in {package}")
+        AlgorithmClass = self.trainer.ALGORITHM_MAP[self.algorithm]
+        device = self.trainer.hyperparams.get("device", "cpu")
+        self.trainer.model = AlgorithmClass.load(str(model_path), env=self.training_env, device=device)
+        # No second random warm-up: the buffer already holds experience.
+        if hasattr(self.trainer.model, "learning_starts"):
+            self.trainer.model.learning_starts = 0
+        buf = package / PACKAGE_FILES["replay_buffer"]
+        if buf.exists() and hasattr(self.trainer.model, "load_replay_buffer"):
+            self.trainer.model.load_replay_buffer(str(buf))
+        cur = package / PACKAGE_FILES["curriculum"]
+        if cur.exists():
+            with open(cur, "r", encoding="utf-8") as f:
+                self.resume_state = json.load(f)
+        self.lineage = list(manifest.get("lineage", [])) + [{
+            "parent_run_dir": str(package),
+            "parent_model": model_path.name,
+            "parent_timesteps": int(self.trainer.model.num_timesteps),
+            "parent_seed": manifest.get("seed"),
+        }]
+        print(f"[Trainer] continuing from {package} at {self.trainer.model.num_timesteps:,} steps "
+              f"(buffer {'loaded' if buf.exists() else 'absent'}, curriculum "
+              f"{'restored' if self.resume_state else 'fresh'})")
+
+    # ------------------------------------------------------------------ #
     def request_stop(self) -> None:
-        """Request graceful stop at next callback step."""
         self.stop_requested = True
 
     def should_stop(self) -> bool:
-        """Check if training should stop."""
         if self.stop_requested:
             return True
         if self._external_should_stop is None:
@@ -193,83 +234,85 @@ class RLTrainerWithMetrics:
         except Exception:
             return False
 
+    def _default_eval_env_fn(self) -> Callable[[], ArmTaskEnv]:
+        desc = self.env_description
+
+        def _fn():
+            return ArmTaskEnv.from_description(desc, terminate_on_success=True)
+
+        return _fn
+
+    def write_manifest(self, extra: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+        if self.run_dir is None:
+            return None
+        payload = dict(self.manifest_extra)
+        if extra:
+            payload.update(extra)
+        self.manifest = write_run_manifest(
+            self.run_dir / PACKAGE_FILES["manifest"],
+            seed=self.seed,
+            algorithm=self.algorithm,
+            env_description=self.env_description,
+            resolved_hyperparams=self.trainer.resolved_hyperparams,
+            cli_args=self.cli_args,
+            eval_standard=self.standard.to_dict(),
+            curriculum={
+                "enabled": self.use_curriculum and self.algorithm == "SAC",
+                "tolerance_ladder": self.tolerance_ladder,
+                "hold_ladder": self.hold_ladder,
+                "eval_freq": self.eval_freq,
+                "checkpoint_every": self.checkpoint_every,
+            },
+            lineage=self.lineage,
+            extra={"total_timesteps": int(self.total_timesteps), "n_envs": self.n_envs, **payload},
+            project_root=Path(__file__).resolve().parents[4],
+        )
+        return self.manifest
+
     def train(self) -> Dict[str, Any]:
-        """Train model with metrics collection."""
         self.start_time = datetime.now()
         self.training_active = True
         self.stop_requested = False
 
-        if self.preload_model_path:
+        if self.preload_model_path and self.continue_from is None:
             self.trainer.load(self.preload_model_path)
 
-        gui_callback = TrainingGUICallback(
-            trainer=self,
-            check_freq=self.check_freq,
-        )
-
-        # Build the callback list. The curriculum callback (if enabled) runs
-        # alongside the GUI callback. SB3 accepts a list of BaseCallback
-        # instances directly and wraps them in a CallbackList internally.
+        gui_callback = TrainingGUICallback(trainer=self, check_freq=self.check_freq)
         callbacks: List[Any] = [gui_callback]
-        if self.use_curriculum:
-            if self.eval_env_fn is not None and self.eval_save_dir:
-                # Preferred path: one deterministic eval round every 25K steps
-                # drives best-model checkpointing AND both curricula. The
-                # stochastic-success callbacks below are NOT attached in this
-                # mode — the deterministic success rate is the true skill
-                # signal (exploration noise systematically breaks holds).
-                import os
-                # A single-entry ladder pins the hold requirement at the full
-                # 20 steps for the whole run — the "no hold curriculum"
-                # ablation condition.
-                ladder = [10, 15, 20] if self.use_hold_curriculum else [20]
-                self.eval_checkpoint_callback = EvalCheckpointCurriculumCallback(
-                    eval_env_fn=self.eval_env_fn,
-                    save_path=os.path.join(
-                        self.eval_save_dir, f"{self.algorithm.lower()}_model_best"
-                    ),
-                    eval_freq=25_000,
-                    n_eval_episodes=5,
-                    initial_tolerance=self.curriculum_kwargs.get("initial_tolerance", 0.60),
-                    min_tolerance=self.curriculum_kwargs.get("min_tolerance", 0.20),
-                    hold_ladder=ladder,
-                    orientation_ladder=self.orientation_ladder,
-                    verbose=1,
-                )
-                callbacks.append(self.eval_checkpoint_callback)
-            else:
-                self.curriculum_callback = AdaptiveCurriculumCallback(
-                    **self.curriculum_kwargs
-                )
-                callbacks.append(self.curriculum_callback)
-                # Hold curriculum: start at 10 steps, graduate to 15 then 20
-                # as the agent learns to hold. Runs alongside the tolerance
-                # curriculum. Skipped entirely in the "no hold curriculum"
-                # ablation condition, leaving the env at its default 20.
-                if self.use_hold_curriculum:
-                    self.hold_curriculum_callback = HoldCurriculumCallback(
-                        initial_hold_steps=10,
-                        hold_ladder=[10, 15, 20],
-                        success_rate_threshold=0.60,
-                        window_size=50,
-                        min_episodes_before_advance=20,
-                        verbose=1,
-                    )
-                    callbacks.append(self.hold_curriculum_callback)
+        if self.use_curriculum and self.algorithm == "SAC" and self.run_dir is not None:
+            self.run_dir.mkdir(parents=True, exist_ok=True)
+            self.eval_checkpoint_callback = EvalCheckpointCurriculumCallback(
+                run_dir=str(self.run_dir),
+                eval_env_fn=self.eval_env_fn or self._default_eval_env_fn(),
+                standard=self.standard,
+                eval_freq=self.eval_freq,
+                tolerance_ladder=self.tolerance_ladder,
+                hold_ladder=self.hold_ladder,
+                checkpoint_every=self.checkpoint_every,
+                resume_state=self.resume_state,
+                model_stem=f"{self.algorithm.lower()}_model",
+                verbose=1,
+            )
+            callbacks.append(self.eval_checkpoint_callback)
+
+        if self.run_dir is not None:
+            self.write_manifest({"status": "training", "started": self.start_time.isoformat(timespec="seconds")})
 
         try:
-            result = self.trainer.train(
+            self.trainer.model.learn(
                 total_timesteps=self.total_timesteps,
-                callback=callbacks if len(callbacks) > 1 else gui_callback,
+                callback=callbacks,
+                progress_bar=False,
+                reset_num_timesteps=self.continue_from is None,
             )
-
-            final_metrics = self._get_training_summary()
-            return {
-                **result,
-                **final_metrics,
-                "stopped_early": bool(self.stop_requested),
+            result = {
+                "history": self.trainer.training_history,
+                "best_reward": float(self.trainer.best_reward),
+                "total_timesteps": self.trainer.model.num_timesteps,
+                "training_duration": (datetime.now() - self.start_time).total_seconds(),
             }
-
+            final_metrics = self._get_training_summary()
+            return {**result, **final_metrics, "stopped_early": bool(self.stop_requested)}
         except Exception as exc:
             self._safe_queue_put({"error": str(exc), "type": "training_error"})
             raise
@@ -277,7 +320,6 @@ class RLTrainerWithMetrics:
             self.training_active = False
 
     def get_current_metrics(self) -> Dict[str, Any]:
-        """Get current training metrics for GUI display."""
         with self.metrics_lock:
             episode_rewards_list = list(self.episode_rewards)
             episode_goals = list(self.episode_goals_reached)
@@ -295,13 +337,8 @@ class RLTrainerWithMetrics:
             if self.start_time is not None:
                 elapsed_time = (datetime.now() - self.start_time).total_seconds()
 
-            curriculum_info: Dict[str, Any]
-            if self.curriculum_callback is not None:
-                curriculum_info = self.curriculum_callback.get_progress()
-                curriculum_info["enabled"] = True
-            elif self.eval_checkpoint_callback is not None:
+            if self.eval_checkpoint_callback is not None:
                 curriculum_info = self.eval_checkpoint_callback.get_progress()
-                curriculum_info["enabled"] = True
             else:
                 curriculum_info = {"enabled": False}
 
@@ -336,162 +373,111 @@ class RLTrainerWithMetrics:
                 "hold_progress": float(self.latest_hold_progress),
                 "in_goal_region": bool(self.latest_in_goal_region),
                 "gradient_norm": float(self.latest_gradient_norm),
+                "current_waypoint_index": int(self.latest_waypoint_index),
+                "waypoints": self.latest_waypoints,
                 "curriculum": curriculum_info,
             }
 
     def _push_periodic_metrics(self) -> None:
-        """Push periodic metrics updates for live GUI refresh."""
         metrics = self.get_current_metrics()
         metrics["type"] = "metrics_update"
         self._emit_metrics(metrics)
 
-    def _add_episode_result(
-        self,
-        reward: float,
-        length: int,
-        goal_reached: bool,
-        goal_distance: float,
-    ) -> None:
-        """Record episode result and publish update."""
+    def _add_episode_result(self, reward: float, length: int, goal_reached: bool, goal_distance: float) -> None:
         with self.metrics_lock:
             self.episode_rewards.append(float(reward))
             self.episode_lengths.append(int(length))
             self.episode_goals_reached.append(float(goal_reached))
             self.episode_goal_distances.append(float(goal_distance))
             self.episodes_completed += 1
-
             if reward > self.best_reward:
                 self.best_reward = float(reward)
             if goal_distance < self.best_distance:
                 self.best_distance = float(goal_distance)
-
         metrics = self.get_current_metrics()
         metrics["type"] = "episode_completed"
         self._emit_metrics(metrics)
 
-    def _add_algorithm_metrics(
-        self,
-        policy_loss: float,
-        value_loss: float,
-        entropy: float,
-    ) -> None:
-        """Record algorithm-specific metrics."""
+    def _add_algorithm_metrics(self, policy_loss: float, value_loss: float, entropy: float) -> None:
         with self.metrics_lock:
             self.policy_losses.append(float(policy_loss))
             self.value_losses.append(float(value_loss))
             self.entropies.append(float(entropy))
 
     def _set_timesteps(self, timesteps: int) -> None:
-        """Update current timestep count."""
         with self.metrics_lock:
             self.timesteps_trained = int(timesteps)
 
     def _set_latest_pose(self, info: Dict[str, Any]) -> None:
-        """Update the latest pose snapshot from env info."""
         with self.metrics_lock:
-            joint_angles = info.get("joint_angles")
-            if joint_angles is not None:
-                self.latest_joint_angles = np.asarray(joint_angles, dtype=float)
-
-            end_effector = info.get("end_effector_position")
-            if end_effector is not None:
-                self.latest_end_effector_position = np.asarray(end_effector, dtype=float)
-
-            shoulder_pos = info.get("shoulder_position")
-            if shoulder_pos is not None:
-                self.latest_shoulder_position = np.asarray(shoulder_pos, dtype=float)
-
-            goal_height = info.get("goal_height")
-            if goal_height is not None:
-                self.goal_height = float(goal_height)
-
-            goal_position = info.get("goal_position")
-            if goal_position is not None:
-                self.goal_position = np.asarray(goal_position, dtype=float)
-
-            goal_direction = info.get("goal_direction")
-            if goal_direction is not None:
-                self.goal_direction = str(goal_direction)
-
-            height_error = info.get("height_error")
-            if height_error is not None:
-                self.latest_height_error = float(height_error)
-
-            orientation_error = info.get("orientation_error")
-            if orientation_error is not None:
-                self.latest_orientation_error = float(orientation_error)
-
-            hold_counter = info.get("hold_counter")
-            if hold_counter is not None:
-                self.latest_hold_counter = int(hold_counter)
-
-            hold_steps_required = info.get("hold_steps_required")
-            if hold_steps_required is not None:
-                self.latest_hold_steps_required = int(hold_steps_required)
-
-            hold_progress = info.get("hold_progress")
-            if hold_progress is not None:
-                self.latest_hold_progress = float(hold_progress)
-
-            in_goal_region = info.get("in_goal_region")
-            if in_goal_region is not None:
-                self.latest_in_goal_region = bool(in_goal_region)
-
-            gradient_norm = info.get("gradient_norm")
-            if gradient_norm is not None:
-                self.latest_gradient_norm = float(gradient_norm)
+            ja = info.get("joint_angles")
+            if ja is not None:
+                self.latest_joint_angles = np.asarray(ja, dtype=float)
+            ee = info.get("end_effector_position")
+            if ee is not None:
+                self.latest_end_effector_position = np.asarray(ee, dtype=float)
+            sp = info.get("shoulder_position")
+            if sp is not None:
+                self.latest_shoulder_position = np.asarray(sp, dtype=float)
+            if info.get("goal_height") is not None:
+                self.goal_height = float(info["goal_height"])
+            if info.get("goal_position") is not None:
+                self.goal_position = np.asarray(info["goal_position"], dtype=float)
+            if info.get("goal_direction") is not None:
+                self.goal_direction = str(info["goal_direction"])
+            if info.get("height_error") is not None:
+                self.latest_height_error = float(info["height_error"])
+            if info.get("orientation_error") is not None:
+                self.latest_orientation_error = float(info["orientation_error"])
+            if info.get("hold_counter") is not None:
+                self.latest_hold_counter = int(info["hold_counter"])
+            if info.get("hold_steps_required") is not None:
+                self.latest_hold_steps_required = int(info["hold_steps_required"])
+            if info.get("hold_progress") is not None:
+                self.latest_hold_progress = float(info["hold_progress"])
+            if info.get("in_goal_region") is not None:
+                self.latest_in_goal_region = bool(info["in_goal_region"])
+            if info.get("current_waypoint_index") is not None:
+                self.latest_waypoint_index = int(info["current_waypoint_index"])
+            if info.get("waypoints") is not None:
+                self.latest_waypoints = info["waypoints"]
 
     def _get_training_summary(self) -> Dict[str, Any]:
-        """Get final training summary."""
         return {
             "final_metrics": self.get_current_metrics(),
             "total_episodes": self.episodes_completed,
             "algorithm": self.algorithm,
         }
 
-    def evaluate_policy(
-        self,
-        num_episodes: int = 5,
-        deterministic: bool = True,
-    ) -> Dict[str, Any]:
-        """Evaluate trained policy on environment."""
-        return self.trainer.evaluate(
-            env=self.env,
-            num_episodes=num_episodes,
-            deterministic=deterministic,
-        )
+    def evaluate_policy(self, num_episodes: int = 5, deterministic: bool = True) -> Dict[str, Any]:
+        return self.trainer.evaluate(env=self.env, num_episodes=num_episodes, deterministic=deterministic)
 
     def save_model_and_results(self, save_dir: str) -> Dict[str, str]:
-        """Save trained model and training results."""
+        """Write the final model, history, stats and (if not already) the manifest."""
         import csv
-        import json
-        import os
-        from pathlib import Path
 
-        Path(save_dir).mkdir(parents=True, exist_ok=True)
+        save_path = Path(save_dir)
+        save_path.mkdir(parents=True, exist_ok=True)
+        if self.run_dir is None:
+            self.run_dir = save_path.resolve()
 
         model_path = os.path.join(save_dir, f"{self.algorithm.lower()}_model")
         self.trainer.save(model_path)
+        if hasattr(self.trainer.model, "save_replay_buffer"):
+            try:
+                self.trainer.model.save_replay_buffer(str(save_path / PACKAGE_FILES["replay_buffer"]))
+            except Exception:
+                pass
+        if self.eval_checkpoint_callback is not None:
+            self.eval_checkpoint_callback._write_state()
 
         history_path = os.path.join(save_dir, "training_history.csv")
         with open(history_path, "w", newline="") as f:
             writer = csv.writer(f)
-            writer.writerow([
-                "episode",
-                "reward",
-                "length",
-                "goal_reached",
-                "goal_distance",
-            ])
-            for i, (reward, length, goal, distance) in enumerate(
-                zip(
-                    self.episode_rewards,
-                    self.episode_lengths,
-                    self.episode_goals_reached,
-                    self.episode_goal_distances,
-                )
-            ):
-                writer.writerow([i, reward, length, goal, distance])
+            writer.writerow(["episode", "reward", "length", "goal_reached", "goal_distance"])
+            for i, row in enumerate(zip(self.episode_rewards, self.episode_lengths,
+                                        self.episode_goals_reached, self.episode_goal_distances)):
+                writer.writerow([i, *row])
 
         stats_path = os.path.join(save_dir, "training_stats.json")
         final_metrics = self.get_current_metrics()
@@ -503,21 +489,25 @@ class RLTrainerWithMetrics:
             "best_reward": final_metrics["best_reward"],
             "success_rate": final_metrics["success_rate"],
             "hold_progress": final_metrics.get("hold_progress", 0.0),
-            "gradient_norm": final_metrics.get("gradient_norm", 0.0),
             "training_time_sec": final_metrics["training_time_sec"],
             "stopped_early": bool(self.stop_requested),
+            "curriculum": final_metrics.get("curriculum", {}),
         }
         with open(stats_path, "w") as f:
-            json.dump(stats, f, indent=2)
+            json.dump(stats, f, indent=2, default=str)
 
-        return {
-            "model": model_path,
-            "history": history_path,
-            "stats": stats_path,
-        }
+        cp = self.eval_checkpoint_callback.get_progress() if self.eval_checkpoint_callback else {}
+        self.write_manifest({
+            "status": "finished" if not self.stop_requested else "stopped",
+            "finished": datetime.now().isoformat(timespec="seconds"),
+            "final_timesteps": int(self.trainer.model.num_timesteps),
+            "best_score": cp.get("best_score"),
+            "best_saved_at": cp.get("best_saved_at"),
+        })
+        return {"model": model_path, "history": history_path, "stats": stats_path,
+                "manifest": str(self.run_dir / PACKAGE_FILES["manifest"])}
 
     def _safe_queue_put(self, message: Dict[str, Any]) -> None:
-        """Non-blocking queue put; drops when full."""
         if self.metrics_queue is None:
             return
         try:
@@ -526,7 +516,6 @@ class RLTrainerWithMetrics:
             pass
 
     def _emit_metrics(self, metrics: Dict[str, Any]) -> None:
-        """Emit metrics to queue and optional callback."""
         self._safe_queue_put(metrics)
         if self.metrics_callback is not None:
             try:
@@ -538,12 +527,7 @@ class RLTrainerWithMetrics:
 class TrainingGUICallback(GUICallback):
     """Callback that extracts episode and optimizer metrics for GUI updates."""
 
-    def __init__(
-        self,
-        trainer: RLTrainerWithMetrics,
-        check_freq: int = 100,
-        verbose: int = 0,
-    ):
+    def __init__(self, trainer: RLTrainerWithMetrics, check_freq: int = 100, verbose: int = 0):
         super().__init__(check_freq=check_freq, verbose=verbose)
         self.trainer = trainer
         self._episode_rewards: List[float] = []
@@ -551,7 +535,6 @@ class TrainingGUICallback(GUICallback):
 
     @staticmethod
     def _ensure_list(value: Any) -> List[Any]:
-        """Normalize callback local values to a python list."""
         if value is None:
             return []
         if isinstance(value, list):
@@ -563,9 +546,7 @@ class TrainingGUICallback(GUICallback):
         return [value]
 
     def _on_step(self) -> bool:
-        """Called at each environment step."""
         self.trainer._set_timesteps(self.num_timesteps)
-
         if self.trainer.should_stop():
             return False
 
@@ -584,7 +565,7 @@ class TrainingGUICallback(GUICallback):
             self._episode_lengths[idx] += 1
 
             info = infos[idx] if idx < len(infos) and isinstance(infos[idx], dict) else {}
-            if info:
+            if info and idx == 0:
                 self.trainer._set_latest_pose(info)
 
             done = dones[idx] if idx < len(dones) else False
@@ -593,7 +574,6 @@ class TrainingGUICallback(GUICallback):
 
             episode_reward = self._episode_rewards[idx]
             episode_length = self._episode_lengths[idx]
-
             episode_info = info.get("episode")
             if isinstance(episode_info, dict):
                 episode_reward = float(episode_info.get("r", episode_reward))
@@ -602,62 +582,38 @@ class TrainingGUICallback(GUICallback):
             self.trainer._add_episode_result(
                 reward=episode_reward,
                 length=episode_length,
-                goal_reached=bool(info.get("goal_reached", False)),
+                goal_reached=bool(info.get("success", info.get("goal_reached", False))),
                 goal_distance=float(info.get("goal_distance", 0.0)),
             )
-
             self._episode_rewards[idx] = 0.0
             self._episode_lengths[idx] = 0
 
         if self.num_timesteps % self.check_freq == 0:
             self._extract_algorithm_metrics()
             self.trainer._push_periodic_metrics()
-
         return True
 
     def _extract_algorithm_metrics(self) -> None:
-        """Extract optimizer/loss metrics from SB3 logger."""
         model = self.model
         logger = getattr(model, "logger", None)
         if logger is None:
             return
-
         logger_data = getattr(logger, "name_to_value", {})
         if not isinstance(logger_data, dict):
             return
-
-        policy_loss = self._get_first_present(logger_data, [
-            "train/policy_loss",
-            "train/actor_loss",
-            "train/loss",
-        ])
-        value_loss = self._get_first_present(logger_data, [
-            "train/value_loss",
-            "train/critic_loss",
-            "train/entropy_loss",
-        ])
-        entropy = self._get_first_present(logger_data, [
-            "train/entropy_loss",
-            "train/ent_coef_loss",
-        ])
-
-        # Fallback entropy approximation for continuous policies.
+        policy_loss = self._get_first_present(logger_data, ["train/policy_loss", "train/actor_loss", "train/loss"])
+        value_loss = self._get_first_present(logger_data, ["train/value_loss", "train/critic_loss", "train/entropy_loss"])
+        entropy = self._get_first_present(logger_data, ["train/entropy_loss", "train/ent_coef_loss"])
         if entropy == 0.0 and hasattr(model, "policy"):
             try:
                 if hasattr(model.policy, "log_std"):
                     entropy = float(model.policy.log_std.mean().item())
             except Exception:
                 entropy = 0.0
-
-        self.trainer._add_algorithm_metrics(
-            policy_loss=policy_loss,
-            value_loss=value_loss,
-            entropy=entropy,
-        )
+        self.trainer._add_algorithm_metrics(policy_loss=policy_loss, value_loss=value_loss, entropy=entropy)
 
     @staticmethod
     def _get_first_present(data: Dict[str, Any], keys: List[str]) -> float:
-        """Return first valid numeric value for candidate keys."""
         for key in keys:
             if key in data:
                 try:
@@ -670,35 +626,15 @@ class TrainingGUICallback(GUICallback):
 class PPOTrainerWithMetrics(RLTrainerWithMetrics):
     """Backward-compatible PPO-only wrapper."""
 
-    def __init__(
-        self,
-        env: Optional[ArmTaskEnv] = None,
-        total_timesteps: int = 100000,
-        metrics_queue: Optional[queue.Queue] = None,
-        metrics_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
-        should_stop: Optional[Callable[[], bool]] = None,
-        hyperparams: Optional[Dict[str, Any]] = None,
-        check_freq: int = 100,
-    ):
-        super().__init__(
-            env=env,
-            total_timesteps=total_timesteps,
-            algorithm="PPO",
-            hyperparams=hyperparams,
-            metrics_queue=metrics_queue,
-            metrics_callback=metrics_callback,
-            should_stop=should_stop,
-            check_freq=check_freq,
-        )
+    def __init__(self, env=None, total_timesteps=100000, metrics_queue=None, metrics_callback=None,
+                 should_stop=None, hyperparams=None, check_freq=100):
+        super().__init__(env=env, total_timesteps=total_timesteps, algorithm="PPO", hyperparams=hyperparams,
+                         metrics_queue=metrics_queue, metrics_callback=metrics_callback,
+                         should_stop=should_stop, check_freq=check_freq)
 
 
 class PPOGUICallback(TrainingGUICallback):
     """Backward-compatible callback alias for PPO code paths."""
 
 
-__all__ = [
-    "RLTrainerWithMetrics",
-    "TrainingGUICallback",
-    "PPOTrainerWithMetrics",
-    "PPOGUICallback",
-]
+__all__ = ["RLTrainerWithMetrics", "TrainingGUICallback", "PPOTrainerWithMetrics", "PPOGUICallback"]

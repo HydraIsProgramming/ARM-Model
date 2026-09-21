@@ -86,7 +86,7 @@ from typing import Iterable, Optional
 import numpy as np
 
 
-__all__ = ["HillTypeMuscle", "MuscleParameters"]
+__all__ = ["HillTypeMuscle", "MuscleParameters", "JointMusclePair"]
 
 
 # ---------------------------------------------------------------------------
@@ -118,6 +118,9 @@ class MuscleParameters:
         Half-width of the Gaussian force-length curve. Default 0.45
         (unitless) following Thelen (2003), giving a curve that drops to
         ~10% of peak at L_norm = 0.4 and 1.6.
+    a_hill : float
+        Curvature constant of the Hill hyperbola (a/F0). 0.25 is the
+        canonical value for mammalian skeletal muscle (Zajac 1989).
     f_ecc_max : float
         Eccentric force plateau as a multiple of F_max. Lengthening
         contractions can transiently produce more force than isometric;
@@ -134,10 +137,13 @@ class MuscleParameters:
     v_max: float = 10.0
     sigma_L: float = 0.45
     f_ecc_max: float = 1.5
+    a_hill: float = 0.25
     activation_min: float = 0.0
     activation_max: float = 1.0
 
     def __post_init__(self) -> None:
+        if self.a_hill <= 0.0:
+            raise ValueError(f"a_hill must be positive, got {self.a_hill}")
         if self.f_max <= 0.0:
             raise ValueError(f"f_max must be positive, got {self.f_max}")
         if self.optimal_length <= 0.0:
@@ -215,30 +221,30 @@ class HillTypeMuscle:
     def force_velocity(self, velocity: float) -> float:
         """Return f_V(V) for fibre velocity ``velocity`` (L_opt/sec).
 
-        Concentric (positive ``velocity`` = shortening) follows the
-        classical Hill hyperbolic form, dropping to zero at V = v_max.
-        Eccentric (``velocity`` < 0 = lengthening) saturates smoothly
-        toward the eccentric plateau ``f_ecc_max``.
+        Concentric (positive ``velocity`` = shortening) is the Hill hyperbola
 
-        At V = 0 the function returns exactly 1.0 (isometric).
+            f_V(v) = (1 - v) / (1 + v / a),   v = V / v_max in [0, 1)
+
+        normalised so f_V(0) = 1 and f_V(v_max) = 0, with curvature a = 0.25
+        (Zajac 1989, Fig. 4): at half v_max the force is already down to
+        0.5 / 3 = 0.167. Eccentric (``velocity`` < 0 = lengthening) rises
+        smoothly toward the plateau ``f_ecc_max``,
+
+            f_V(v) = f_ecc - (f_ecc - 1) * exp(k v),   k = (1 + 1/a) / (f_ecc - 1)
+
+        with k chosen so the slope is continuous at v = 0 (the concentric
+        slope there is -(1 + 1/a)).
         """
         v_norm = velocity / self.params.v_max
+        a = self.params.a_hill
         if v_norm >= 0.0:
-            # Concentric branch: standard Hill hyperbola normalised so that
-            # f_V(0) = 1, f_V(v_max) = 0. Curvature constant a = 0.25 gives
-            # the canonical shape (see Zajac 1989, Fig. 4).
             if v_norm >= 1.0:
                 return 0.0
-            return float(max(0.0, 1.0 - v_norm))
-        # Eccentric branch: smoothly approach f_ecc_max as v -> -infinity.
-        # Using the standard form
-        #     f_V(v) = f_ecc_max - (f_ecc_max - 1) * exp(k * v_norm)
-        # with k chosen so the slope at v=0 matches the concentric branch's
-        # slope (= -1 in normalised units), giving k = 1 / (f_ecc - 1).
-        # With v_norm < 0 and k > 0, exp(k * v_norm) decays from 1 (at v=0)
-        # toward 0 (at v -> -infinity), so f_V rises from 1 toward f_ecc.
+            return float((1.0 - v_norm) / (1.0 + v_norm / a))
         f_ecc = self.params.f_ecc_max
-        k = 1.0 / (f_ecc - 1.0) if f_ecc > 1.0 else 1.0
+        if f_ecc <= 1.0:
+            return 1.0
+        k = (1.0 + 1.0 / a) / (f_ecc - 1.0)
         return float(f_ecc - (f_ecc - 1.0) * math.exp(k * v_norm))
 
     # ------------------------------------------------------------------ #
@@ -312,3 +318,85 @@ class HillTypeMuscle:
             f"v_max={p.v_max:.1f}L/s, sigma_L={p.sigma_L:.2f}, "
             f"f_ecc_max={p.f_ecc_max:.2f})"
         )
+
+
+# ---------------------------------------------------------------------------
+# Antagonist pair acting on one revolute joint
+# ---------------------------------------------------------------------------
+class JointMusclePair:
+    """Two lumped Hill-type muscles pulling a joint in opposite directions.
+
+    ``pos`` produces positive joint torque (raises theta), ``neg`` produces
+    negative torque. Anatomically, for the sagittal-plane arm used here:
+    shoulder ``pos`` = anterior deltoid / pectoralis (flexion raises theta0
+    from the hanging pose), ``neg`` = posterior deltoid / latissimus;
+    elbow ``pos`` = biceps / brachialis, ``neg`` = triceps.
+
+    Geometry (constant moment arm ``r``, fibre length linear in angle):
+
+        s     = +1 for pos, -1 for neg
+        L_m   = L_opt - s * r * (theta - theta_ref)     # pos SHORTENS as theta rises
+        v_m   = s * r * omega / L_opt                   # shortening positive, L_opt/s
+        tau   = r * (F_pos - F_neg)
+
+    ``theta_ref`` is the joint's mid-range angle, so both muscles sit at
+    optimal length in the middle of the range and weaken toward the ends.
+    """
+
+    def __init__(
+        self,
+        pos: HillTypeMuscle,
+        neg: HillTypeMuscle,
+        moment_arm: float,
+        theta_ref: float = 0.0,
+        torque_limit: Optional[float] = None,
+    ):
+        if moment_arm <= 0.0:
+            raise ValueError(f"moment_arm must be positive, got {moment_arm}")
+        self.pos = pos
+        self.neg = neg
+        self.moment_arm = float(moment_arm)
+        self.theta_ref = float(theta_ref)
+        self.torque_limit = None if torque_limit is None else float(torque_limit)
+
+    @classmethod
+    def from_config(cls, cfg, joint: int) -> "JointMusclePair":
+        """Build the pair for joint ``joint`` of an ArmConfiguration."""
+        r = (cfg.muscle_moment_arms or [0.05] * cfg.dof)[joint]
+        f_max = (cfg.muscle_f_max or [100.0] * cfg.dof)[joint]
+        l_opt = (cfg.muscle_l_opt or [0.10] * cfg.dof)[joint]
+        params = MuscleParameters(
+            f_max=float(f_max), optimal_length=float(l_opt),
+            v_max=float(getattr(cfg, "muscle_v_max", 6.0)),
+        )
+        theta_ref = float(cfg.joint_mid_angles[joint])
+        tl = None if cfg.torque_limits is None else float(cfg.torque_limits[joint])
+        return cls(HillTypeMuscle(params), HillTypeMuscle(params), r, theta_ref, tl)
+
+    def fibre_state(self, theta: float, omega: float):
+        """(L_pos, v_pos, L_neg, v_neg) for the current joint state."""
+        r = self.moment_arm
+        d = float(theta) - self.theta_ref
+        l_pos = self.pos.params.optimal_length - r * d
+        l_neg = self.neg.params.optimal_length + r * d
+        v_pos = r * float(omega) / self.pos.params.optimal_length
+        v_neg = -r * float(omega) / self.neg.params.optimal_length
+        return l_pos, v_pos, l_neg, v_neg
+
+    def torque(self, a_pos: float, a_neg: float, theta: float, omega: float):
+        """Net joint torque (N m) and a diagnostics dict."""
+        l_pos, v_pos, l_neg, v_neg = self.fibre_state(theta, omega)
+        f_pos = self.pos.force(a_pos, l_pos, v_pos)
+        f_neg = self.neg.force(a_neg, l_neg, v_neg)
+        tau = self.moment_arm * (f_pos - f_neg)
+        if self.torque_limit is not None:
+            tau = float(max(-self.torque_limit, min(self.torque_limit, tau)))
+        return float(tau), {
+            "force_pos": float(f_pos), "force_neg": float(f_neg),
+            "length_pos": float(l_pos), "length_neg": float(l_neg),
+            "velocity_pos": float(v_pos), "velocity_neg": float(v_neg),
+        }
+
+    @property
+    def max_isometric_torque(self) -> float:
+        return self.moment_arm * self.pos.params.f_max

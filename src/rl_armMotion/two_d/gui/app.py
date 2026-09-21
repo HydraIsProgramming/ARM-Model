@@ -19,9 +19,13 @@ from matplotlib.figure import Figure
 from time import time
 
 from rl_armMotion.two_d.config import ArmConfiguration
-from rl_armMotion.two_d.environments.task_env import ArmTaskEnv, ActionSmoother
+from rl_armMotion.two_d.environments.task_env import ArmTaskEnv, ActionSmoother, DEFAULT_PRESET, OBS_VERSION
+from rl_armMotion.two_d.evaluation import (
+    CANONICAL_WAYPOINTS, EVAL_STANDARD, WAYPOINTS_SPREAD, detect_actuation_mode, find_manifest,
+    load_package, make_env, read_manifest, resolve_waypoints,
+)
 from rl_armMotion.two_d.models.trainers import RLTrainer
-from rl_armMotion.two_d.utils import ArmKinematics, ArmController, MotionRecorder, ArmVisualizer
+from rl_armMotion.two_d.utils import ArmKinematics, ArmController, MotionRecorder, ArmVisualizer, dynamics
 
 
 class ArmControllerGUI:
@@ -34,10 +38,10 @@ class ArmControllerGUI:
         Args:
             config: ArmConfiguration object (uses default if None)
         """
-        self.config = config or ArmConfiguration.get_preset("2dof_simple")
+        self.config = config or ArmConfiguration.get_preset(DEFAULT_PRESET)
         self.controller = ArmController(self.config)
         self.recorder = MotionRecorder()
-        self.visualizer = ArmVisualizer(dof=self.config.dof)
+        self.visualizer = ArmVisualizer(dof=self.config.dof, link_lengths=self.config.link_lengths)
 
         # GUI state
         self.running = True
@@ -62,7 +66,21 @@ class ArmControllerGUI:
         self.sim_step_count = 0
         self.sim_episode_count = 0
         self.sim_episode_reward = 0.0
-        self.sim_steps_per_frame = 5  # default: real-time (dt=0.01 × 5 steps = 0.05s/frame)
+        self.sim_speed_multiplier = 1.0
+        self.sim_steps_per_frame = max(1, int(round(0.05 / float(self.config.dt))))  # 50 ms frames = real time
+        self.sim_step_accumulator = 0.0
+        # Waypoint demo state
+        self.sim_waypoint_choice = "from package"
+        self.sim_custom_waypoints = ""
+        self.sim_loop = True
+        self.sim_last_info = None
+        self.sim_successes = 0
+        self.sim_episode_seed = 0
+        self.sim_package_dir = None
+        self.sim_manifest = None
+        self.sim_hold_bar = None
+        self.sim_progress_label = None
+        self.sim_success_banner_until = 0.0
         self.sim_toggle_button = None
         self.sim_model_label = None
         self.sim_model_details_text = None
@@ -174,51 +192,16 @@ class ArmControllerGUI:
             self.angle_labels[i].config(text=f"{self.controller.angles[i]:.2f}rad")
 
     def _estimate_joint_torques(self, angles, velocities, accelerations):
-        """
-        Estimate shoulder/elbow torque from simplified planar dynamics.
-
-        Returns:
-            (tau_shoulder, tau_elbow) in Nm
-        """
-        angles = np.asarray(angles, dtype=float)
-        velocities = np.asarray(velocities, dtype=float)
-        accelerations = np.asarray(accelerations, dtype=float)
-
-        if angles.shape[0] < 2:
-            tau0 = (
-                float(self.config.inertias[0]) * float(accelerations[0])
-                + float(self.config.damping) * float(velocities[0])
-            )
-            return tau0, 0.0
-
-        g = 9.81
-        l1, l2 = float(self.config.link_lengths[0]), float(self.config.link_lengths[1])
-        m1, m2 = float(self.config.masses[0]), float(self.config.masses[1])
-        i1, i2 = float(self.config.inertias[0]), float(self.config.inertias[1])
-        damping = float(self.config.damping)
-
-        t1, t2 = float(angles[0]), float(angles[1])
-        w1, w2 = float(velocities[0]), float(velocities[1])
-        a1, a2 = float(accelerations[0]), float(accelerations[1])
-
-        # Approximate inertial component.
-        tau1_inertia = (i1 + i2) * a1 + i2 * a2
-        tau2_inertia = i2 * (a1 + a2)
-
-        # Gravity load component.
-        tau1_gravity = g * (
-            m1 * (l1 * 0.5) * np.cos(t1)
-            + m2 * (l1 * np.cos(t1) + (l2 * 0.5) * np.cos(t1 + t2))
-        )
-        tau2_gravity = g * (m2 * (l2 * 0.5) * np.cos(t1 + t2))
-
-        # Viscous damping component.
-        tau1_damping = damping * w1
-        tau2_damping = damping * w2
-
-        tau1 = tau1_inertia + tau1_gravity + tau1_damping
-        tau2 = tau2_inertia + tau2_gravity + tau2_damping
-        return float(tau1), float(tau2)
+        """Joint torques from the arm's rigid-body inverse dynamics
+        (M(q) q'' + C(q, q') q' + G(q)), i.e. what the actuators must supply."""
+        q = np.asarray(angles, dtype=float)
+        qd = np.asarray(velocities, dtype=float)
+        qdd = np.asarray(accelerations, dtype=float)
+        try:
+            tau = dynamics.inverse_dynamics(q, qd, qdd, self.config)
+        except Exception:
+            tau = np.zeros(max(q.shape[0], 2))
+        return float(tau[0]), float(tau[1]) if tau.shape[0] > 1 else 0.0
 
     def _append_torque_sample(self, shoulder_torque, elbow_torque, current_time):
         """Append a new torque sample to history buffers."""
@@ -575,9 +558,8 @@ class ArmControllerGUI:
 
         def _on_speed_change(event=None):
             steps = int(self._sim_speed_var.get())
-            self.sim_steps_per_frame = steps
-            multiplier = steps / 5.0  # 5 steps/frame = 1x real-time
-            self._sim_speed_label.config(text=f"{multiplier:.1f}x")
+            self.sim_speed_multiplier = steps / 5.0  # slider 5 = real time
+            self._sim_speed_label.config(text=f"{self.sim_speed_multiplier:.1f}x")
 
         speed_slider.bind("<Motion>", _on_speed_change)
         speed_slider.bind("<ButtonRelease-1>", _on_speed_change)
@@ -609,6 +591,33 @@ class ArmControllerGUI:
 
         alpha_slider.bind("<Motion>", _on_alpha_change)
         alpha_slider.bind("<ButtonRelease-1>", _on_alpha_change)
+
+        # Waypoint demo controls
+        wp_row = ttk.Frame(frame)
+        wp_row.pack(fill="x", pady=(2, 4))
+        ttk.Label(wp_row, text="Waypoints:", font=("Courier", 8)).pack(side="left", padx=(0, 4))
+        self._wp_choice_var = tk.StringVar(value=self.sim_waypoint_choice)
+        wp_box = ttk.Combobox(
+            wp_row, textvariable=self._wp_choice_var, state="readonly", width=13,
+            values=["from package", "1 waypoint", "2 waypoints", "3 waypoints", "spread", "custom"],
+        )
+        wp_box.pack(side="left")
+        wp_box.bind("<<ComboboxSelected>>", lambda e: setattr(self, "sim_waypoint_choice", self._wp_choice_var.get()))
+        self._wp_custom_var = tk.StringVar(value="")
+        custom_entry = ttk.Entry(wp_row, textvariable=self._wp_custom_var, width=22, font=("Courier", 8))
+        custom_entry.pack(side="left", padx=(4, 0))
+        custom_entry.bind("<KeyRelease>", lambda e: setattr(self, "sim_custom_waypoints", self._wp_custom_var.get()))
+        self._loop_var = tk.BooleanVar(value=self.sim_loop)
+        ttk.Checkbutton(wp_row, text="Loop", variable=self._loop_var,
+                        command=lambda: setattr(self, "sim_loop", bool(self._loop_var.get()))).pack(side="left", padx=(6, 0))
+
+        hold_row = ttk.Frame(frame)
+        hold_row.pack(fill="x", pady=(2, 4))
+        ttk.Label(hold_row, text="Hold:", font=("Courier", 8)).pack(side="left", padx=(0, 4))
+        self.sim_hold_bar = ttk.Progressbar(hold_row, orient="horizontal", length=160, mode="determinate", maximum=100)
+        self.sim_hold_bar.pack(side="left")
+        self.sim_progress_label = ttk.Label(hold_row, text="reached 0/0  |  episodes 0/0", font=("Courier", 8))
+        self.sim_progress_label.pack(side="left", padx=(8, 0))
 
         details_frame = ttk.LabelFrame(frame, text="Model Details", padding=4)
         details_frame.pack(fill="x", pady=(0, 6))
@@ -978,6 +987,11 @@ class ArmControllerGUI:
 
         model_base = self._normalize_model_base(filepath)
         algorithm = self._get_algorithm_from_metadata(model_base)
+        manifest_path = find_manifest(filepath)
+        self.sim_package_dir = str(manifest_path.parent) if manifest_path else None
+        self.sim_manifest = read_manifest(manifest_path) if manifest_path else None
+        if algorithm is None and self.sim_manifest is not None:
+            algorithm = str(self.sim_manifest.get("algorithm", "SAC")).upper()
         if algorithm is None:
             messagebox.showerror(
                 "Unsupported Model",
@@ -1015,6 +1029,14 @@ class ArmControllerGUI:
             f"Best Reward: {best_reward}\n"
             f"Saved: {timestamp}"
         )
+        if self.sim_manifest is not None:
+            env_desc = self.sim_manifest.get("env", {})
+            details_text += (
+                f"\nPackage: {self.sim_package_dir}"
+                f"\nPreset: {env_desc.get('preset')}  obs v{env_desc.get('obs_version')}  "
+                f"{env_desc.get('actuation_mode')}  waypoints {env_desc.get('waypoints')}"
+                f"\nSeed {self.sim_manifest.get('seed')}  best score {self.sim_manifest.get('best_score')}"
+            )
         self._set_model_details_text(details_text)
         print(f"[OK] Loaded model: {model_base} ({algorithm})")
 
@@ -1033,8 +1055,21 @@ class ArmControllerGUI:
             return
         self._start_simulation()
 
+    def _selected_waypoints(self):
+        """Waypoint override from the demo controls (None = package/default)."""
+        choice = self.sim_waypoint_choice
+        if choice == "from package":
+            return None
+        if choice.endswith("waypoint") or choice.endswith("waypoints"):
+            return resolve_waypoints(int(choice.split()[0]))
+        if choice == "spread":
+            return list(WAYPOINTS_SPREAD)
+        if choice == "custom":
+            return resolve_waypoints(self.sim_custom_waypoints) if self.sim_custom_waypoints.strip() else None
+        return None
+
     def _start_simulation(self):
-        """Initialize simulation environment and model."""
+        """Initialize simulation environment and model from a package (or bare zip)."""
         if not self.sim_model_path or not self.sim_algorithm:
             messagebox.showwarning("Warning", "Please select a trained model first")
             return
@@ -1043,59 +1078,62 @@ class ArmControllerGUI:
             if self.playing_back:
                 self.playing_back = False
                 self.playback_button.config(text="Playback")
-
             if self.sim_env is not None:
                 self.sim_env.close()
 
-            # Detect actuation mode from the trained model's action space so
-            # the simulation env matches what the policy was trained against.
-            # A muscle-mode SAC model has action_space Box(0, 1, (4,)) — four
-            # extensor + flexor activations per joint. A velocity-mode model
-            # has action_space Box(-1, 1, (2,)) — two normalised joint
-            # velocity commands. Without this auto-detect, loading a muscle-
-            # mode model into a default velocity-mode env throws
-            # "Action spaces do not match" from Stable-Baselines3.
-            from stable_baselines3 import SAC, PPO, A2C
-            alg_class_map = {"SAC": SAC, "PPO": PPO, "A2C": A2C}
-            alg_class = alg_class_map.get(self.sim_algorithm, SAC)
-            inspect_model = alg_class.load(self.sim_model_path)
-            ac_shape = inspect_model.action_space.shape
-            ac_low_min = float(inspect_model.action_space.low.min())
-            if ac_shape == (4,) and ac_low_min == 0.0:
-                detected_actuation = "muscle"
-            elif ac_shape == (2,) and ac_low_min == -1.0:
-                detected_actuation = "velocity"
+            overrides = {"terminate_on_success": False}
+            wps = self._selected_waypoints()
+            if wps is not None:
+                overrides["waypoints"] = wps
+            if self.sim_package_dir is not None:
+                model, raw_env, _manifest = load_package(self.sim_package_dir, which=self.sim_model_path, **overrides)
             else:
-                raise ValueError(
-                    f"Cannot determine actuation mode from model action space "
-                    f"{inspect_model.action_space}. Expected Box(0,1,(4,)) for "
-                    f"muscle mode or Box(-1,1,(2,)) for velocity mode."
-                )
+                from stable_baselines3 import SAC, PPO, A2C
+                alg_class = {"SAC": SAC, "PPO": PPO, "A2C": A2C}.get(self.sim_algorithm, SAC)
+                model = alg_class.load(self.sim_model_path, device="cpu")
+                raw_env = make_env(actuation_mode=detect_actuation_mode(model),
+                                   waypoints=wps if wps is not None else 2, terminate_on_success=False)
+                if tuple(model.observation_space.shape) != tuple(raw_env.observation_space.shape):
+                    raise ValueError(
+                        f"model observation shape {model.observation_space.shape} does not match the env "
+                        f"({raw_env.observation_space.shape}, OBS_VERSION {OBS_VERSION}). This model was "
+                        f"trained on an older observation layout and cannot be run here.")
+                model.set_env(raw_env)
 
-            raw_env = ArmTaskEnv(actuation_mode=detected_actuation)
-            if self.action_smoothing and detected_actuation == "muscle":
+            # The drawn arm must be the env's arm.
+            self.config = raw_env.config
+            self.controller = ArmController(self.config)
+            self.visualizer = ArmVisualizer(dof=self.config.dof, link_lengths=self.config.link_lengths)
+            try:
+                self._sync_ui_to_config()
+            except Exception:
+                pass
+            self.sim_steps_per_frame = max(1, int(round(0.05 / float(raw_env.dt))))
+
+            if self.action_smoothing and raw_env.actuation_mode == "muscle":
                 self.sim_env = ActionSmoother(raw_env, alpha=self.action_smooth_alpha)
                 print(f"[OK] Action smoothing ON (alpha={self.action_smooth_alpha})")
             else:
                 self.sim_env = raw_env
-            inspect_model.set_env(self.sim_env)
-            self.sim_model = inspect_model
-            print(f"[OK] Detected {detected_actuation}-mode model, env constructed to match")
+            self.sim_model = model
+            print(f"[OK] {raw_env.actuation_mode}-mode model in {raw_env.preset_name}: "
+                  f"{raw_env.num_waypoints} waypoints, tolerance {raw_env.goal_tolerance} m, "
+                  f"hold {raw_env.hold_steps_required} steps")
 
-            self.sim_obs, _ = self.sim_env.reset()
-            base_env = getattr(self.sim_env, "unwrapped", self.sim_env)
-            state_info = base_env.get_state_info()
-            self._set_controller_state_from_arrays(
-                state_info["joint_angles"],
-                state_info["joint_velocities"],
-            )
+            self.sim_episode_seed = 0
+            self.sim_obs, info = self.sim_env.reset(seed=self.sim_episode_seed)
+            self.sim_last_info = info
+            self._set_controller_state_from_arrays(info["joint_angles"], info["joint_velocities"])
 
             self.simulation_active = True
             self.sim_step_count = 0
             self.sim_episode_count = 1
+            self.sim_successes = 0
             self.sim_episode_reward = 0.0
             self.sim_time = 0.0
-            self.prev_sim_velocities = np.array(state_info["joint_velocities"], dtype=float)
+            self.sim_step_accumulator = 0.0
+            self.sim_success_banner_until = 0.0
+            self.prev_sim_velocities = np.array(info["joint_velocities"], dtype=float)
             self.torque_time_hist.clear()
             self.shoulder_torque_hist.clear()
             self.elbow_torque_hist.clear()
@@ -1132,35 +1170,43 @@ class ArmControllerGUI:
         """Run a single simulation step if active."""
         if not self.simulation_active or self.sim_model is None or self.sim_env is None or self.sim_obs is None:
             return
+        base_env = getattr(self.sim_env, "unwrapped", self.sim_env)
+        if self.sim_success_banner_until and time() < self.sim_success_banner_until:
+            return  # brief pause showing the completed hold
 
         action, _ = self.sim_model.predict(self.sim_obs, deterministic=True)
         self.sim_obs, reward, terminated, truncated, info = self.sim_env.step(action)
+        self.sim_last_info = info
         self.sim_step_count += 1
         self.sim_episode_reward += float(reward)
 
-        angles = info.get("joint_angles", self.controller.angles)
-        velocities = info.get("joint_velocities", self.controller.velocities)
-        velocities_arr = np.asarray(velocities, dtype=float)
-        dt = float(getattr(self.sim_env, "dt", self.config.dt))
+        angles = np.asarray(info["joint_angles"], dtype=float)
+        velocities_arr = np.asarray(info["joint_velocities"], dtype=float)
+        dt = float(base_env.dt)
         accelerations = (velocities_arr - self.prev_sim_velocities) / max(dt, 1e-8)
         shoulder_tau, elbow_tau = self._estimate_joint_torques(angles, velocities_arr, accelerations)
         self.sim_time += dt
         self._append_torque_sample(shoulder_tau, elbow_tau, self.sim_time)
         self.prev_sim_velocities = velocities_arr.copy()
+        self._set_controller_state_from_arrays(angles, velocities_arr)
 
-        self._set_controller_state_from_arrays(angles, velocities)
+        if info.get("success") and info.get("success_step") == info.get("step"):
+            self.sim_successes += 1
+            self.sim_success_banner_until = time() + 1.0
+            print(f"[OK] HOLD COMPLETE at step {info['step']} "
+                  f"({info['waypoints_reached']}/{info['num_waypoints']} waypoints)")
 
         if terminated or truncated:
+            if not self.sim_loop:
+                self._stop_simulation()
+                return
             self.sim_episode_count += 1
+            self.sim_episode_seed += 1
             self.sim_episode_reward = 0.0
-            self.sim_obs, _ = self.sim_env.reset()
-            base_env = getattr(self.sim_env, "unwrapped", self.sim_env)
-            state_info = base_env.get_state_info()
-            self.prev_sim_velocities = np.array(state_info["joint_velocities"], dtype=float)
-            self._set_controller_state_from_arrays(
-                state_info["joint_angles"],
-                state_info["joint_velocities"],
-            )
+            self.sim_obs, info = self.sim_env.reset(seed=self.sim_episode_seed)
+            self.sim_last_info = info
+            self.prev_sim_velocities = np.array(info["joint_velocities"], dtype=float)
+            self._set_controller_state_from_arrays(info["joint_angles"], info["joint_velocities"])
 
     def _on_reset_arm(self):
         """Reset arm to home position"""
@@ -1177,7 +1223,7 @@ class ArmControllerGUI:
         """Reset to default configuration"""
         if self.simulation_active:
             self._stop_simulation()
-        self.config = ArmConfiguration.get_preset("2dof_simple")
+        self.config = ArmConfiguration.get_preset(DEFAULT_PRESET)
         self.controller = ArmController(self.config)
         self.visualizer = ArmVisualizer(dof=self.config.dof, link_lengths=self.config.link_lengths)
         self._sync_ui_to_config()  # Update all UI sliders
@@ -1242,9 +1288,47 @@ class ArmControllerGUI:
             traj_array = np.array(self.trajectory_points)
             self.ax.plot(traj_array[:, 0], traj_array[:, 1], "g--", alpha=0.5, linewidth=1, label="Trajectory")
 
-        self.ax.set_xlabel("X (m)")
+        # Torso / head silhouette (side view, +x in front of the body).
+        reach = float(sum(self.config.link_lengths))
+        torso_w, torso_h = 0.22 * reach, 0.9 * reach
+        self.ax.add_patch(plt.Rectangle((-torso_w, -torso_h), torso_w, torso_h, color="#00000012", zorder=0))
+        self.ax.add_patch(plt.Circle((-0.5 * torso_w, 0.32 * reach), 0.17 * reach, color="#00000012", zorder=0))
+        self.ax.add_patch(plt.Circle((0.0, 0.0), reach, color="#00000022", fill=False, linestyle="--", linewidth=0.8))
+
+        title = f"Arm Configuration - FPS: {self.fps_counter:.0f}"
+        info = self.sim_last_info if self.simulation_active else None
+        if info is not None:
+            # Waypoints are in the workspace frame; the plot is shoulder-local.
+            shoulder = np.asarray(info.get("shoulder_position", [0.0, 0.0]), dtype=float)
+            wps = info.get("waypoints") or [info.get("goal_position")]
+            k = int(info.get("current_waypoint_index", 0))
+            tol = float(info.get("goal_tolerance", 0.05))
+            n_wp = len(wps)
+            if n_wp >= 2:
+                arr = np.asarray(wps, dtype=float) - shoulder
+                self.ax.plot(arr[:, 0], arr[:, 1], color="gray", linestyle="--", linewidth=0.8, alpha=0.5, zorder=5)
+            for i, wp in enumerate(wps):
+                p = np.asarray(wp, dtype=float) - shoulder
+                colour = "green" if i < k or info.get("success") else ("red" if i == k else "lightgray")
+                self.ax.add_patch(plt.Circle((p[0], p[1]), tol, color=colour, alpha=0.15, zorder=4))
+                self.ax.add_patch(plt.Circle((p[0], p[1]), tol, color=colour, fill=False, linewidth=1.2, zorder=4))
+                self.ax.scatter(p[0], p[1], c=colour, s=160, marker="X", edgecolors="black", linewidths=1.5, zorder=10)
+                self.ax.annotate(f"{i + 1}", (p[0], p[1]), textcoords="offset points", xytext=(8, 8),
+                                 fontsize=10, fontweight="bold")
+            hold_pct = int(round(100.0 * float(info.get("hold_progress", 0.0))))
+            reached = int(info.get("waypoints_reached", 0))
+            state = "HOLD COMPLETE" if info.get("success") else ("settling" if info.get("in_goal_region") else "moving")
+            title = (f"Waypoint {min(k + 1, n_wp)}/{n_wp}  |  hold {hold_pct}%  |  {state}  |  "
+                     f"reached {reached}/{n_wp}")
+            if self.sim_hold_bar is not None:
+                self.sim_hold_bar["value"] = hold_pct
+            if self.sim_progress_label is not None:
+                self.sim_progress_label.config(
+                    text=f"reached {reached}/{n_wp}  |  episodes {self.sim_successes}/{max(self.sim_episode_count, 1)}")
+
+        self.ax.set_xlabel("X (m)  [+x = in front of the body]")
         self.ax.set_ylabel("Y (m)")
-        self.ax.set_title(f"Arm Configuration - FPS: {self.fps_counter:.0f}")
+        self.ax.set_title(title)
         self.ax.grid(True, alpha=0.3)
         self.ax.legend(loc="upper right")
 
@@ -1291,6 +1375,9 @@ Steps: {self.sim_step_count}
 Ep Reward: {self.sim_episode_reward:.3f}
 Shoulder τ: {self.latest_shoulder_torque:.3f} Nm
 Elbow τ: {self.latest_elbow_torque:.3f} Nm
+Waypoint: {(int(self.sim_last_info.get('current_waypoint_index', 0)) + 1) if self.sim_last_info else '-'}/{int(self.sim_last_info.get('num_waypoints', 0)) if self.sim_last_info else '-'}
+Hold: {int(round(100 * float(self.sim_last_info.get('hold_progress', 0.0)))) if self.sim_last_info else 0}%  Success: {bool(self.sim_last_info.get('success')) if self.sim_last_info else False}
+Holds completed: {self.sim_successes}
 
 PERFORMANCE:
 {'═' * 32}
@@ -1346,7 +1433,10 @@ Points: {len(self.trajectory_points)}
 
             # Handle playback
             if self.simulation_active:
-                for _ in range(max(1, self.sim_steps_per_frame)):
+                self.sim_step_accumulator += self.sim_steps_per_frame * self.sim_speed_multiplier
+                n_steps = int(self.sim_step_accumulator)
+                self.sim_step_accumulator -= n_steps
+                for _ in range(n_steps):
                     self._simulation_step()
                     if not self.simulation_active:
                         break
@@ -1407,7 +1497,7 @@ Points: {len(self.trajectory_points)}
 
 def main():
     """Entry point for GUI application"""
-    config = ArmConfiguration.get_preset("2dof_simple")
+    config = ArmConfiguration.get_preset(DEFAULT_PRESET)
     gui = ArmControllerGUI(config)
     gui.run()
 
