@@ -32,6 +32,9 @@ PY = sys.executable
 STAGES = {
     "A": dict(waypoints="2", timesteps=300_000, description="two waypoints, hold at the second"),
     "B": dict(waypoints="3", timesteps=600_000, description="three waypoints, hold at the third"),
+    "B2": dict(waypoints="3", timesteps=600_000,
+               description="three waypoints, CLEAN: muscle activation dynamics + hand-acceleration penalty",
+               extra=["--activation-dynamics", "0.04,0.06", "--reward-weight", "W_ACCEL=0.02"]),
     "C": dict(waypoints="3", timesteps=800_000, description="three waypoints + hand load 0-1 kg + sensory noise/delay",
               extra=["--hand-load-range", "0,1", "--obs-noise", "0.01,0.05", "--sensory-delay", "2"]),
 }

@@ -53,6 +53,11 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--hand-load-range", type=str, default="0,0", help="kg range randomised at reset, e.g. 0,1")
     p.add_argument("--obs-noise", type=str, default=None, help="sigma_angle_rad,sigma_velocity e.g. 0.01,0.05")
     p.add_argument("--sensory-delay", type=int, default=0, help="Observation delay in control steps.")
+    p.add_argument("--activation-dynamics", type=str, default=None,
+                   help='Muscle excitation->activation time constants "tau_rise,tau_fall" in s, e.g. "0.04,0.06". '
+                        "Adds the 4 activations to the observation.")
+    p.add_argument("--reward-weight", action="append", default=[], metavar="KEY=VALUE",
+                   help="Override a reward weight, e.g. --reward-weight W_ACCEL=0.02 (repeatable).")
     # Curriculum
     p.add_argument("--tolerance-ladder", type=str, default="0.15,0.10,0.07,0.05")
     p.add_argument("--hold-ladder", type=str, default="10,15,25")
@@ -131,6 +136,10 @@ def main(argv=None) -> int:
     waypoints = resolve_waypoints(None if args.waypoints.lower() == "none" else args.waypoints)
     hand_load = tuple(_parse_floats(args.hand_load_range)) if args.hand_load_range else (0.0, 0.0)
     obs_noise = tuple(_parse_floats(args.obs_noise)) if args.obs_noise else None
+    reward_weights = {}
+    for item in args.reward_weight:
+        key, _, val = item.partition("=")
+        reward_weights[key.strip()] = float(val)
     env_kwargs = dict(
         preset=args.preset,
         actuation_mode=args.actuation_mode,
@@ -139,6 +148,8 @@ def main(argv=None) -> int:
         hand_load_range=hand_load,
         obs_noise_std=obs_noise,
         sensory_delay_steps=args.sensory_delay,
+        activation_time_constants=_parse_floats(args.activation_dynamics) if args.activation_dynamics else None,
+        reward_weights=reward_weights or None,
     )
     tolerance_ladder = _parse_floats(args.tolerance_ladder)
     hold_ladder = [int(x) for x in _parse_floats(args.hold_ladder)]
@@ -156,7 +167,8 @@ def main(argv=None) -> int:
                 log("[ABORT] infeasible waypoint; fix the waypoint set before spending compute.")
                 return 3
     log(f"Env: obs_dim {env.obs_dim}, action_dim {env.action_dim}, dt {env.dt}, "
-        f"train tol {env.goal_tolerance} m, hold {env.hold_steps_required}, decrement {env.hold_decrement}")
+        f"train tol {env.goal_tolerance} m, hold {env.hold_steps_required}, decrement {env.hold_decrement}, "
+        f"activation dynamics {env.config.activation_time_constants}, reward weights {env.describe()['reward_weights']}")
 
     # --- hyperparameters ---------------------------------------------------
     net_arch = [int(x) for x in args.net_arch.split(",") if x.strip()]

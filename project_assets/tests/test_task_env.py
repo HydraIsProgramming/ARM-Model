@@ -314,3 +314,36 @@ def test_hand_load_changes_dynamics_config():
     assert env.hand_load_kg == pytest.approx(1.0)
     assert env._cfg_dyn.masses[1] == pytest.approx(env.config.masses[1] + 1.0)
     assert env._cfg_dyn.com_offsets[1] > env.config.com_offsets[1]
+
+
+def test_activation_dynamics_lags_command_and_extends_obs():
+    env = make_env(actuation_mode="muscle", waypoints=2, activation_time_constants=(0.04, 0.06))
+    assert env.obs_dim == 18 and env.observation_space.shape == (18,)
+    obs, _ = env.reset(seed=0, options={"randomize": False})
+    assert np.allclose(obs[14:], 0.0)
+    obs, _, _, _, info = env.step(np.array([1.0, 0.0, 1.0, 0.0], dtype=np.float32))
+    act = info["muscle_activations"]
+    assert 0.3 < act[0] < 0.7 and act[1] == 0.0          # rose half-way in one 20 ms step (tau 40 ms)
+    assert np.allclose(obs[14:], act, atol=1e-6)
+    for _ in range(20):
+        obs, _, _, _, info = env.step(np.array([1.0, 0.0, 1.0, 0.0], dtype=np.float32))
+    assert info["muscle_activations"][0] > 0.99
+    for _ in range(3):
+        obs, _, _, _, info = env.step(np.zeros(4, dtype=np.float32))
+    assert 0.0 < info["muscle_activations"][0] < 1.0     # decays, does not drop to zero at once
+    desc = env.describe()
+    env2 = ArmTaskEnv.from_description(desc)
+    assert env2.obs_dim == 18 and env2.config.activation_time_constants == [0.04, 0.06]
+
+
+def test_reward_weight_override_roundtrips_and_accel_term():
+    env = make_env(actuation_mode="torque", waypoints=2, reward_weights={"W_ACCEL": 0.02})
+    assert env.W_ACCEL == 0.02 and env.describe()["reward_weights"]["W_ACCEL"] == 0.02
+    env2 = ArmTaskEnv.from_description(env.describe())
+    assert env2.W_ACCEL == 0.02
+    env.reset(seed=0, options={"randomize": False})
+    _, _, _, _, info = env.step(np.array([1.0, 1.0], dtype=np.float32))   # hard jerk from rest
+    assert info["reward_terms"]["hand_accel"] < 0.0
+    with pytest.raises(ValueError):
+        make_env(actuation_mode="torque", reward_weights={"W_BOGUS": 1.0})
+    assert make_env(actuation_mode="torque").W_ACCEL == 0.0                 # default off

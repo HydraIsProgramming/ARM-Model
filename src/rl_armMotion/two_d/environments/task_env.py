@@ -53,6 +53,7 @@ Reward (all distances normalised by reach R)
       - W_SMOOTH * |qd'| / velocity_limit                mild smoothness
       - W_LIMIT  * (number of joints on a hard stop)      end-range avoidance
       - W_SPEED_EXCESS * max(0, |hand velocity| - 1.5)^2  human-like speed cap
+      - W_ACCEL * min((|hand accel| / 10)^2, 4)           smoothness (min-jerk proxy; 0 unless enabled)
       + R_IN_GOAL      if in_goal at the FINAL waypoint  hold stream
       + R_INTERMEDIATE on completing an intermediate waypoint
       + R_SUCCESS      once, when the final hold completes
@@ -155,12 +156,21 @@ class ArmTaskEnv(gym.Env):
     # velocity-profile symmetry ~0.2 instead of ~0.45).
     W_SPEED_EXCESS: float = 0.5
     EE_SPEED_CAP: float = 1.5  # m/s
+    # Hand-acceleration penalty (Flash & Hogan 1985 minimum-jerk proxy):
+    # -W_ACCEL * (|a_hand| / ACCEL_REF)^2, capped. Off by default; the
+    # "clean" training stage enables it.
+    W_ACCEL: float = 0.0
+    ACCEL_REF: float = 10.0    # m/s^2
+    ACCEL_PENALTY_CAP: float = 4.0
     R_IN_GOAL: float = 1.0
     R_INTERMEDIATE: float = 10.0
     R_SUCCESS: float = 50.0
 
     ACTUATION_MUSCLE: str = "muscle"
     ACTUATION_TORQUE: str = "torque"
+    REWARD_WEIGHT_KEYS = ("W_SHAPING", "W_DIST", "W_EFFORT", "W_SMOOTH", "W_LIMIT", "W_SPEED_EXCESS",
+                          "EE_SPEED_CAP", "W_ACCEL", "ACCEL_REF", "ACCEL_PENALTY_CAP",
+                          "R_IN_GOAL", "R_INTERMEDIATE", "R_SUCCESS")
 
     def __init__(
         self,
@@ -185,6 +195,8 @@ class ArmTaskEnv(gym.Env):
         obs_noise_std: Optional[Tuple[float, float]] = None,
         sensory_delay_steps: int = 0,
         config: Optional[ArmConfiguration] = None,
+        activation_time_constants: Optional[Sequence[float]] = None,
+        reward_weights: Optional[Dict[str, float]] = None,
         render_mode: Optional[str] = None,
         # Legacy keyword accepted and ignored so old call sites do not break.
         use_2dof: bool = True,
@@ -201,6 +213,20 @@ class ArmTaskEnv(gym.Env):
         self.render_mode = render_mode
         self.preset_name = str(preset)
         self.config: ArmConfiguration = config if config is not None else ArmConfiguration.get_preset(preset)
+        if activation_time_constants is not None:
+            # First-order excitation -> activation dynamics (Zajac 1989):
+            # muscles cannot change force instantly, which rules out bang-bang
+            # commands and gives bell-shaped hand-speed profiles.
+            data = self.config.to_dict()
+            data["activation_time_constants"] = [float(activation_time_constants[0]),
+                                                 float(activation_time_constants[1])]
+            self.config = ArmConfiguration.from_dict(data)
+        # Reward weights are class defaults, overridable per env and recorded
+        # in describe() so a package reproduces its training reward exactly.
+        for key, val in (reward_weights or {}).items():
+            if not key.isupper() or not hasattr(type(self), key):
+                raise ValueError(f"unknown reward weight {key!r}")
+            setattr(self, key, float(val))
         ok, msg = self.config.validate()
         if not ok:
             raise ValueError(f"invalid arm configuration: {msg}")
@@ -308,6 +334,7 @@ class ArmTaskEnv(gym.Env):
         self._entered_from_outside = False
         self.best_distance = float("inf")
         self._last_action = np.zeros(self.action_dim)
+        self._prev_ee_v = np.zeros(2)
         self._action_history: deque = deque(maxlen=max(self.sensory_delay_steps, 1))
         self._obs_buffer: deque = deque(maxlen=self.sensory_delay_steps + 1)
         self._last_reward_terms: Dict[str, float] = {}
@@ -666,6 +693,7 @@ class ArmTaskEnv(gym.Env):
         self.best_distance = float("inf")
         self._activation = np.zeros(2 * self.num_dof)
         self._last_action = np.zeros(self.action_dim)
+        self._prev_ee_v = self._end_effector_velocity(self.q, self.qd)
         self._action_history.clear()
         for _ in range(self.sensory_delay_steps):
             self._action_history.append(np.zeros(self.action_dim))
@@ -789,6 +817,8 @@ class ArmTaskEnv(gym.Env):
         ee = self._end_effector_from_angles(q)
         ee_v = self._end_effector_velocity(q, qd)
         ee_speed = float(np.linalg.norm(ee_v))
+        ee_accel = float(np.linalg.norm(ee_v - self._prev_ee_v)) / self.dt
+        self._prev_ee_v = ee_v.copy()
         joint_speed = float(np.linalg.norm(qd))
         distance = float(np.linalg.norm(self.goal_position - ee))
         if distance > self.goal_tolerance:
@@ -834,13 +864,14 @@ class ArmTaskEnv(gym.Env):
         smooth = -self.W_SMOOTH * joint_speed / float(self.config.velocity_limits)
         limit_term = -self.W_LIMIT * float(np.sum(at_limit))
         speed_excess = -self.W_SPEED_EXCESS * max(0.0, ee_speed - self.EE_SPEED_CAP) ** 2
+        accel_term = -self.W_ACCEL * min((ee_accel / self.ACCEL_REF) ** 2, self.ACCEL_PENALTY_CAP)
         in_goal_term = self.R_IN_GOAL if (in_goal and self.is_final_waypoint) else 0.0
-        reward = (shaping + dist_term + effort + smooth + limit_term + speed_excess + in_goal_term
-                  + intermediate_bonus + success_bonus)
+        reward = (shaping + dist_term + effort + smooth + limit_term + speed_excess + accel_term
+                  + in_goal_term + intermediate_bonus + success_bonus)
         self._last_reward_terms = {
             "shaping": shaping, "distance": dist_term, "effort": effort, "smoothness": smooth,
-            "joint_limit": limit_term, "speed_excess": speed_excess, "in_goal": in_goal_term,
-            "intermediate": intermediate_bonus, "success": success_bonus,
+            "joint_limit": limit_term, "speed_excess": speed_excess, "hand_accel": accel_term,
+            "in_goal": in_goal_term, "intermediate": intermediate_bonus, "success": success_bonus,
         }
         if not np.isfinite(reward):
             raise FloatingPointError("non-finite reward")
@@ -872,6 +903,7 @@ class ArmTaskEnv(gym.Env):
             "orientation_error_abs": float(abs(orientation_error)),
             "target_orientation": target_orientation,
             "ee_speed": float(np.linalg.norm(ee_v)),
+            "muscle_activation_dynamics": bool(self.use_activation_dynamics),
             "joint_speed": float(np.linalg.norm(self.qd)),
             "hold_counter": int(self.hold_counter),
             "hold_steps_required": int(self.hold_steps_required),
@@ -952,13 +984,8 @@ class ArmTaskEnv(gym.Env):
             "sensory_delay_steps": self.sensory_delay_steps,
             "dt": self.dt,
             "physics_substeps": int(self.config.physics_substeps),
-            "reward_weights": {
-                "W_SHAPING": self.W_SHAPING, "W_DIST": self.W_DIST, "W_EFFORT": self.W_EFFORT,
-                "W_SMOOTH": self.W_SMOOTH, "W_LIMIT": self.W_LIMIT,
-                "W_SPEED_EXCESS": self.W_SPEED_EXCESS, "EE_SPEED_CAP": self.EE_SPEED_CAP,
-                "R_IN_GOAL": self.R_IN_GOAL,
-                "R_INTERMEDIATE": self.R_INTERMEDIATE, "R_SUCCESS": self.R_SUCCESS,
-            },
+            "activation_time_constants": self.config.activation_time_constants,
+            "reward_weights": {k: float(getattr(self, k)) for k in self.REWARD_WEIGHT_KEYS},
         }
 
     @classmethod
@@ -991,6 +1018,8 @@ class ArmTaskEnv(gym.Env):
             obs_noise_std=tuple(desc["obs_noise_std"]) if desc.get("obs_noise_std") else None,
             sensory_delay_steps=desc.get("sensory_delay_steps", 0),
             config=cfg,
+            reward_weights={k: v for k, v in (desc.get("reward_weights") or {}).items()
+                            if k in cls.REWARD_WEIGHT_KEYS},
         )
         waypoints = overrides.pop("waypoints", desc.get("waypoints"))
         kwargs.update(overrides)
