@@ -208,7 +208,8 @@ class RLTrainerWithMetrics:
         requested_starts = self.trainer.hyperparams.get("learning_starts")
         self.trainer.model = AlgorithmClass.load(str(model_path), env=self.training_env, device=device)
         buf = package / PACKAGE_FILES["replay_buffer"]
-        same_task = env_desc.get("waypoints") == self.env_description.get("waypoints")
+        same_task = (env_desc.get("waypoints") == self.env_description.get("waypoints")
+                     and env_desc.get("random_waypoints") == self.env_description.get("random_waypoints"))
         if self.continue_drop_buffer or not same_task:
             # Warm start on a different task (e.g. 2 -> 3 waypoints): keep the
             # weights, refill the buffer with a short on-policy warm-up, and
