@@ -43,6 +43,10 @@ STAGES = {
     "R3": dict(waypoints="none", timesteps=1_000_000,
                description="THREE RANDOM waypoints per episode from the feasible region, CLEAN config (generalising policy)",
                extra=["--random-waypoints", "3", "--activation-dynamics", "0.04,0.06", "--reward-weight", "W_ACCEL=0.02"]),
+    "R4": dict(waypoints="none", timesteps=1_000_000,
+               description=("THREE RANDOM waypoints, CLEAN config, with the end-range feasibility rule: targets "
+                            "whose holding pose falls inside a joint's passive end-range zone are no longer sampled"),
+               extra=["--random-waypoints", "3", "--activation-dynamics", "0.04,0.06", "--reward-weight", "W_ACCEL=0.02"]),
     "C": dict(waypoints="3", timesteps=800_000, description="three waypoints + hand load 0-1 kg + sensory noise/delay",
               extra=["--hand-load-range", "0,1", "--obs-noise", "0.01,0.05", "--sensory-delay", "2"]),
 }

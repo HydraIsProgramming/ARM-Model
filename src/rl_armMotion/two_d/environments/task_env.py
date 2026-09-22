@@ -652,14 +652,34 @@ class ArmTaskEnv(gym.Env):
         margin = float(min(np.min(q - qmin), np.min(qmax - q)))
         G = dynamics.gravity_vector(q, self._cfg_dyn)
         ratio = np.abs(G) / self._torque_limits
+        # The pose that holds this target must sit OUTSIDE the passive end-range
+        # zone. Inside it the spring pushes the joint back out and the reward
+        # charges the end-range term of the joint-limit penalty (W_LIMIT), so a
+        # target whose only pose lies in there asks the policy to hold something
+        # the same MDP penalises. This is the joint-space twin of the reach
+        # margin above: both exclude targets that can only be held degenerately.
+        # A joint with no passive margin (legacy gravity-free presets) is exempt.
+        m_min = np.asarray(self.config.passive_limit_margins_min, dtype=float)
+        m_max = np.asarray(self.config.passive_limit_margins_max, dtype=float)
+        clear_lo = (q - qmin) - np.where(m_min > 0, m_min, 0.0)
+        clear_hi = (qmax - q) - np.where(m_max > 0, m_max, 0.0)
+        end_range_clearance = float(min(np.min(clear_lo), np.min(clear_hi)))
         out.update(
             within_rom=True,
             joint_angles_deg=np.degrees(q).tolist(),
             rom_margin_deg=float(np.degrees(margin)),
+            end_range_clearance_deg=float(np.degrees(end_range_clearance)),
             achievable_orientation_deg=float(np.degrees(self._compute_orientation(q))),
             gravity_torque=G.tolist(),
             torque_ratio=ratio.tolist(),
         )
+        if end_range_clearance < 0.0:
+            joint = int(np.argmin(np.minimum(clear_lo, clear_hi)))
+            out.update(feasible=False,
+                       reason=(f"holding here puts joint {joint} "
+                               f"{np.degrees(-end_range_clearance):.1f} deg inside its passive end-range "
+                               f"zone, which the spring resists and the joint-limit penalty charges for"))
+            return out
         if np.any(ratio > 0.8):
             out.update(feasible=False, reason="holding here needs more than 80% of a torque limit")
             return out

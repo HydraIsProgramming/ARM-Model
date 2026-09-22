@@ -84,3 +84,53 @@ def test_three_link_ik_dls():
     q = env3.solve_ik([1.35, 0.2])
     assert q is not None and q.shape == (3,)
     assert np.allclose(env3._end_effector_from_angles(q), [1.35, 0.2], atol=1e-3)
+
+
+def test_rejects_pose_inside_the_passive_end_range_zone(env):
+    """A target whose only pose lies inside the elbow's end-range spring is not
+    holdable: the spring pushes the joint out and W_LIMIT charges for staying.
+
+    This is the joint-space twin of the reach-circle rule above.
+    """
+    qmax = np.asarray(env.config.joint_limits_max, dtype=float)
+    margin = np.asarray(env.config.passive_limit_margins_max, dtype=float)
+    assert margin[1] > 0, "this preset has no elbow end-range spring to test"
+    # A pose 2 deg inside the elbow's end-range zone, comfortable at the shoulder.
+    q = np.array([np.radians(-30.0), qmax[1] - margin[1] + np.radians(2.0)])
+    target = env._end_effector_from_angles(q)
+    f = env.waypoint_feasibility(target, EVAL_STANDARD.tolerance)
+    assert f["reachable"] and f["within_rom"]
+    assert not f["feasible"]
+    assert "end-range" in f["reason"]
+    assert f["end_range_clearance_deg"] == pytest.approx(-2.0, abs=0.1)
+
+    # Just outside the zone the same geometry is accepted.
+    q_ok = np.array([np.radians(-30.0), qmax[1] - margin[1] - np.radians(2.0)])
+    g = env.waypoint_feasibility(env._end_effector_from_angles(q_ok), EVAL_STANDARD.tolerance)
+    assert g["feasible"], g
+    assert g["end_range_clearance_deg"] == pytest.approx(2.0, abs=0.1)
+
+
+def test_end_range_rule_shrinks_the_sampler_grid_without_emptying_it(env):
+    """The random-waypoint sampler must lose the unholdable targets and keep a
+    workspace that still reaches well inside the arm."""
+    pts = env.feasible_points()
+    assert len(pts) > 500, "the end-range rule must not gut the feasible region"
+    shoulder = np.asarray(env.shoulder_base_position, dtype=float)
+    radius = np.linalg.norm(pts - shoulder, axis=1)
+    assert radius.min() < 0.30, "close-in targets must survive the rule"
+    for p in pts:
+        f = env.waypoint_feasibility(p, env.goal_tolerance)
+        assert f["end_range_clearance_deg"] >= 0.0
+
+
+def test_legacy_preset_without_springs_is_unaffected():
+    """A joint with no passive margin is exempt, so gravity-free presets keep
+    their old feasible set."""
+    legacy = ArmTaskEnv(preset="2dof_human_right")
+    legacy.config.passive_limit_margins_min = [0.0, 0.0]
+    legacy.config.passive_limit_margins_max = [0.0, 0.0]
+    qmax = np.asarray(legacy.config.joint_limits_max, dtype=float)
+    q = np.array([np.radians(-30.0), qmax[1] - np.radians(3.0)])
+    f = legacy.waypoint_feasibility(legacy._end_effector_from_angles(q), EVAL_STANDARD.tolerance)
+    assert f["feasible"], f
