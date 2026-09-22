@@ -101,6 +101,20 @@ def rollout(model, env, ep_seed):
                 waypoints=rec, tolerance=tol)
 
 
+MIN_REGION_N = 10       # below this, a per-region success rate is not worth printing as a number
+
+
+def wilson(successes, n, z=1.96):
+    """95% Wilson score interval - honest about small samples, unlike k/n."""
+    if n == 0:
+        return 0.0, 1.0
+    p = successes / n
+    d = 1 + z * z / n
+    centre = (p + z * z / (2 * n)) / d
+    half = z * np.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / d
+    return max(0.0, centre - half), min(1.0, centre + half)
+
+
 def region(shoulder, p):
     """Coarse workspace bucket of a target: radial band and elevation sector."""
     d = np.asarray(p, dtype=float) - np.asarray(shoulder, dtype=float)
@@ -148,18 +162,35 @@ def main():
               f"{sum(r['settled'] for r in rows):>8} {sum(r['completed'] for r in rows):>10} "
               f"{md:>16.3f} {ms:>13.0f}")
 
-    # Where the stalling waypoints are.
+    # Where the stalling waypoints are. Spreading N episodes over ~8 regions
+    # leaves a handful each, and a rate over a handful is noise: reading
+    # "near/level 50%" off two episodes once sent a whole day's work chasing a
+    # weakness that a 60-episode test showed did not exist. So every rate now
+    # carries a 95% Wilson interval, and regions below MIN_REGION_N are pooled
+    # rather than printed as a number worth acting on.
     per_region = defaultdict(lambda: [0, 0])
     for e in eps:
         wp = e["waypoints"][e["stalled_at"]]["position"]
         key, _, _ = region(shoulder, wp)
         per_region[key][0] += 1
         per_region[key][1] += int(e["success"])
-    print(f"\nstalling waypoint by workspace region (radius from the shoulder / elevation)")
-    print(f"{'region':>12} {'episodes':>9} {'success':>8}")
+    print("\nstalling waypoint by workspace region (radius from the shoulder / elevation)")
+    print(f"{'region':>12} {'episodes':>9} {'success':>8} {'95% interval':>16}")
+    thin = [0, 0]
     for key in sorted(per_region):
         tot, ok = per_region[key]
-        print(f"{key:>12} {tot:>9} {ok / tot:>8.0%}")
+        if tot < MIN_REGION_N:
+            thin[0] += tot
+            thin[1] += ok
+            continue
+        lo, hi = wilson(ok, tot)
+        print(f"{key:>12} {tot:>9} {ok / tot:>8.0%} {f'{lo:.0%}-{hi:.0%}':>16}")
+    if thin[0]:
+        lo, hi = wilson(thin[1], thin[0])
+        print(f"{'(thin)':>12} {thin[0]:>9} {thin[1] / thin[0]:>8.0%} {f'{lo:.0%}-{hi:.0%}':>16}"
+              f"   pooled: regions with fewer than {MIN_REGION_N} episodes")
+    print("     -- to compare two regions, sample each one deliberately (>= 50 episodes);\n"
+          "        do not read a conclusion off a bucket of this table.")
 
     # Distance of every failed waypoint from the tolerance ball.
     misses = [w["min_distance"] for e in eps if not e["success"]

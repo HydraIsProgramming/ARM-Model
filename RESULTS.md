@@ -62,11 +62,35 @@ median duration   2.6 s per three-point episode, of a 10 s budget
 ```
 
 All three failures came within 1.5x the tolerance (closest approach ~0.052 m against a
-0.050 m target) and all three were points close to the shoulder, where the arm has to fold
-up: `near/level` 50 % (n=2), `near/low` 80 % (n=5), `near/high` 86 % (n=7) against 100 % for
-every mid-range bucket. That region is the next thing to improve, and it is a sampling
-question (the feasible grid is uniform in area, so close-in points are rare in training),
-not a physics one.
+0.050 m target), so what fails is the last centimetre, not the reach.
+
+**Correction (2026-09-22).** An earlier version of this section reported a near-shoulder
+weakness — `near/level` 50 %, `near/low` 80 %, `near/high` 86 % against 100 % mid-range —
+and called it the next thing to fix. That was wrong. Those buckets held 2, 5 and 7 episodes:
+the "50 %" was one failure out of two. Sampling each band deliberately with
+`scripts/probe_region.py` shows no such gap:
+
+| band | n | success | 95 % interval |
+|---|---|---|---|
+| near (r < 0.35 m) | 200 | 92 % | 87–95 % |
+| mid (0.35–0.50 m) | 200 | 87 % | 82–91 % |
+
+At n = 60 the same test put near *below* mid (87 % vs 93 %); at n = 200 it is above. The
+direction flips with the sample, which is what no effect looks like. The champion is
+uniformly 87–92 % across the reachable workspace, and there is no region to fix.
+`diagnose_random_reach.py` now prints a Wilson interval for every region and pools any
+bucket under 10 episodes, so that mistake cannot be read off the table again.
+
+One real asymmetry did come out of the investigation, and it is a task-definition issue
+rather than a policy one: `waypoint_feasibility` accepts targets whose inverse-kinematics
+pose sits inside the elbow's 10° passive end-range zone — 28.7 % of near-band points and
+20 % of the whole grid, some needing the elbow at its 145° hard stop. The environment
+penalises end-range postures (W_LIMIT) and springs the joint back out of them, so the
+sampler can ask for a pose the reward charges for. The measured cost is small and not
+separable from noise (85 %, 78–90 %, for targets inside the zone against 89 %, 84–93 %,
+for targets clearing it, `--split elbow`), which is why nothing was changed on the strength
+of it; the honest fix, if it is ever wanted, is a ROM-margin rule in `waypoint_feasibility`
+mirroring the reach-circle rule of §2.1, followed by a retrain from scratch.
 
 ### What the mid-run diagnosis showed
 
