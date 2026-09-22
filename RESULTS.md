@@ -37,6 +37,33 @@ consecutive passing rounds; (3) hand speed peaked at 4–5 m/s (symmetry 0.2–0
 quadratic penalty above 1.5 m/s was added for Stage B. Human-likeness reference ranges: straightness
 1.0–1.15, symmetry 0.35–0.55, dimensionless jerk < 60.
 
+## Human-arm v2 — Stage B (3 waypoints, v1 set), 2026-09-21
+
+Five seeds × 600K steps, `run_campaign.py --stage B`, muscle actuation, curriculum with two-round
+hysteresis and the 1.5 m/s hand-speed cap. Best checkpoint per seed on 20 fresh randomised episodes at the
+evaluation standard.
+
+| seed | success | waypoints | final error | time to hold | straightness | symmetry | dim. jerk |
+|---|---|---|---|---|---|---|---|
+| 1 | 20/20 | 3.0 | 1.2 cm | 2.1 s | 1.08 | 0.28 | 32 |
+| 2 | 0/20 | 2.0 | 0.6 cm | nan s | 1.65 | 0.36 | 17689 |
+| 3 | 0/20 | 2.0 | 1.6 cm | nan s | 1.06 | 0.43 | 24 |
+| 4 | 0/20 | 2.0 | 1.3 cm | nan s | 1.17 | 0.36 | 19 |
+| 5 | 20/20 | 3.0 | 4.2 cm | 2.3 s | 1.06 | 0.43 | 18 |
+
+Mean success 0.40 ± 0.55; **2/5 seeds ≥ 80 % → FAIL** by the campaign rule, although the two passing seeds
+are perfect (seed 1: 20/20 in 2.1 s with a 1.2 cm final error, fourteen 10/10 evaluation rounds out of its
+last sixteen). Champion promoted to `project_assets/outputs/CHAMPION_HUMAN_V1_B/`.
+
+Diagnosis (the rule says fix the MDP, not add seeds): the three failing seeds pass *through* the final
+waypoint to within 0.6–1.6 cm but never stop there. Two of them park motionless 10–12 cm past it with the
+elbow at 2–3° — a straight arm resting on the elbow's passive end-range spring with zero elbow muscle
+torque. That rest was inside the 15 cm coarse-curriculum tolerance (C sits only 9 cm inside the reach
+circle), so it was rewarded early and could not be unlearned when the tolerance tightened. Fixes:
+waypoint set v2 (every point ≥ 0.19 m inside the reach circle), a feasibility rule that rejects goals
+closer to the reach circle than the coarsest curriculum tolerance, and an end-range spring engagement
+penalty. Stage B3 re-runs the 3-waypoint task with those fixes plus the clean muscle dynamics.
+
 ## Human-arm v2 — Stage B warm-start experiment (negative result), 2026-09-21
 
 Alongside the five from-scratch Stage B seeds, five runs were warm-started from the matching Stage A
