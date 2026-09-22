@@ -1,0 +1,13 @@
+[2026-09-22T14:08:05] Run: SAC 1,000,000 steps, seed 1, threads 4, device cpu, preset 2dof_human_right, actuation muscle, waypoints none
+[2026-09-22T14:08:05] Package dir: C:\arm-model-runs\stageR4\seed_1
+[2026-09-22T14:08:05] Random waypoints: 3 per episode from 744 feasible grid points (x 0.71..1.45, y -0.45..0.45)
+[2026-09-22T14:08:05] Env: obs_dim 18, action_dim 4, dt 0.02, train tol 0.15 m, hold 10, decrement 5, activation dynamics [0.04, 0.06], reward weights {'W_SHAPING': 2.0, 'W_DIST': 0.5, 'W_EFFORT': 0.02, 'W_SMOOTH': 0.05, 'W_LIMIT': 0.1, 'W_SPEED_EXCESS': 0.5, 'EE_SPEED_CAP': 1.5, 'W_ACCEL': 0.02, 'ACCEL_REF': 10.0, 'ACCEL_PENALTY_CAP': 4.0, 'R_IN_GOAL': 1.0, 'R_INTERMEDIATE': 10.0, 'R_SUCCESS': 50.0}
+[2026-09-22T14:08:05] Resolved hyperparameters: {"algorithm": "SAC", "gamma": 0.99, "learning_rate": 0.0003, "buffer_size": 300000, "learning_starts": 5000, "batch_size": 256, "tau": 0.005, "train_freq": [1, "step"], "gradient_steps": 1, "ent_coef": "auto", "target_entropy": -4.0, "n_steps": 1, "seed": 1, "device": "cpu", "net_arch": [256, 256], "n_envs": 1, "policy_kwargs": {"net_arch": [256, 256], "use_sde": false}}
+[2026-09-22T19:42:55] Training complete in 20089.4s (1,000,000 total steps)
+[2026-09-22T19:42:55] Episodes: 2,000; mean reward (100 ep): 377.29
+[2026-09-22T19:42:55] Curriculum: tolerance 0.05 m, hold 25, best score [1.0, 4.0, -0.021396, -120.3] at step 980000
+[2026-09-22T19:42:55] Saved package: {'model': 'C:\\arm-model-runs\\stageR4\\seed_1\\sac_model', 'history': 'C:\\arm-model-runs\\stageR4\\seed_1\\training_history.csv', 'stats': 'C:\\arm-model-runs\\stageR4\\seed_1\\training_stats.json', 'manifest': 'C:\\arm-model-runs\\stageR4\\seed_1\\run_manifest.json'}
+[2026-09-22T19:42:58] FINAL (best checkpoint, 20 episodes): 20/20 success, wp 3.00, hold 1.00, dist 0.027 m, steps 118
+[2026-09-22T19:42:58] Human-likeness: straightness 1.15, symmetry 0.52, submovements 1.3, jerk 28
+[2026-09-22T19:42:58] Validators skipped (--skip-validators).
+[2026-09-22T19:42:58] ============================================================

@@ -154,9 +154,10 @@ seeds with the same config are how you *measure* variance; seed search is not a 
 | A | 2 waypoints, v1 set | `project_assets/outputs/CHAMPION_HUMAN_V1_A` (seed 5) | 20/20, 2.8 cm, 1.1 s |
 | B | 3 waypoints, v1 set | `project_assets/outputs/CHAMPION_HUMAN_V1_B` (seed 1) | 20/20, 1.2 cm, 2.1 s (2/5 seeds passed) |
 | **B3** | **3 waypoints, v2 set, clean** | **`project_assets/outputs/CHAMPION_HUMAN_V1_B3`** (seed 4) | **20/20, 0.1 cm, 5.0 s; all 5 seeds 20/20** |
-| **R3** | **ANY 3 points, re-sampled every episode** | **`project_assets/outputs/CHAMPION_HUMAN_V1_R3`** (seed 1) | **20/20 on unseen triples, 2.1 cm, 2.6 s; 5/5 seeds >= 85%** |
+| **R3** | **ANY 3 points, re-sampled every episode** | **`project_assets/outputs/CHAMPION_HUMAN_V1_R3`** (seed 1) | **99% on the current task at n=100 - the model to use** |
+| R4 | same task + end-range feasibility rule 5 | `project_assets/outputs/CHAMPION_HUMAN_V1_R4` (seed 1) | 20/20, 2.3 cm, 2.4 s; 5/5 seeds. No better than R3 on matched seeds (p = 0.67) |
 
-**Use R3 for anything where the points are not the training points** — it is the only package that
+**Use R3 for anything where the points are not the training points** — it is the best package that
 generalises. On the same 20 random triples the B3 champion reaches 0.25 of 3 waypoints (0 % success)
 while R3 reaches 3.00 of 3 (100 %): a fixed-waypoint policy memorises its trajectory. B3 is still the
 better demo of *one* rehearsed sequence (1 mm final error). Replay buffers and checkpoints for every

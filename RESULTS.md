@@ -12,6 +12,70 @@
 > Stage A / B3 / R3 sections below, produced by `run_campaign.py` with
 > `campaign_report.json` in each run directory.
 
+## Human-arm v2 - Stage R4 (end-range feasibility rule), 2026-09-22 - **PASS 5/5, and a negative result**
+
+Stage R3's investigation turned up a real inconsistency in the task rather than in the
+policy: `waypoint_feasibility` accepted targets whose holding pose lands inside a joint's
+passive end-range zone, where the spring pushes the joint back out *and* the joint-limit
+penalty (W_LIMIT) charges for staying. 20 % of the sampled grid was like that, 28.7 % of
+targets within 0.35 m of the shoulder, some needing the elbow at its 145 deg hard stop.
+Rule 5 of the spec now rejects them, the joint-space twin of the reach-circle rule.
+
+**The rule is justified on its own.** Same R3 champion, same episode shape, 120 targets
+from each group:
+
+| targets | success | 95 % interval | median closest approach |
+|---|---|---|---|
+| the rule keeps | 105/120 = 88 % | 80-92 % | 0.026 m |
+| the rule drops | 90/120 = 75 % | 67-82 % | 0.035 m |
+
+The removed targets really were the hard ones, and they were hard for a reason the MDP
+itself created. Removing them lifted the *unchanged* R3 champion from 37/40 = 92 % on the
+old task to 59/60 = 98 % on the corrected one.
+
+**Stage R4** retrained the same configuration from scratch on the corrected task: five
+seeds x 1,000,000 steps, manifests pinned to commit `f8bb816`. Best checkpoint per seed on
+20 fresh random triples:
+
+| seed | success | final error | time to hold | straightness | symmetry |
+|---|---|---|---|---|---|
+| **1** | **20/20** | 2.3 cm | 2.4 s | 1.12 | 0.56 |
+| 2 | 20/20 | 3.0 cm | 2.4 s | 1.15 | 0.53 |
+| 3 | 19/20 | 2.4 cm | 2.5 s | 1.14 | 0.56 |
+| 4 | 19/20 | 2.7 cm | 2.8 s | 1.16 | 0.51 |
+| 5 | 19/20 | 2.9 cm | 2.2 s | 1.17 | 0.57 |
+
+Mean 0.97 +/- 0.03, 5/5 seeds >= 80 % -> PASS. Champion (seed 1) in
+`project_assets/outputs/CHAMPION_HUMAN_V1_R4/`. Path straightness improved to 1.12-1.17
+against R3's 1.19-1.22, which puts three of the five seeds inside the human 1.0-1.15 band.
+
+### The negative result: retraining on the corrected task bought nothing
+
+R4's 0.97 cannot be compared with R3's 0.92, because rule 5 changed which targets exist.
+Run on the **identical corrected task, matched seeds, identical episodes** (100 episodes
+per seed, same evaluation seed):
+
+| seed | R3 | R4 | R4 - R3 |
+|---|---|---|---|
+| 1 | 99 % | 94 % | -5 |
+| 2 | 94 % | 83 % | -11 |
+| 3 | 92 % | 98 % | +6 |
+| 4 | 91 % | 95 % | +4 |
+| 5 | 96 % | 95 % | -1 |
+| **mean** | **94.4 % +/- 3.2** | **93.0 % +/- 5.8** | **-1.4 +/- 6.9** |
+
+Paired t = -0.46, p = 0.67. **Training on the cleaner distribution made no measurable
+difference**; the entire gain came from the feasibility rule, which a policy trained
+before it still benefits from. A policy that has learned goal-conditioned reaching
+transfers to a task with the same structure and a subset of the targets, so there was
+nothing left for the retrain to teach.
+
+Two practical consequences. First, the best single model for arbitrary points is still
+**R3 seed 1 at 99 % (95-100 %)**, with R4 seed 3 next at 98 % - so
+`CHAMPION_HUMAN_V1_R3` remains the demo model and `CHAMPION_HUMAN_V1_R4` is kept as the
+matched record. Second, champion selection on 20 episodes is noisy: R4's campaign picked
+seed 1 (94 % at n=100) over seed 3 (98 %), a difference the 20-episode eval could not see.
+
 ## Human-arm v2 — Stage R3 (ANY three points), 2026-09-22 — **PASS 5/5**
 
 The Stage A/B/B3 models are trained on one fixed waypoint set and *memorise* it: on the

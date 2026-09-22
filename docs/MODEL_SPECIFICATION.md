@@ -137,8 +137,18 @@ singularity (elbow flexion has no first-order effect on hand distance there).
    unlearned.)
 4. Pairwise spacing $> 2 \times$ coarsest curriculum tolerance $= 0.30$ m, and start-pose distance to the first
    waypoint $>$ coarsest tolerance + jitter margin, so a motionless arm can never satisfy two goals at once.
+5. The holding pose must clear every joint's passive end-range zone: `q*_j - q_min,j >= m_min,j` and
+   `q_max,j - q*_j >= m_max,j`, with `m = 10` deg for this preset. Inside that zone the spring pushes the joint
+   back out *and* the end-range term of the joint-limit penalty charges for staying, so such a target asks the
+   policy to hold a posture the same MDP penalises. This is the joint-space twin of rule 3. No extra buffer is
+   applied: the arm needs only one pose inside the tolerance ball that clears the zone, and the target's own
+   pose is that pose - requiring the whole ball to clear it (a Jacobian-norm buffer
+   `|dq_j| <= ||row_j(J^-1)|| * dx`) removes 41 % of the grid and the entire near band. Effect on the sampler:
+   930 -> 744 points, near band 425 -> 277, minimum radius 0.255 m, elbow capped at 135 deg (= 145 - 10).
+   A joint with no passive margin is exempt, so gravity-free legacy presets keep their feasible set.
+   Added in Stage R4.
 
-### 2.1b Random waypoints (the generalising task, Stage R3)
+### 2.1b Random waypoints (the generalising task, Stages R3 and R4)
 
 `ArmTaskEnv(random_waypoints=N)` draws a fresh ordered set of N targets at every `reset()`
 instead of using a fixed set. The sampler is built once per env:
@@ -147,7 +157,7 @@ instead of using a fixed set. The sampler is built once per env:
    optionally restricted to `waypoint_region=(x_min, x_max, y_min, y_max)`;
 2. every grid point is passed through the three feasibility rules of §2.1 — reachable with
    the required margin inside the reach circle, IK inside the ROM, static hold torque
-   $|G(q^*)| \le 0.8\,	au_{\max}$ — leaving **930 feasible points** for the right-arm preset;
+   $|G(q^*)| \le 0.8\,	au_{\max}$ — leaving **744 feasible points** for the right-arm preset (930 before rule 5);
 3. per reset, N points are drawn without replacement and rejected until the pairwise
    spacing rule of §2.1 and the start-pose distance rule both hold.
 
@@ -300,10 +310,16 @@ Human-likeness metrics computed per movement segment (`kinematics_metrics.py`): 
 | B | 3 waypoints (v1) | muscle, instantaneous | 2 / 5 | 0.40 ± 0.55 | 20/20, 1.2 cm, 2.1 s |
 | **B3** | **3 waypoints (v2)** | **muscle + activation dynamics + accel. penalty** | **5 / 5** | **1.00 ± 0.00** | **20/20, 0.1 cm, 5.0 s** (fastest seed 1.8 s) |
 | **R3** | **3 RANDOM waypoints per episode** | **muscle + activation dynamics + accel. penalty** | **5 / 5** | **0.92 ± 0.06** | **20/20 on unseen triples, 2.1 cm, 2.6 s** |
+| **R4** | **3 RANDOM waypoints, end-range rule 5** | **muscle + activation dynamics + accel. penalty** | **5 / 5** | **0.97 ± 0.03** | **20/20 on unseen triples, 2.3 cm, 2.4 s** |
 
 Stages A, B and B3 train on one fixed waypoint set and memorise it: on 20 random triples the B3 champion
 reaches 0.25 of 3 waypoints (0 % success, 24.7 cm final error) while the R3 champion reaches 3.00 of 3
 (100 %, 2.1 cm). Only R3 answers "go to any three points I choose".
+
+R3 and R4 cannot be compared through their own campaign numbers, because rule 5 changed which targets
+exist. On the identical corrected task, matched seeds, identical episodes (100 per seed) they are
+indistinguishable: R3 94.4 % +/- 3.2, R4 93.0 % +/- 5.8, paired difference -1.4 % +/- 6.9 (t = -0.46,
+p = 0.67). The gain came from the rule, not from retraining on it - see RESULTS.md.
 
 Negative results kept on record: warm-starting a 3-waypoint policy from a 2-waypoint model is worse than
 training from scratch; a final waypoint within the coarse curriculum tolerance of the reach circle induces a
