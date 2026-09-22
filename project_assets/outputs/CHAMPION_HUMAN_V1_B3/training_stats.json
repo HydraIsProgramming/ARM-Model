@@ -1,0 +1,50 @@
+{
+  "algorithm": "SAC",
+  "total_timesteps": 600000,
+  "total_episodes": 1200,
+  "mean_reward": 368.22872787,
+  "best_reward": 434.933437,
+  "success_rate": 95.0,
+  "hold_progress": 1.0,
+  "training_time_sec": 10873.024821,
+  "stopped_early": false,
+  "curriculum": {
+    "enabled": true,
+    "current_tolerance": 0.05,
+    "initial_tolerance": 0.15,
+    "min_tolerance": 0.05,
+    "current_hold_steps": 25,
+    "hold_ladder": [
+      10,
+      15,
+      25
+    ],
+    "tolerance_ladder": [
+      0.15,
+      0.1,
+      0.07,
+      0.05
+    ],
+    "recent_success_rate": 1.0,
+    "production_success_rate": 1.0,
+    "best_score": [
+      1.0,
+      4.0,
+      -0.001113,
+      -250.1
+    ],
+    "best_saved_at": 360000,
+    "eval_freq": 20000,
+    "curriculum_stage": [
+      3,
+      2
+    ],
+    "rounds": 30,
+    "streak": 7,
+    "advance_consecutive": 2,
+    "cooldown_rounds": 1,
+    "window_filled": 5,
+    "window_size": 5,
+    "episodes_since_last_decay": 0
+  }
+}

@@ -1,0 +1,263 @@
+{
+  "manifest_version": 1,
+  "created": "2026-09-21T18:42:46",
+  "seed": 5,
+  "algorithm": "SAC",
+  "git_commit": "7c239cc34636f2982404c5bce2eeca9e07bfe406",
+  "versions": {
+    "python": "3.11.9",
+    "platform": "Windows-10-10.0.26200-SP0",
+    "torch": "2.10.0+cu126",
+    "stable_baselines3": "2.7.1",
+    "gymnasium": "1.2.3",
+    "numpy": "2.3.4",
+    "matplotlib": "3.10.7",
+    "torch_num_threads": "4",
+    "torch_deterministic": "True"
+  },
+  "command": "C:\\Users\\ranjo\\OneDrive\\Desktop\\ARM-Model\\scripts\\train_fischer_session.py --timesteps 300000 --seed 5 --num-threads 4 --waypoints 2 --actuation-mode muscle --save-dir C:\\arm-model-runs\\stageA\\seed_5 --skip-validators --overwrite --checkpoint-every 50000 --eval-freq 20000",
+  "cli_args": {
+    "timesteps": 300000,
+    "seed": 5,
+    "num_threads": 4,
+    "save_dir": "C:\\arm-model-runs\\stageA\\seed_5",
+    "overwrite": true,
+    "continue_from": null,
+    "algorithm": "SAC",
+    "preset": "2dof_human_right",
+    "actuation_mode": "muscle",
+    "waypoints": "2",
+    "goal_direction": "EAST",
+    "hold_decrement": null,
+    "intermediate_hold_steps": null,
+    "hand_load_range": "0,0",
+    "obs_noise": null,
+    "sensory_delay": 0,
+    "tolerance_ladder": "0.15,0.10,0.07,0.05",
+    "hold_ladder": "10,15,25",
+    "eval_freq": 20000,
+    "checkpoint_every": 50000,
+    "no_curriculum": false,
+    "net_arch": "256,256",
+    "batch_size": 256,
+    "utd": 1.0,
+    "gamma": null,
+    "buffer_size": null,
+    "learning_starts": null,
+    "learning_rate": null,
+    "device": "cpu",
+    "n_envs": 1,
+    "skip_validators": true,
+    "fitts_trials": 8,
+    "power_trials": 16,
+    "validator_seed": 42
+  },
+  "env": {
+    "obs_version": 2,
+    "obs_dim": 14,
+    "action_dim": 4,
+    "preset": "2dof_human_right",
+    "config": {
+      "dof": 2,
+      "name": "2DOF_Human_Right",
+      "initial_angles": [
+        -1.5707963267948966,
+        0.17453292519943295
+      ],
+      "link_lengths": [
+        0.3,
+        0.35
+      ],
+      "masses": [
+        2.1,
+        1.65
+      ],
+      "inertias": [
+        0.0196,
+        0.0237
+      ],
+      "damping": 0.3,
+      "joint_damping": [
+        0.3,
+        0.3
+      ],
+      "joint_limits_min": [
+        -2.6179938779914944,
+        0.0
+      ],
+      "joint_limits_max": [
+        1.5707963267948966,
+        2.530727415391778
+      ],
+      "dt": 0.02,
+      "velocity_limits": 8.0,
+      "physics_substeps": 4,
+      "max_acceleration": 2000.0,
+      "com_offsets": [
+        0.131,
+        0.175
+      ],
+      "gravity": 9.81,
+      "torque_limits": [
+        25.0,
+        12.0
+      ],
+      "passive_limit_stiffness": 20.0,
+      "passive_limit_margin": 0.17453292519943295,
+      "passive_limit_margins_min": [
+        0.17453292519943295,
+        0.17453292519943295
+      ],
+      "passive_limit_margins_max": [
+        0.17453292519943295,
+        0.17453292519943295
+      ],
+      "muscle_moment_arms": [
+        0.04,
+        0.03
+      ],
+      "muscle_f_max": [
+        625.0,
+        400.0
+      ],
+      "muscle_l_opt": [
+        0.2,
+        0.1
+      ],
+      "muscle_v_max": 6.0,
+      "activation_time_constants": null,
+      "initial_angle_jitter_min": [
+        -0.08726646259971647,
+        -0.08726646259971647
+      ],
+      "initial_angle_jitter_max": [
+        0.08726646259971647,
+        0.17453292519943295
+      ],
+      "side": "right"
+    },
+    "actuation_mode": "muscle",
+    "goal_direction": "WAYPOINTS",
+    "goal_position": [
+      1.45,
+      0.15
+    ],
+    "waypoints": [
+      [
+        1.45,
+        0.15
+      ],
+      [
+        1.5,
+        -0.25
+      ]
+    ],
+    "shoulder_base_position": [
+      1.0,
+      0.0
+    ],
+    "goal_tolerance": 0.15,
+    "ee_speed_tolerance": 0.1,
+    "joint_speed_tolerance": 1.0,
+    "hold_steps_required": 10,
+    "hold_decrement": 5,
+    "intermediate_hold_steps": 5,
+    "max_curriculum_tolerance": 0.15,
+    "max_episode_steps": 500,
+    "terminate_on_success": false,
+    "require_orientation": false,
+    "orientation_tolerance_deg": 12.000000000000002,
+    "discount": 0.99,
+    "randomize_initial_state": true,
+    "hand_load_range": [
+      0.0,
+      0.0
+    ],
+    "obs_noise_std": null,
+    "sensory_delay_steps": 0,
+    "dt": 0.02,
+    "physics_substeps": 4,
+    "reward_weights": {
+      "W_SHAPING": 2.0,
+      "W_DIST": 0.5,
+      "W_EFFORT": 0.02,
+      "W_SMOOTH": 0.05,
+      "W_LIMIT": 0.1,
+      "R_IN_GOAL": 1.0,
+      "R_INTERMEDIATE": 10.0,
+      "R_SUCCESS": 50.0
+    }
+  },
+  "hyperparameters": {
+    "algorithm": "SAC",
+    "gamma": 0.99,
+    "learning_rate": 0.0003,
+    "buffer_size": 300000,
+    "learning_starts": 5000,
+    "batch_size": 256,
+    "tau": 0.005,
+    "train_freq": [
+      1,
+      "step"
+    ],
+    "gradient_steps": 1,
+    "ent_coef": "auto",
+    "target_entropy": -4.0,
+    "n_steps": 1,
+    "seed": 5,
+    "device": "cpu",
+    "net_arch": [
+      256,
+      256
+    ],
+    "n_envs": 1,
+    "policy_kwargs": {
+      "net_arch": [
+        256,
+        256
+      ],
+      "use_sde": false
+    }
+  },
+  "eval_standard": {
+    "max_steps": 500,
+    "tolerance": 0.05,
+    "hold_steps": 25,
+    "hold_decrement": 5,
+    "ee_speed_tolerance": 0.1,
+    "joint_speed_tolerance": 1.0,
+    "intermediate_hold_steps": 5,
+    "n_episodes": 10,
+    "seed": 20260921
+  },
+  "curriculum": {
+    "enabled": true,
+    "tolerance_ladder": [
+      0.15,
+      0.1,
+      0.07,
+      0.05
+    ],
+    "hold_ladder": [
+      10,
+      15,
+      25
+    ],
+    "eval_freq": 20000,
+    "checkpoint_every": 50000
+  },
+  "lineage": [],
+  "run_dir": "C:\\arm-model-runs\\stageA\\seed_5",
+  "total_timesteps": 300000,
+  "n_envs": 1,
+  "status": "finished",
+  "finished": "2026-09-21T18:42:46",
+  "final_timesteps": 300000,
+  "best_score": [
+    1.0,
+    3.0,
+    -0.028385,
+    -57.1
+  ],
+  "best_saved_at": 200000
+}

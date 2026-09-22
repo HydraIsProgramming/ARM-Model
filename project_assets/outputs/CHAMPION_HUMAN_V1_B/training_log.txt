@@ -1,0 +1,15 @@
+[2026-09-21T18:53:58] Run: SAC 600,000 steps, seed 1, threads 2, device cpu, preset 2dof_human_right, actuation muscle, waypoints 3
+[2026-09-21T18:53:58] Package dir: C:\arm-model-runs\stageB\seed_1
+[2026-09-21T18:53:58]   waypoint 0 [1.45, 0.15]: feasible - ok, joints [-29.0, 86.6] deg
+[2026-09-21T18:53:58]   waypoint 1 [1.25, 0.45]: feasible - ok, joints [19.8, 75.5] deg
+[2026-09-21T18:53:58]   waypoint 2 [1.5, -0.25]: feasible - ok, joints [-60.0, 61.6] deg
+[2026-09-21T18:53:58] Env: obs_dim 14, action_dim 4, dt 0.02, train tol 0.15 m, hold 10, decrement 5
+[2026-09-21T18:53:58] Resolved hyperparameters: {"algorithm": "SAC", "gamma": 0.99, "learning_rate": 0.0003, "buffer_size": 300000, "learning_starts": 5000, "batch_size": 256, "tau": 0.005, "train_freq": [1, "step"], "gradient_steps": 1, "ent_coef": "auto", "target_entropy": -4.0, "n_steps": 1, "seed": 1, "device": "cpu", "net_arch": [256, 256], "n_envs": 1, "policy_kwargs": {"net_arch": [256, 256], "use_sde": false}}
+[2026-09-21T22:41:55] Training complete in 13677.3s (600,000 total steps)
+[2026-09-21T22:41:55] Episodes: 1,200; mean reward (100 ep): 377.12
+[2026-09-21T22:41:55] Curriculum: tolerance 0.05 m, hold 25, best score [1.0, 4.0, -0.010213, -105.6] at step 360000
+[2026-09-21T22:41:55] Saved package: {'model': 'C:\\arm-model-runs\\stageB\\seed_1\\sac_model', 'history': 'C:\\arm-model-runs\\stageB\\seed_1\\training_history.csv', 'stats': 'C:\\arm-model-runs\\stageB\\seed_1\\training_stats.json', 'manifest': 'C:\\arm-model-runs\\stageB\\seed_1\\run_manifest.json'}
+[2026-09-21T22:41:59] FINAL (best checkpoint, 20 episodes): 20/20 success, wp 3.00, hold 1.00, dist 0.010 m, steps 105
+[2026-09-21T22:41:59] Human-likeness: straightness 1.08, symmetry 0.28, submovements 1.9, jerk 32
+[2026-09-21T22:41:59] Validators skipped (--skip-validators).
+[2026-09-21T22:41:59] ============================================================

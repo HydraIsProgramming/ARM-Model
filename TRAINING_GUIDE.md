@@ -147,11 +147,23 @@ and the action space), the env (`reset(seed)`), torch (`use_deterministic_algori
 `tests/test_reproducibility.py::test_same_seed_same_weights_different_seed_differs` proves it. Different
 seeds with the same config are how you *measure* variance; seed search is not a method.
 
+## 5b. Current champions
+
+| stage | task | model package | result (20 fresh episodes at the standard) |
+|---|---|---|---|
+| A | 2 waypoints, v1 set | `project_assets/outputs/CHAMPION_HUMAN_V1_A` (seed 5) | 20/20, 2.8 cm, 1.1 s |
+| B | 3 waypoints, v1 set | `project_assets/outputs/CHAMPION_HUMAN_V1_B` (seed 1) | 20/20, 1.2 cm, 2.1 s (2/5 seeds passed) |
+| **B3** | **3 waypoints, v2 set, clean** | **`project_assets/outputs/CHAMPION_HUMAN_V1_B3`** (seed 4) | **20/20, 0.1 cm, 5.0 s; all 5 seeds 20/20** |
+
+For a fast demo use B3 seed 1 or 2 (`C:/arm-model-runs/stageB3/seed_1`, 20/20 in 1.8 s). Replay buffers and
+checkpoints for every run stay in `C:/arm-model-runs/<stage>/seed_<k>/`.
+
 ## 6. Demo
 
 ```bash
-python scripts/show_waypoints.py C:/arm-model-runs/stageA/seed_1 --episodes 3 --gif demo_2wp.gif
-python -m rl_armMotion.two_d.gui.app        # Load Model -> pick sac_model_best.zip in a package -> Run Simulation
+python scripts/show_waypoints.py project_assets/outputs/CHAMPION_HUMAN_V1_B3 --episodes 3 --gif demo_3wp.gif
+python -m rl_armMotion.two_d.gui.app --package project_assets/outputs/CHAMPION_HUMAN_V1_B3 --autostart
+python -m rl_armMotion.two_d.gui.app        # or: Load Model -> pick sac_model_best.zip in a package -> Run Simulation
 ```
 
 The GUI draws the torso silhouette, the waypoints with their tolerance circles (green visited, red
