@@ -1199,6 +1199,16 @@ class ArmControllerGUI:
             print(f"[OK] {raw_env.actuation_mode}-mode model in {raw_env.preset_name}: "
                   f"{raw_env.num_waypoints} waypoints, tolerance {raw_env.goal_tolerance} m, "
                   f"hold {raw_env.hold_steps_required} steps")
+            trained_random = bool((self.sim_manifest or {}).get("env", {}).get("random_waypoints"))
+            self.sim_model_kind = "random-waypoint (generalising)" if trained_random else "fixed-waypoint"
+            if wps is not None and not trained_random:
+                trained_wps = (self.sim_manifest or {}).get("env", {}).get("waypoints")
+                print(f"[WARN] This is a FIXED-waypoint model (trained only on {trained_wps}); "
+                      f"it is not expected to reach other points. Use a random-waypoint (Stage R3) package "
+                      f"for arbitrary targets.")
+                if self.sim_model_label is not None:
+                    self.sim_model_label.config(
+                        text=f"Model: {Path(self.sim_model_path).name}  [FIXED-waypoint model: custom points unsupported]")
 
             self.sim_episode_seed = 0
             self.sim_obs, info = self.sim_env.reset(seed=self.sim_episode_seed)
