@@ -138,6 +138,25 @@ singularity (elbow flexion has no first-order effect on hand distance there).
 4. Pairwise spacing $> 2 \times$ coarsest curriculum tolerance $= 0.30$ m, and start-pose distance to the first
    waypoint $>$ coarsest tolerance + jitter margin, so a motionless arm can never satisfy two goals at once.
 
+### 2.1b Random waypoints (the generalising task, Stage R3)
+
+`ArmTaskEnv(random_waypoints=N)` draws a fresh ordered set of N targets at every `reset()`
+instead of using a fixed set. The sampler is built once per env:
+
+1. a 2 cm grid (`waypoint_grid=0.02`) is laid over the bounding box of the reach circle,
+   optionally restricted to `waypoint_region=(x_min, x_max, y_min, y_max)`;
+2. every grid point is passed through the three feasibility rules of §2.1 — reachable with
+   the required margin inside the reach circle, IK inside the ROM, static hold torque
+   $|G(q^*)| \le 0.8\,	au_{\max}$ — leaving **930 feasible points** for the right-arm preset;
+3. per reset, N points are drawn without replacement and rejected until the pairwise
+   spacing rule of §2.1 and the start-pose distance rule both hold.
+
+The observation (§2.4) already carries the active goal and the waypoint index, so nothing
+about the policy interface changes — which is exactly why a fixed-waypoint policy *can*
+ignore the goal channel and memorise a trajectory, and a random-waypoint policy cannot.
+The sampled set is recorded per episode by `evaluate_policy`, and the manifest records
+`random_waypoints`, `waypoint_region` and `waypoint_grid` so the task is reproducible.
+
 ### 2.2 In-goal criterion
 
 $$\text{in\_goal} \iff \|p - g^{(k)}\| < \varepsilon \;\wedge\; \|v\| < 0.10 \text{ m/s} \;\wedge\; \|\dot q\| < 1.0 \text{ rad/s}$$
@@ -280,6 +299,11 @@ Human-likeness metrics computed per movement segment (`kinematics_metrics.py`): 
 | A | 2 waypoints (v1) | muscle, instantaneous | 3 / 5 | 0.64 ± 0.50 | 20/20, 2.8 cm, 1.1 s |
 | B | 3 waypoints (v1) | muscle, instantaneous | 2 / 5 | 0.40 ± 0.55 | 20/20, 1.2 cm, 2.1 s |
 | **B3** | **3 waypoints (v2)** | **muscle + activation dynamics + accel. penalty** | **5 / 5** | **1.00 ± 0.00** | **20/20, 0.1 cm, 5.0 s** (fastest seed 1.8 s) |
+| **R3** | **3 RANDOM waypoints per episode** | **muscle + activation dynamics + accel. penalty** | **5 / 5** | **0.92 ± 0.06** | **20/20 on unseen triples, 2.1 cm, 2.6 s** |
+
+Stages A, B and B3 train on one fixed waypoint set and memorise it: on 20 random triples the B3 champion
+reaches 0.25 of 3 waypoints (0 % success, 24.7 cm final error) while the R3 champion reaches 3.00 of 3
+(100 %, 2.1 cm). Only R3 answers "go to any three points I choose".
 
 Negative results kept on record: warm-starting a 3-waypoint policy from a 2-waypoint model is worse than
 training from scratch; a final waypoint within the coarse curriculum tolerance of the reach circle induces a

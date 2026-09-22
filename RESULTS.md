@@ -8,9 +8,81 @@
 > **reversed** by the matched-seed comparison in `docs/paper/main.tex`; (2) the
 > environment had no gravity, uncoupled inertia, an inverted muscle velocity
 > sign and a non-Markov observation, and its evaluations repeated one
-> deterministic rollout. Results for the human-arm model are produced by
-> `run_campaign.py` (Stage A / B tables and `campaign_report.json` in the
-> run directory) and will replace this file once Stage B passes.
+> deterministic rollout. Results for the human-arm model are the
+> Stage A / B3 / R3 sections below, produced by `run_campaign.py` with
+> `campaign_report.json` in each run directory.
+
+## Human-arm v2 — Stage R3 (ANY three points), 2026-09-22 — **PASS 5/5**
+
+The Stage A/B/B3 models are trained on one fixed waypoint set and *memorise* it: on the
+matched test below, the B3 champion reaches 0.25 of 3 waypoints when the points move.
+Stage R3 trains the generalising policy — **three waypoints re-sampled from the feasible
+region at every reset**, so the arm has to use the goal in its observation rather than
+replay a trajectory.
+
+Task: `ArmTaskEnv(random_waypoints=3)` samples from a 2 cm grid of 930 feasible points
+(inside the reach circle with margin, inside the ROM, static hold torque <= 0.8 tau_max),
+with a minimum spacing check. Five seeds x 1,000,000 steps, clean config (activation
+dynamics 40/60 ms, W_ACCEL 0.02). Each seed's best checkpoint on 20 fresh random triples
+at the evaluation standard (5 cm, 25-step / 0.5 s hold, hand speed < 0.10 m/s).
+
+| seed | success | final error | time to hold | straightness | symmetry | submovements | dim. jerk |
+|---|---|---|---|---|---|---|---|
+| **1** | **20/20** | 2.1 cm | 2.6 s | 1.19 | 0.56 | 1.5 | 33 |
+| 2 | 19/20 | 2.3 cm | 2.5 s | 1.21 | 0.58 | 1.3 | 30 |
+| 3 | 18/20 | 2.4 cm | 2.4 s | 1.21 | 0.56 | 1.3 | 28 |
+| 4 | 17/20 | 5.6 cm | 2.7 s | 1.22 | 0.47 | 1.3 | 1339 |
+| 5 | 18/20 | 5.0 cm | 2.6 s | 1.21 | 0.52 | 1.6 | 35 |
+
+Mean success **0.92 +/- 0.06** over seeds; **5/5 seeds >= 80 % -> PASS**. Champion: seed 1,
+promoted to `project_assets/outputs/CHAMPION_HUMAN_V1_R3/` (full packages with replay
+buffers in `C:/arm-model-runs/stageR3_cont/`). Every seed finished on the last tolerance
+rung (5 cm) and the last hold rung (25 steps).
+
+### Memoriser vs generaliser — same 20 random triples, same env
+
+| policy | success | waypoints reached | final error |
+|---|---|---|---|
+| B3 champion (trained on 3 *fixed* points) | 0 % | 0.25 / 3 | 24.7 cm |
+| **R3 champion (trained on *random* points)** | **100 %** | **3.00 / 3** | **2.1 cm** |
+
+This is the whole point of the stage: a policy that scores 20/20 on its training waypoints
+is worth nothing when the user places different ones.
+
+### Champion failure analysis (40 fresh random triples)
+
+`python scripts/diagnose_random_reach.py project_assets/outputs/CHAMPION_HUMAN_V1_R3 --episodes 40`
+
+```
+episode success   37/40 = 92%
+waypoint 1        39/40 completed, median closest approach 0.024 m
+waypoint 2        38/39 completed, 0.035 m
+waypoint 3        37/38 completed (the one needing the 0.5 s hold), 0.020 m
+median duration   2.6 s per three-point episode, of a 10 s budget
+```
+
+All three failures came within 1.5x the tolerance (closest approach ~0.052 m against a
+0.050 m target) and all three were points close to the shoulder, where the arm has to fold
+up: `near/level` 50 % (n=2), `near/low` 80 % (n=5), `near/high` 86 % (n=7) against 100 % for
+every mid-range bucket. That region is the next thing to improve, and it is a sampling
+question (the feasible grid is uniform in area, so close-in points are rare in training),
+not a physics one.
+
+### What the mid-run diagnosis showed
+
+The run was paused at ~480K steps with seeds at 20-50 % and resumed on 2026-09-22. At the
+pause the same analysis gave 40 % episode success, per-waypoint completion 85/82/57 %, and
+a median closest approach of 0.058 m — *outside* the 5 cm tolerance. 11 of 12 failures were
+already within 1.5x the tolerance, i.e. the arm was arriving at the right place and failing
+to finish. That is why the remaining 500K steps on the 5 cm rung were spent on precision
+rather than on a changed reward: closest approach tightened to 0.034 m by 740K and to
+0.020-0.035 m at 1M, and success went 40 % -> 92 %.
+
+Human-likeness: straightness 1.19-1.22 (human 1.0-1.15) is slightly above the band — a
+random-point policy curves more than a policy that has memorised one path; symmetry
+0.47-0.58 straddles the human 0.35-0.55; 1.3-1.6 submovements per segment matches human
+point-to-point reaching. Seed 4's dimensionless jerk (1339) is a single outlier episode,
+the other seeds sit at 28-35.
 
 ## Human-arm v2 — Stage A (2 waypoints), 2026-09-21
 
