@@ -85,7 +85,11 @@ class ArmControllerGUI:
         self.sim_model_label = None
         self.sim_model_details_text = None
         self.sim_time = 0.0
-        self.action_smoothing = True
+        self.action_smoothing = False   # models with muscle activation dynamics must NOT be smoothed again
+        self.clicked_waypoints = []
+        self._place_mode = False
+        self._feasible_cloud = None
+        self._feasible_cloud_key = None
         self.action_smooth_alpha = 0.3
         self.prev_sim_velocities = np.zeros(self.config.dof, dtype=float)
         self.latest_shoulder_torque = 0.0
@@ -611,6 +615,14 @@ class ArmControllerGUI:
         ttk.Checkbutton(wp_row, text="Loop", variable=self._loop_var,
                         command=lambda: setattr(self, "sim_loop", bool(self._loop_var.get()))).pack(side="left", padx=(6, 0))
 
+        place_row = ttk.Frame(frame)
+        place_row.pack(fill="x", pady=(2, 4))
+        self._place_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(place_row, text="Place waypoints by clicking the arm panel (green = feasible area)",
+                        variable=self._place_var, command=self._on_place_toggle).pack(side="left")
+        ttk.Button(place_row, text="Clear points", command=self._on_clear_points).pack(side="left", padx=(8, 0))
+        ttk.Button(place_row, text="Restart with points", command=self._on_restart_with_points).pack(side="left", padx=(4, 0))
+
         hold_row = ttk.Frame(frame)
         hold_row.pack(fill="x", pady=(2, 4))
         ttk.Label(hold_row, text="Hold:", font=("Courier", 8)).pack(side="left", padx=(0, 4))
@@ -689,6 +701,7 @@ class ArmControllerGUI:
 
         # Embed in Tkinter
         self.canvas_agg = FigureCanvasTkAgg(self.fig, master=frame)
+        self.canvas_agg.mpl_connect("button_press_event", self._on_canvas_click)
         self.canvas_agg.draw()
         self.canvas_agg.get_tk_widget().pack(fill="both", expand=True)
 
@@ -1055,6 +1068,68 @@ class ArmControllerGUI:
             return
         self._start_simulation()
 
+    def _on_place_toggle(self):
+        self._place_mode = bool(self._place_var.get())
+        print(f"[OK] Waypoint placement {'ON: click the arm panel to add points' if self._place_mode else 'OFF'}")
+
+    def _on_clear_points(self):
+        self.clicked_waypoints = []
+        self.sim_custom_waypoints = ""
+        if hasattr(self, "_wp_custom_var"):
+            self._wp_custom_var.set("")
+        print("[OK] Placed waypoints cleared")
+
+    def _on_restart_with_points(self):
+        if not self.clicked_waypoints:
+            messagebox.showwarning("Waypoints", "Place at least one point first (tick 'Place waypoints by clicking').")
+            return
+        if self.simulation_active:
+            self._stop_simulation()
+        self._start_simulation()
+
+    def _feasibility_env(self):
+        base = getattr(self.sim_env, "unwrapped", None) if self.sim_env is not None else None
+        if base is None:
+            base = ArmTaskEnv(actuation_mode="torque", config=self.config)
+        return base
+
+    def _on_canvas_click(self, event):
+        """Add a waypoint at the clicked workspace point (plot frame is shoulder-local)."""
+        if not self._place_mode or event.inaxes is not self.ax or event.xdata is None:
+            return
+        env = self._feasibility_env()
+        shoulder = np.asarray(env.shoulder_base_position, dtype=float)
+        wp = [float(event.xdata) + shoulder[0], float(event.ydata) + shoulder[1]]
+        f = env.waypoint_feasibility(wp, env.max_curriculum_tolerance)
+        if not f.get("feasible", False):
+            print(f"[WARN] point ({wp[0]:.2f}, {wp[1]:.2f}) rejected: {f.get('reason')}")
+            return
+        trial = self.clicked_waypoints + [wp]
+        try:
+            env._validate_waypoint_spacing([np.asarray(w, dtype=float) for w in trial])
+        except ValueError as exc:
+            print(f"[WARN] point rejected: {exc}")
+            return
+        self.clicked_waypoints = trial
+        self.sim_custom_waypoints = ";".join(f"{x:.3f},{y:.3f}" for x, y in self.clicked_waypoints)
+        self.sim_waypoint_choice = "custom"
+        if hasattr(self, "_wp_custom_var"):
+            self._wp_custom_var.set(self.sim_custom_waypoints)
+        if hasattr(self, "_wp_choice_var"):
+            self._wp_choice_var.set("custom")
+        print(f"[OK] waypoint {len(self.clicked_waypoints)} placed at ({wp[0]:.3f}, {wp[1]:.3f}); "
+              f"press 'Restart with points' to run")
+
+    def _feasible_cloud_points(self):
+        """Shoulder-local scatter of feasible waypoint positions (cached per config)."""
+        key = (self.config.name, tuple(self.config.link_lengths))
+        if self._feasible_cloud_key != key:
+            env = self._feasibility_env()
+            pts = env.feasible_points() - np.asarray(env.shoulder_base_position, dtype=float)
+            self._feasible_cloud = pts
+            self._feasible_cloud_key = key
+        return self._feasible_cloud
+
     def _selected_waypoints(self):
         """Waypoint override from the demo controls (None = package/default)."""
         choice = self.sim_waypoint_choice
@@ -1111,11 +1186,15 @@ class ArmControllerGUI:
                 pass
             self.sim_steps_per_frame = max(1, int(round(0.05 / float(raw_env.dt))))
 
-            if self.action_smoothing and raw_env.actuation_mode == "muscle":
+            if self.action_smoothing and raw_env.actuation_mode == "muscle" and not raw_env.use_activation_dynamics:
                 self.sim_env = ActionSmoother(raw_env, alpha=self.action_smooth_alpha)
                 print(f"[OK] Action smoothing ON (alpha={self.action_smooth_alpha})")
             else:
+                if self.action_smoothing and raw_env.use_activation_dynamics:
+                    print("[OK] Action smoothing skipped: this model has muscle activation dynamics "
+                          "(an extra smoother puts it out of distribution)")
                 self.sim_env = raw_env
+            self._feasible_cloud_key = None
             self.sim_model = model
             print(f"[OK] {raw_env.actuation_mode}-mode model in {raw_env.preset_name}: "
                   f"{raw_env.num_waypoints} waypoints, tolerance {raw_env.goal_tolerance} m, "
@@ -1298,6 +1377,21 @@ class ArmControllerGUI:
 
         title = f"Arm Configuration - FPS: {self.fps_counter:.0f}"
         info = self.sim_last_info if self.simulation_active else None
+        if self._place_mode or (self.clicked_waypoints and not self.simulation_active):
+            try:
+                cloud = self._feasible_cloud_points()
+                self.ax.scatter(cloud[:, 0], cloud[:, 1], s=6, c="#2ecc71", alpha=0.25, zorder=1, linewidths=0)
+            except Exception:
+                pass
+        if self.clicked_waypoints and not self.simulation_active:
+            shoulder = np.asarray(self._feasibility_env().shoulder_base_position, dtype=float)
+            for i, wp in enumerate(self.clicked_waypoints):
+                p = np.asarray(wp, dtype=float) - shoulder
+                self.ax.add_patch(plt.Circle((p[0], p[1]), 0.05, color="red", fill=False, linewidth=1.2, zorder=4))
+                self.ax.scatter(p[0], p[1], c="red", s=160, marker="X", edgecolors="black", linewidths=1.5, zorder=10)
+                self.ax.annotate(f"{i + 1}", (p[0], p[1]), textcoords="offset points", xytext=(8, 8),
+                                 fontsize=10, fontweight="bold")
+            title = f"{len(self.clicked_waypoints)} waypoint(s) placed - press 'Restart with points'"
         if info is not None:
             # Waypoints are in the workspace frame; the plot is shoulder-local.
             shoulder = np.asarray(info.get("shoulder_position", [0.0, 0.0]), dtype=float)

@@ -175,6 +175,7 @@ class EpisodeResult:
     steps: int
     episode_return: float
     hold_steps_after_success: int = 0
+    waypoints: Optional[List[List[float]]] = None
     human_likeness: Optional[Dict[str, Any]] = None
     trajectory: Optional[Dict[str, np.ndarray]] = None
 
@@ -376,6 +377,7 @@ def evaluate_policy(
             seed=ep_seed,
             success=bool(info["success"]),
             success_step=info.get("success_step"),
+            waypoints=info.get("waypoints"),
             waypoints_reached=int(info["waypoints_reached"]),
             num_waypoints=int(info["num_waypoints"]),
             max_hold_progress=float(max_hold),

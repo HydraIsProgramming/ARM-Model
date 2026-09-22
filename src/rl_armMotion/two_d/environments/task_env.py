@@ -198,6 +198,9 @@ class ArmTaskEnv(gym.Env):
         config: Optional[ArmConfiguration] = None,
         activation_time_constants: Optional[Sequence[float]] = None,
         reward_weights: Optional[Dict[str, float]] = None,
+        random_waypoints: Optional[int] = None,
+        waypoint_region: Optional[Sequence[float]] = None,
+        waypoint_grid: float = 0.02,
         render_mode: Optional[str] = None,
         # Legacy keyword accepted and ignored so old call sites do not break.
         use_2dof: bool = True,
@@ -318,7 +321,20 @@ class ArmTaskEnv(gym.Env):
         self.waypoints: Optional[List[np.ndarray]] = None
         self.current_waypoint_index = 0
         self._waypoint_sampler: Optional[Callable[[np.random.Generator], Sequence[Sequence[float]]]] = None
+        # Random-waypoint task: every reset draws `random_waypoints` points from
+        # the feasible region (a 2 cm grid of points passing waypoint_feasibility
+        # at the coarsest curriculum tolerance, optionally clipped to
+        # waypoint_region = [xmin, xmax, ymin, ymax] in the workspace frame).
+        self.random_waypoints: Optional[int] = int(random_waypoints) if random_waypoints else None
+        self.waypoint_region: Optional[List[float]] = (
+            [float(v) for v in waypoint_region] if waypoint_region is not None else None)
+        self.waypoint_grid = float(waypoint_grid)
+        self._feasible_points: Optional[np.ndarray] = None
         self._configure_goal(goal_direction)
+        if self.random_waypoints is not None:
+            if self.random_waypoints < 1:
+                raise ValueError("random_waypoints must be >= 1")
+            self.goal_direction = "WAYPOINTS"
 
         # Dynamic state
         self.q = np.array(self.config.initial_angles, dtype=float)
@@ -654,6 +670,56 @@ class ArmTaskEnv(gym.Env):
         return self.waypoint_feasibility(position)
 
     # ------------------------------------------------------------------ #
+    # Random waypoints
+    # ------------------------------------------------------------------ #
+    def feasible_points(self) -> np.ndarray:
+        """Grid of workspace points where a waypoint is robustly holdable
+        (reach margin, range of motion, static torque), cached per env."""
+        if self._feasible_points is None:
+            S = self.shoulder_base_position
+            R = self.reach
+            g = self.waypoint_grid
+            if self.waypoint_region is not None:
+                xmin, xmax, ymin, ymax = self.waypoint_region
+            else:
+                xmin, xmax, ymin, ymax = S[0] - R, S[0] + R, S[1] - R, S[1] + R
+            xs = np.arange(xmin, xmax + 1e-9, g)
+            ys = np.arange(ymin, ymax + 1e-9, g)
+            pts = []
+            tol = self.max_curriculum_tolerance
+            for x in xs:
+                for y in ys:
+                    if self.waypoint_feasibility([x, y], tol).get("feasible", False):
+                        pts.append((float(x), float(y)))
+            self._feasible_points = np.asarray(pts, dtype=float).reshape(-1, 2)
+            if self._feasible_points.shape[0] == 0:
+                raise ValueError("no feasible waypoint positions in the requested region")
+        return self._feasible_points
+
+    def sample_waypoints(self, rng: np.random.Generator, n: Optional[int] = None,
+                         attempts: int = 500) -> List[List[float]]:
+        """Draw ``n`` feasible waypoints that also satisfy the spacing rules."""
+        n = int(self.random_waypoints if n is None else n)
+        pts = self.feasible_points()
+        half = 0.5 * self.waypoint_grid
+        for _ in range(attempts):
+            idx = rng.choice(pts.shape[0], size=n, replace=False)
+            cand = pts[idx] + rng.uniform(-half, half, size=(n, 2))
+            wps = [np.asarray(w, dtype=float) for w in cand]
+            try:
+                self._validate_waypoint_spacing(wps)
+            except ValueError:
+                continue
+            return [w.tolist() for w in wps]
+        raise RuntimeError(f"could not sample {n} waypoints satisfying the spacing rules in {attempts} attempts")
+
+    def _set_waypoints_unchecked(self, wps: Sequence[Sequence[float]]) -> None:
+        self.waypoints = [np.asarray(w, dtype=float).reshape(2).copy() for w in wps]
+        self.current_waypoint_index = 0
+        self.goal_direction = "WAYPOINTS"
+        self._apply_waypoint(0)
+
+    # ------------------------------------------------------------------ #
     # Reset
     # ------------------------------------------------------------------ #
     def reset(self, seed: Optional[int] = None, options: Optional[Dict[str, Any]] = None
@@ -662,8 +728,12 @@ class ArmTaskEnv(gym.Env):
         options = options or {}
         rng = self.np_random
 
-        if self._waypoint_sampler is not None and self.goal_direction == "WAYPOINTS":
+        if "waypoints" in options and options["waypoints"] is not None:
+            self._set_waypoints_unchecked(options["waypoints"])       # one-off override (tests, demos)
+        elif self._waypoint_sampler is not None and self.goal_direction == "WAYPOINTS":
             self.set_waypoints(self._waypoint_sampler(rng))
+        elif self.random_waypoints is not None:
+            self._set_waypoints_unchecked(self.sample_waypoints(rng))
 
         randomize = bool(options.get("randomize", self.randomize_initial_state))
         nominal = np.asarray(self.config.initial_angles, dtype=float)
@@ -1021,6 +1091,9 @@ class ArmTaskEnv(gym.Env):
             "physics_substeps": int(self.config.physics_substeps),
             "activation_time_constants": self.config.activation_time_constants,
             "reward_weights": {k: float(getattr(self, k)) for k in self.REWARD_WEIGHT_KEYS},
+            "random_waypoints": self.random_waypoints,
+            "waypoint_region": self.waypoint_region,
+            "waypoint_grid": self.waypoint_grid,
         }
 
     @classmethod
@@ -1055,8 +1128,19 @@ class ArmTaskEnv(gym.Env):
             config=cfg,
             reward_weights={k: v for k, v in (desc.get("reward_weights") or {}).items()
                             if k in cls.REWARD_WEIGHT_KEYS},
+            random_waypoints=desc.get("random_waypoints"),
+            waypoint_region=desc.get("waypoint_region"),
+            waypoint_grid=desc.get("waypoint_grid", 0.02),
         )
-        waypoints = overrides.pop("waypoints", desc.get("waypoints"))
+        if "waypoints" in overrides:
+            # Explicit waypoints pin the task (e.g. GUI-placed points on a
+            # random-waypoint model): sampling is switched off.
+            waypoints = overrides.pop("waypoints")
+            kwargs["random_waypoints"] = None
+        elif desc.get("random_waypoints"):
+            waypoints = None                       # the env samples its own at reset
+        else:
+            waypoints = desc.get("waypoints")
         kwargs.update(overrides)
         env = cls(**kwargs)
         if waypoints:

@@ -361,3 +361,29 @@ def test_end_range_engagement_penalised_before_hard_stop():
     assert not info["at_joint_limit"][1]
     mid = env.config.joint_mid_angles
     assert np.all(env._end_range_engagement(mid) == 0.0)
+
+
+def test_random_waypoints_sampled_per_episode_and_recorded():
+    env = make_env(actuation_mode="torque", random_waypoints=3)
+    pts = env.feasible_points()
+    assert pts.shape[0] > 500
+    for p in pts[::97]:
+        assert env.waypoint_feasibility(p, env.max_curriculum_tolerance)["feasible"]
+    o1, _ = env.reset(seed=1); w1 = [w.tolist() for w in env.waypoints]
+    o2, _ = env.reset(seed=1); w2 = [w.tolist() for w in env.waypoints]
+    o3, _ = env.reset(seed=2); w3 = [w.tolist() for w in env.waypoints]
+    assert w1 == w2 and w1 != w3 and len(w3) == 3
+    env._validate_waypoint_spacing([np.asarray(w) for w in w3])       # spacing rules hold
+    desc = env.describe()
+    assert desc["random_waypoints"] == 3
+    again = ArmTaskEnv.from_description(desc)
+    assert again.random_waypoints == 3
+    pinned = ArmTaskEnv.from_description(desc, waypoints=CANONICAL_WAYPOINTS[3])
+    assert pinned.random_waypoints is None and len(pinned.waypoints) == 3
+    pinned.reset(seed=0)
+    assert [w.tolist() for w in pinned.waypoints] == CANONICAL_WAYPOINTS[3]
+    # a one-off override at reset does not change the sampler
+    env.reset(seed=3, options={"waypoints": CANONICAL_WAYPOINTS[2]})
+    assert len(env.waypoints) == 2
+    env.reset(seed=4)
+    assert len(env.waypoints) == 3

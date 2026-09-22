@@ -48,6 +48,10 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--waypoints", type=str, default="2",
                    help='2 | 3 | spread | "x,y;x,y;..." | none (single goal from --goal-direction).')
     p.add_argument("--goal-direction", type=str, default="EAST", choices=["EAST", "NORTH", "HEIGHT", "WEST"])
+    p.add_argument("--random-waypoints", type=int, default=None,
+                   help="Draw this many feasible waypoints at random every episode (generalising policy); overrides --waypoints.")
+    p.add_argument("--waypoint-region", type=str, default=None,
+                   help='Clip the random-waypoint region: "xmin,xmax,ymin,ymax" in the workspace frame.')
     p.add_argument("--hold-decrement", type=int, default=None, help="Default: evaluation standard (5).")
     p.add_argument("--intermediate-hold-steps", type=int, default=None)
     p.add_argument("--hand-load-range", type=str, default="0,0", help="kg range randomised at reset, e.g. 0,1")
@@ -150,7 +154,11 @@ def main(argv=None) -> int:
         sensory_delay_steps=args.sensory_delay,
         activation_time_constants=_parse_floats(args.activation_dynamics) if args.activation_dynamics else None,
         reward_weights=reward_weights or None,
+        random_waypoints=args.random_waypoints,
+        waypoint_region=_parse_floats(args.waypoint_region) if args.waypoint_region else None,
     )
+    if args.random_waypoints:
+        waypoints = None
     tolerance_ladder = _parse_floats(args.tolerance_ladder)
     hold_ladder = [int(x) for x in _parse_floats(args.hold_ladder)]
     env = make_env(waypoints=waypoints, tolerance=tolerance_ladder[0], hold_steps=hold_ladder[0], **env_kwargs)
@@ -158,6 +166,10 @@ def main(argv=None) -> int:
         env.set_hold_decrement(args.hold_decrement)
     if args.intermediate_hold_steps is not None:
         env.set_intermediate_hold_steps(args.intermediate_hold_steps)
+    if args.random_waypoints:
+        pts = env.feasible_points()
+        log(f"Random waypoints: {args.random_waypoints} per episode from {pts.shape[0]} feasible grid points "
+            f"(x {pts[:,0].min():.2f}..{pts[:,0].max():.2f}, y {pts[:,1].min():.2f}..{pts[:,1].max():.2f})")
     if waypoints:
         for i, wp in enumerate(waypoints):
             f = env.waypoint_feasibility(wp, EVAL_STANDARD.tolerance)
