@@ -347,3 +347,17 @@ def test_reward_weight_override_roundtrips_and_accel_term():
     with pytest.raises(ValueError):
         make_env(actuation_mode="torque", reward_weights={"W_BOGUS": 1.0})
     assert make_env(actuation_mode="torque").W_ACCEL == 0.0                 # default off
+
+
+def test_end_range_engagement_penalised_before_hard_stop():
+    env = make_env(actuation_mode="torque", waypoints=2)
+    env.reset(seed=0, options={"randomize": False})
+    q_straight = np.array([-np.pi / 2, np.deg2rad(3.0)])        # elbow 3 deg: inside the 10 deg spring margin
+    eng = env._end_range_engagement(q_straight)
+    assert 0.6 < eng[1] < 0.8 and eng[0] == 0.0
+    env.reset(seed=0, options={"state": (q_straight, np.zeros(2))})
+    _, _, _, _, info = env.step(np.zeros(2, dtype=np.float32))
+    assert info["reward_terms"]["joint_limit"] < 0.0
+    assert not info["at_joint_limit"][1]
+    mid = env.config.joint_mid_angles
+    assert np.all(env._end_range_engagement(mid) == 0.0)

@@ -51,7 +51,7 @@ Reward (all distances normalised by reach R)
       - W_DIST   * |goal_k' - hand'| / R                 dense far-field gradient
       - W_EFFORT * |a|^2                                 effort (no co-contraction penalty)
       - W_SMOOTH * |qd'| / velocity_limit                mild smoothness
-      - W_LIMIT  * (number of joints on a hard stop)      end-range avoidance
+      - W_LIMIT  * (joints on a hard stop + end-range spring engagement 0..1)   end-range avoidance
       - W_SPEED_EXCESS * max(0, |hand velocity| - 1.5)^2  human-like speed cap
       - W_ACCEL * min((|hand accel| / 10)^2, 4)           smoothness (min-jerk proxy; 0 unless enabled)
       + R_IN_GOAL      if in_goal at the FINAL waypoint  hold stream
@@ -63,6 +63,7 @@ index) and is therefore policy-invariant (Ng, Harada & Russell 1999).
 
 from __future__ import annotations
 
+import warnings
 from collections import deque
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -472,6 +473,11 @@ class ArmTaskEnv(gym.Env):
                 raise ValueError(f"waypoint {i} must have shape (2,), got {arr.shape}")
             wps.append(arr.copy())
         self._validate_waypoint_spacing(wps)
+        for i, wp in enumerate(wps):
+            f = self.waypoint_feasibility(wp, self.max_curriculum_tolerance)
+            if not f.get("feasible", False):
+                warnings.warn(f"waypoint {i} {wp.tolist()} is not robustly feasible: {f.get('reason')}",
+                              RuntimeWarning, stacklevel=2)
         if tolerance is not None:
             self.set_goal_tolerance(tolerance)
         self.waypoints = wps
@@ -606,9 +612,19 @@ class ArmTaskEnv(gym.Env):
         L = np.asarray(self.config.link_lengths, dtype=float)
         out: Dict[str, Any] = {"position": pos.tolist(), "tolerance": tol, "radius_from_shoulder": r}
         r_min = abs(L[0] - L[1]) if self.num_dof == 2 else 0.0
-        if not (r_min + tol < r < float(np.sum(L)) - tol):
-            out.update(reachable=False, within_rom=False, feasible=False,
-                       reason=f"radius {r:.3f} m not inside ({r_min + tol:.3f}, {np.sum(L) - tol:.3f}) with tolerance margin")
+        # A goal closer to the reach circle than the coarsest curriculum
+        # tolerance can be "reached" by a straight arm resting on the elbow's
+        # end-range spring -- a degenerate hold that policies learn at the
+        # coarse rungs and cannot unlearn (Stage B, v1 waypoints).
+        reach_margin = max(tol, float(self.max_curriculum_tolerance)) + 0.03
+        out["reach_margin_required"] = reach_margin
+        out["reach_margin"] = float(np.sum(L)) - r
+        if not (r_min + tol < r < float(np.sum(L)) - reach_margin):
+            out.update(reachable=r < float(np.sum(L)), within_rom=False, feasible=False,
+                       reason=(f"radius {r:.3f} m is within {reach_margin:.3f} m of the reach circle "
+                               f"({np.sum(L):.3f} m): a straight-arm rest would count as in-goal at the "
+                               f"coarse curriculum tolerance") if r >= float(np.sum(L)) - reach_margin else
+                              f"radius {r:.3f} m is inside the inner workspace limit {r_min + tol:.3f} m")
             return out
         q = self.solve_ik(pos)
         out["reachable"] = True
@@ -712,6 +728,23 @@ class ArmTaskEnv(gym.Env):
     # ------------------------------------------------------------------ #
     # Observation
     # ------------------------------------------------------------------ #
+    def _end_range_engagement(self, q: np.ndarray) -> np.ndarray:
+        """Per joint, how far into the passive end-range margin it sits (0..1).
+
+        Humans avoid end-range postures (ligament strain); leaning on the
+        end-range spring is also a free way to hold a straight arm, which the
+        joint-limit penalty should charge for even before the hard stop.
+        """
+        cfg = self.config
+        qmin = np.asarray(cfg.joint_limits_min, dtype=float)
+        qmax = np.asarray(cfg.joint_limits_max, dtype=float)
+        m_min = np.asarray(cfg.passive_limit_margins_min, dtype=float)
+        m_max = np.asarray(cfg.passive_limit_margins_max, dtype=float)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            low = np.where(m_min > 0, ((qmin + m_min) - q) / m_min, 0.0)
+            high = np.where(m_max > 0, (q - (qmax - m_max)) / m_max, 0.0)
+        return np.clip(np.maximum(low, high), 0.0, 1.0)
+
     def _in_goal(self, distance: float, ee_speed: float, joint_speed: float, q: np.ndarray) -> bool:
         ok = (distance < self.goal_tolerance
               and ee_speed < self.ee_speed_tolerance
@@ -862,7 +895,8 @@ class ArmTaskEnv(gym.Env):
         dist_term = -self.W_DIST * distance / self.reach
         effort = -self.W_EFFORT * float(np.dot(a, a))
         smooth = -self.W_SMOOTH * joint_speed / float(self.config.velocity_limits)
-        limit_term = -self.W_LIMIT * float(np.sum(at_limit))
+        end_range = self._end_range_engagement(q)
+        limit_term = -self.W_LIMIT * (float(np.sum(at_limit)) + float(np.sum(end_range)))
         speed_excess = -self.W_SPEED_EXCESS * max(0.0, ee_speed - self.EE_SPEED_CAP) ** 2
         accel_term = -self.W_ACCEL * min((ee_accel / self.ACCEL_REF) ** 2, self.ACCEL_PENALTY_CAP)
         in_goal_term = self.R_IN_GOAL if (in_goal and self.is_final_waypoint) else 0.0
@@ -933,6 +967,7 @@ class ArmTaskEnv(gym.Env):
             "actuator_torque": self._last_tau.copy(),
             "gravity_torque": dynamics.gravity_vector(q, self._cfg_dyn),
             "at_joint_limit": self._last_at_limit.copy(),
+            "end_range_engagement": self._end_range_engagement(q),
             "muscle_forces": self._last_muscle.get("forces"),
             "muscle_activations": (self._last_muscle.get("activations").copy()
                                    if self._last_muscle.get("activations") is not None else None),

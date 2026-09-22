@@ -32,7 +32,7 @@ from rl_armMotion.two_d.kinematics_metrics import episode_metrics
 
 __all__ = [
     "EvalStandard", "EVAL_STANDARD", "WAYPOINT_A", "WAYPOINT_B", "WAYPOINT_C",
-    "CANONICAL_WAYPOINTS", "WAYPOINTS_SPREAD", "resolve_waypoints", "make_env",
+    "CANONICAL_WAYPOINTS", "CANONICAL_WAYPOINTS_V1", "WAYPOINTS_SPREAD", "resolve_waypoints", "make_env",
     "detect_actuation_mode", "EpisodeResult", "EvalResult", "evaluate_policy",
     "find_manifest", "read_manifest", "env_from_manifest", "load_package", "standard_overrides",
     "PACKAGE_FILES", "DEFAULT_PRESET", "OBS_VERSION",
@@ -58,15 +58,27 @@ class EvalStandard:
 EVAL_STANDARD = EvalStandard()
 
 # Canonical waypoints, workspace frame, shoulder at [1.0, 0.0], right arm.
-# IK-checked inside the human range of motion with margin; min spacing 0.36 m.
-WAYPOINT_A = [1.45, 0.15]
-WAYPOINT_B = [1.25, 0.45]
-WAYPOINT_C = [1.50, -0.25]
+# IK-checked inside the human range of motion; every point sits >= 0.19 m
+# inside the 0.65 m reach circle, i.e. farther than the coarsest curriculum
+# tolerance (0.15 m). Stage B on the v1 set showed why that matters: with the
+# final waypoint 9 cm from the reach circle, a straight arm resting on the
+# elbow's end-range spring counted as "in goal" at 15 cm, and policies that
+# learned that rest could not unlearn it when the tolerance tightened.
+WAYPOINT_A = [1.40, 0.15]
+WAYPOINT_B = [1.20, 0.40]
+WAYPOINT_C = [1.40, -0.20]
 CANONICAL_WAYPOINTS: Dict[int, List[List[float]]] = {
     1: [WAYPOINT_A],
     2: [WAYPOINT_A, WAYPOINT_C],
     3: [WAYPOINT_A, WAYPOINT_B, WAYPOINT_C],
 }
+# v1 set used by Stage A / B / B2 packages (kept for reference; manifests carry their own waypoints).
+CANONICAL_WAYPOINTS_V1: Dict[int, List[List[float]]] = {
+    1: [[1.45, 0.15]],
+    2: [[1.45, 0.15], [1.50, -0.25]],
+    3: [[1.45, 0.15], [1.25, 0.45], [1.50, -0.25]],
+}
+REACH_MARGIN_EXTRA = 0.03   # m beyond the coarsest curriculum tolerance
 # The earlier "wide triangle" set scaled from the 1.8 m arm to the 0.65 m arm.
 # Its first point sits 6 degrees from the shoulder limit, so it is the
 # alternative demo set, not the default.
@@ -96,6 +108,8 @@ def resolve_waypoints(spec: Union[None, int, str, Sequence[Sequence[float]]]) ->
             return None
         if s == "spread":
             return [list(w) for w in WAYPOINTS_SPREAD]
+        if s.endswith("v1") and s[:-2].isdigit():
+            return [list(w) for w in CANONICAL_WAYPOINTS_V1[int(s[:-2])]]
         if s.isdigit():
             return [list(w) for w in CANONICAL_WAYPOINTS[int(s)]]
         return [[float(x) for x in pair.split(",")] for pair in s.split(";") if pair.strip()]

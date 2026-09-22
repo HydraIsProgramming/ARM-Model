@@ -50,10 +50,18 @@ Waypoints in the workspace frame (shoulder at [1.0, 0.0]):
 
 | set | points |
 |---|---|
-| 1 | A = (1.45, 0.15) |
-| 2 | A, C = (1.50, −0.25) |
-| 3 | A, B = (1.25, 0.45), C |
+| 1 | A = (1.40, 0.15) |
+| 2 | A, C = (1.40, −0.20) |
+| 3 | A, B = (1.20, 0.40), C |
+| 2v1 / 3v1 | the v1 set used by Stage A/B/B2: (1.45, 0.15), (1.25, 0.45), (1.50, −0.25) |
 | spread | the old wide triangle scaled to 0.65 m reach (first point 6° from the shoulder limit) |
+
+Every canonical point sits ≥ 0.19 m inside the 0.65 m reach circle. `waypoint_feasibility` now requires
+a margin of `max(tolerance, max_curriculum_tolerance) + 0.03` to the reach circle, because Stage B on the
+v1 set found the failure mode: with C only 9 cm inside the circle, a straight arm resting on the elbow's
+end-range spring counted as "in goal" at the 15 cm rung, the policy learned that rest, and could not
+unlearn it when the tolerance tightened (seeds 3 and 4 parked 10–12 cm past C with the elbow at 2–3°).
+`set_waypoints` warns (does not refuse) so old packages still load; the training CLI refuses.
 
 - Intermediate waypoints: hand inside the tolerance and slow for 5 steps (0.1 s), then the next becomes active.
 - Final waypoint: `in_goal` for 25 consecutive steps (0.5 s) = **success**. `in_goal` = distance < tolerance
@@ -68,8 +76,8 @@ Observation (14-D, `OBS_VERSION = 2`): sin/cos of both joints, joint velocities 
 (x, y), |goal − hand|/reach, hand velocity / 2 m/s, waypoint progress k/(N−1), in-goal flag, hold progress.
 
 Reward: potential-based shaping `2·(γΦ' − Φ)` with `Φ = −|goal − hand|/reach`, dense `−0.5·|goal − hand|/reach`,
-effort `−0.02·|a|²`, smoothness `−0.05·|q̇|/8`, end-range avoidance `−0.1` per joint resting on a hard
-stop, human speed cap `−0.5·max(0, |hand velocity| − 1.5 m/s)²` (Stage A policies whipped the hand at
+effort `−0.02·|a|²`, smoothness `−0.05·|q̇|/8`, end-range avoidance `−0.1 × (joints on a hard stop +
+fraction of the passive spring margin engaged)`, human speed cap `−0.5·max(0, |hand velocity| − 1.5 m/s)²` (Stage A policies whipped the hand at
 4–5 m/s; humans peak at 1–1.5 m/s), +1 per in-goal step at the final waypoint, +10 per intermediate
 waypoint, +50 once when the hold completes. Zero action for an episode scores about −340.
 
@@ -92,8 +100,9 @@ Campaign (5 seeds in parallel, report, promote the champion):
 python run_campaign.py --stage A
 ```
 
-Stage A = 2 waypoints × 300K steps; B = 3 waypoints × 600K; C = 3 waypoints + hand load + sensory
-noise/delay. Pass = ≥ 3 of 5 seeds at ≥ 80 % success. If a stage fails, fix the env/reward/curriculum;
+Stage A = 2 waypoints × 300K steps (v1 set); B = 3 waypoints × 600K (v1); B2 = B + clean config
+(activation dynamics 40/60 ms, hand-acceleration penalty); **B3 = clean config on the v2 waypoint set** (the
+current default); A2 = 2 waypoints v2 clean; C = 3 waypoints + hand load + sensory noise/delay. Pass = ≥ 3 of 5 seeds at ≥ 80 % success. If a stage fails, fix the env/reward/curriculum;
 do not add seeds. Keep training output outside OneDrive (`ARM_MODEL_OUTPUT_DIR`, default `C:/arm-model-runs`).
 
 ## 4. The package a run writes

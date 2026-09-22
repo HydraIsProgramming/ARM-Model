@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from rl_armMotion.two_d.environments.task_env import ArmTaskEnv
-from rl_armMotion.two_d.evaluation import CANONICAL_WAYPOINTS, WAYPOINTS_SPREAD, EVAL_STANDARD
+from rl_armMotion.two_d.evaluation import CANONICAL_WAYPOINTS, CANONICAL_WAYPOINTS_V1, WAYPOINTS_SPREAD, EVAL_STANDARD
 
 
 @pytest.fixture
@@ -14,16 +14,33 @@ def env():
 
 def test_canonical_waypoints_feasible(env):
     for wp in CANONICAL_WAYPOINTS[3]:
-        f = env.waypoint_feasibility(wp, EVAL_STANDARD.tolerance)
+        f = env.waypoint_feasibility(wp, env.max_curriculum_tolerance)   # robust at the coarsest rung
         assert f["feasible"], f
         assert f["rom_margin_deg"] > 5.0
         assert max(f["torque_ratio"]) < 0.5
+        assert f["reach_margin"] >= 0.18
+
+
+def test_v1_final_waypoint_rejected_near_reach_circle(env):
+    """The Stage-B failure mode: a goal 9 cm inside the reach circle lets a
+    straight arm resting on the elbow spring count as in-goal at 15 cm."""
+    f = env.waypoint_feasibility(CANONICAL_WAYPOINTS_V1[3][-1], env.max_curriculum_tolerance)
+    assert f["reachable"] and not f["feasible"]
+    assert "reach circle" in f["reason"]
+    # With a 5 cm coarsest tolerance the same point is fine: the rule scales with the curriculum.
+    tight = ArmTaskEnv(max_curriculum_tolerance=0.05)
+    assert tight.waypoint_feasibility(CANONICAL_WAYPOINTS_V1[3][-1], 0.05)["feasible"]
+    with pytest.warns(RuntimeWarning):
+        env.set_waypoints(CANONICAL_WAYPOINTS_V1[3])   # loads (old packages must still open) but warns
 
 
 def test_spread_waypoints_reachable_but_near_limit(env):
     f = env.waypoint_feasibility(WAYPOINTS_SPREAD[0], EVAL_STANDARD.tolerance)
-    assert f["reachable"] and f["within_rom"]
-    assert f["rom_margin_deg"] < 10.0
+    assert f["reachable"] and not f["feasible"]          # too close to the reach circle for the curriculum
+    tight = ArmTaskEnv(max_curriculum_tolerance=0.05)
+    g = tight.waypoint_feasibility(WAYPOINTS_SPREAD[0], 0.05)
+    assert g["reachable"] and g["within_rom"]
+    assert g["rom_margin_deg"] < 10.0                     # and its shoulder sits near the ROM limit
 
 
 def test_rejects_unreachable(env):
