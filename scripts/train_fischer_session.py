@@ -50,6 +50,9 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--goal-direction", type=str, default="EAST", choices=["EAST", "NORTH", "HEIGHT", "WEST"])
     p.add_argument("--random-waypoints", type=int, default=None,
                    help="Draw this many feasible waypoints at random every episode (generalising policy); overrides --waypoints.")
+    p.add_argument("--free-order", action="store_true",
+                   help="Show the policy every waypoint at once and let it choose the route "
+                        "(no active-goal channel, no ordering signal). Needs --random-waypoints N.")
     p.add_argument("--waypoint-region", type=str, default=None,
                    help='Clip the random-waypoint region: "xmin,xmax,ymin,ymax" in the workspace frame.')
     p.add_argument("--hold-decrement", type=int, default=None, help="Default: evaluation standard (5).")
@@ -155,6 +158,7 @@ def main(argv=None) -> int:
         activation_time_constants=_parse_floats(args.activation_dynamics) if args.activation_dynamics else None,
         reward_weights=reward_weights or None,
         random_waypoints=args.random_waypoints,
+        free_order=args.free_order,
         waypoint_region=_parse_floats(args.waypoint_region) if args.waypoint_region else None,
     )
     if args.random_waypoints:
@@ -166,6 +170,9 @@ def main(argv=None) -> int:
         env.set_hold_decrement(args.hold_decrement)
     if args.intermediate_hold_steps is not None:
         env.set_intermediate_hold_steps(args.intermediate_hold_steps)
+    if args.free_order:
+        log(f"Free order: the policy sees all {env.free_order_slots} waypoints and picks its own route "
+            f"(observation {env.obs_dim}-D, version {env.obs_version})")
     if args.random_waypoints:
         pts = env.feasible_points()
         log(f"Random waypoints: {args.random_waypoints} per episode from {pts.shape[0]} feasible grid points "

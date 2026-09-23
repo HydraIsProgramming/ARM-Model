@@ -57,3 +57,44 @@ class OraclePolicy:
         Path(str(path) + ".zip").write_bytes(b"oracle")
 
 
+
+
+class RouteOraclePolicy(OraclePolicy):
+    """Oracle that walks a *chosen* route through a free-order task.
+
+    The free-order env never tells the policy which waypoint to visit next, so a
+    test policy has to pick for itself. This one follows the route it was given
+    and steps to the next leg as each waypoint is marked visited, which is how a
+    trained policy is expected to behave - and lets a test assert that an order
+    other than 0,1,2 really is allowed.
+    """
+
+    def __init__(self, env, route, **kw):
+        super().__init__(env, **kw)
+        self.route = list(route)
+
+    def _target_index(self):
+        for k in self.route:
+            if not self.env.visited[k]:
+                return k
+        return self.route[-1]
+
+    def predict(self, obs, deterministic=True, state=None, episode_start=None):
+        env = self.env
+        target = env.waypoints[self._target_index()] + self.offset
+        q_t = env.solve_ik(target)
+        if q_t is None:
+            q_t = env.q
+        v = self.kp * (q_t - env.q) - self.kd * env.qd
+        tau = (dynamics.mass_matrix(env.q, env.config) @ v
+               + dynamics.bias_vector(env.q, env.qd, env.config)
+               - dynamics.passive_torque(env.q, env.qd, env.config))
+        if env.actuation_mode == ArmTaskEnv.ACTUATION_TORQUE:
+            a = np.clip(tau / env._torque_limits, -1.0, 1.0)
+        else:
+            a = np.zeros(2 * env.num_dof)
+            for j, pair in enumerate(env._pairs):
+                frac = float(np.clip(tau[j] / max(pair.max_isometric_torque, 1e-9), -1.0, 1.0))
+                a[2 * j] = max(frac, 0.0)
+                a[2 * j + 1] = max(-frac, 0.0)
+        return a.astype(np.float32), None

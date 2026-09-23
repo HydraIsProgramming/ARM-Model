@@ -63,6 +63,7 @@ index) and is therefore policy-invariant (Ng, Harada & Russell 1999).
 
 from __future__ import annotations
 
+import itertools
 import warnings
 from collections import deque
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
@@ -78,9 +79,13 @@ from rl_armMotion.two_d.utils.muscle_model import JointMusclePair
 
 
 OBS_VERSION = 2
+# The free-order task shows the policy every waypoint at once and lets it pick
+# the route, so its observation is a different layout and gets its own version:
+# a package trained on one can never be loaded into the other by mistake.
+OBS_VERSION_FREE_ORDER = 3
 DEFAULT_PRESET = "2dof_human_right"
 
-__all__ = ["ArmTaskEnv", "ActionSmoother", "OBS_VERSION", "DEFAULT_PRESET"]
+__all__ = ["ArmTaskEnv", "ActionSmoother", "OBS_VERSION", "OBS_VERSION_FREE_ORDER", "DEFAULT_PRESET"]
 
 
 class ActionSmoother(gym.ActionWrapper):
@@ -201,6 +206,8 @@ class ArmTaskEnv(gym.Env):
         random_waypoints: Optional[int] = None,
         waypoint_region: Optional[Sequence[float]] = None,
         waypoint_grid: float = 0.02,
+        free_order: bool = False,
+        free_order_slots: Optional[int] = None,
         render_mode: Optional[str] = None,
         # Legacy keyword accepted and ignored so old call sites do not break.
         use_2dof: bool = True,
@@ -299,10 +306,29 @@ class ArmTaskEnv(gym.Env):
             self.action_space = spaces.Box(-1.0, 1.0, shape=(self.num_dof,), dtype=np.float32)
         self.action_dim = int(self.action_space.shape[0])
 
+        # Free-order task: the policy sees every waypoint at once and chooses
+        # which to visit next, instead of being handed one active goal at a
+        # time. The slot count is fixed because the observation carries one
+        # block per waypoint.
+        self.free_order = bool(free_order)
+        self.free_order_slots = int(free_order_slots or random_waypoints or 0)
+        if self.free_order and self.free_order_slots < 2:
+            raise ValueError(
+                "free_order needs a fixed waypoint count of at least two (the observation "
+                "carries one block per waypoint); pass random_waypoints=N or free_order_slots=N")
+
         # Observation space
         n = self.num_dof
-        low = [-1.0] * (2 * n) + [-1.0] * n + [-2.0, -2.0, 0.0, -1.0, -1.0, 0.0, 0.0, 0.0]
-        high = [1.0] * (2 * n) + [1.0] * n + [2.0, 2.0, 2.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+        if self.free_order:
+            # joints, joint speeds, hand velocity, then per waypoint
+            # [dx, dy, distance, visited], then in_goal and hold progress.
+            low = [-1.0] * (2 * n) + [-1.0] * n + [-1.0, -1.0]
+            high = [1.0] * (2 * n) + [1.0] * n + [1.0, 1.0]
+            low += [-2.0, -2.0, 0.0, 0.0] * self.free_order_slots + [0.0, 0.0]
+            high += [2.0, 2.0, 2.0, 1.0] * self.free_order_slots + [1.0, 1.0]
+        else:
+            low = [-1.0] * (2 * n) + [-1.0] * n + [-2.0, -2.0, 0.0, -1.0, -1.0, 0.0, 0.0, 0.0]
+            high = [1.0] * (2 * n) + [1.0] * n + [2.0, 2.0, 2.0, 1.0, 1.0, 1.0, 1.0, 1.0]
         if self.use_activation_dynamics:
             low += [0.0] * (2 * n)
             high += [1.0] * (2 * n)
@@ -320,6 +346,9 @@ class ArmTaskEnv(gym.Env):
         self.goal_height = 0.0
         self.waypoints: Optional[List[np.ndarray]] = None
         self.current_waypoint_index = 0
+        # Free-order task: which waypoints are already done. In the ordered task
+        # this stays in lockstep with current_waypoint_index.
+        self.visited = np.zeros(max(self.free_order_slots, 1), dtype=bool)
         self._waypoint_sampler: Optional[Callable[[np.random.Generator], Sequence[Sequence[float]]]] = None
         # Random-waypoint task: every reset draws `random_waypoints` points from
         # the feasible region (a 2 cm grid of points passing waypoint_feasibility
@@ -499,6 +528,7 @@ class ArmTaskEnv(gym.Env):
         self.waypoints = wps
         self.current_waypoint_index = 0
         self.goal_direction = "WAYPOINTS"
+        self._reset_visits()
         self._apply_waypoint(0)
 
     def _validate_waypoint_spacing(self, wps: List[np.ndarray]) -> None:
@@ -536,7 +566,82 @@ class ArmTaskEnv(gym.Env):
 
     @property
     def is_final_waypoint(self) -> bool:
-        return self.waypoints is None or self.current_waypoint_index >= len(self.waypoints) - 1
+        if self.waypoints is None:
+            return True
+        if self.free_order:
+            # "Final" means only one waypoint is still outstanding, whichever it
+            # turned out to be - the policy chose the order.
+            return int(np.count_nonzero(~self.visited[:len(self.waypoints)])) <= 1
+        return self.current_waypoint_index >= len(self.waypoints) - 1
+
+    @property
+    def obs_version(self) -> int:
+        """Observation layout version. The free-order layout is a different
+        observation, so a package trained on one never loads into the other."""
+        return OBS_VERSION_FREE_ORDER if self.free_order else OBS_VERSION
+
+    def _unvisited_indices(self) -> List[int]:
+        n = len(self.waypoints) if self.waypoints is not None else 0
+        return [k for k in range(n) if not self.visited[k]]
+
+    def _tour_length(self, start: np.ndarray, indices: Sequence[int]) -> float:
+        """Shortest path from ``start`` through every waypoint in ``indices``.
+
+        This is the potential for free-order shaping: it depends only on the
+        state (hand position and which waypoints remain), so potential-based
+        shaping stays policy-invariant (Ng, Harada & Russell 1999), and its
+        gradient rewards picking an efficient order rather than a fixed one.
+        Exact for the small counts this task uses; greedy beyond 6 waypoints,
+        where enumerating permutations would cost more than it is worth.
+        """
+        if not indices:
+            return 0.0
+        pts = [self.waypoints[k] for k in indices]
+        if len(pts) > 6:
+            total, here, left = 0.0, np.asarray(start, dtype=float), list(pts)
+            while left:
+                j = int(np.argmin([np.linalg.norm(p - here) for p in left]))
+                total += float(np.linalg.norm(left[j] - here))
+                here = left.pop(j)
+            return total
+        best = float("inf")
+        for perm in itertools.permutations(range(len(pts))):
+            total, here = 0.0, np.asarray(start, dtype=float)
+            for j in perm:
+                total += float(np.linalg.norm(pts[j] - here))
+                here = pts[j]
+                if total >= best:
+                    break
+            best = min(best, total)
+        return best
+
+    def _free_order_potential(self, ee: np.ndarray) -> float:
+        """-(shortest remaining tour)/reach, or -(distance to the last point
+        visited)/reach once nothing is outstanding, so the hold still has a
+        gradient. The two agree at the moment the last waypoint is reached."""
+        remaining = self._unvisited_indices()
+        if remaining:
+            return -self._tour_length(ee, remaining) / self.reach
+        return -float(np.linalg.norm(self.goal_position - ee)) / self.reach
+
+    def _refresh_free_order_target(self) -> bool:
+        """Point the bookkeeping goal at the nearest outstanding waypoint.
+
+        The policy is never told which one this is - it sees all of them and
+        decides. This only records which waypoint the hand actually arrived at,
+        so the hold can be scored. Returns True when the target changed.
+        """
+        remaining = self._unvisited_indices()
+        ee = self._end_effector_from_angles(self.q)
+        if remaining:
+            k = min(remaining, key=lambda i: float(np.linalg.norm(self.waypoints[i] - ee)))
+        else:
+            k = int(self.current_waypoint_index)
+        changed = k != int(self.current_waypoint_index)
+        self.current_waypoint_index = int(k)
+        if changed or not np.allclose(self.goal_position, self.waypoints[k]):
+            self._set_goal(self.waypoints[k])
+        return changed
 
     # ------------------------------------------------------------------ #
     # Kinematics helpers
@@ -737,7 +842,17 @@ class ArmTaskEnv(gym.Env):
         self.waypoints = [np.asarray(w, dtype=float).reshape(2).copy() for w in wps]
         self.current_waypoint_index = 0
         self.goal_direction = "WAYPOINTS"
+        self._reset_visits()
         self._apply_waypoint(0)
+
+    def _reset_visits(self) -> None:
+        """Nothing visited yet. In free-order mode the waypoint count is fixed,
+        because the observation carries one block per waypoint."""
+        n = len(self.waypoints) if self.waypoints is not None else 0
+        if self.free_order and n != self.free_order_slots:
+            raise ValueError(
+                f"this free-order env has {self.free_order_slots} waypoint slots, got {n}")
+        self.visited = np.zeros(max(n, 1), dtype=bool)
 
     # ------------------------------------------------------------------ #
     # Reset
@@ -787,7 +902,11 @@ class ArmTaskEnv(gym.Env):
 
         if self.goal_direction == "WAYPOINTS" and self.waypoints is not None:
             self.current_waypoint_index = 0
+            self._reset_visits()
             self._apply_waypoint(0)
+            if self.free_order:
+                self._refresh_free_order_target()
+                self._entered_from_outside = False
         else:
             self._entered_from_outside = False
 
@@ -861,6 +980,25 @@ class ArmTaskEnv(gym.Env):
         progress = self.current_waypoint_index / (n_wp - 1) if n_wp > 1 else 0.0
         hold_progress = min(1.0, self.hold_counter / float(self.hold_steps_required))
         parts = [np.sin(q), np.cos(q), np.clip(qd / self.config.velocity_limits, -1.0, 1.0)]
+        if self.free_order:
+            # Every waypoint, every step: where it is relative to the hand, how
+            # far, and whether it is already done. No active-goal channel and no
+            # ordering signal - the route is the policy's to choose.
+            parts.append(np.clip(ee_v / self.EE_SPEED_REF, -1.0, 1.0))
+            for k in range(self.free_order_slots):
+                if self.waypoints is not None and k < len(self.waypoints):
+                    d_rel = (self.waypoints[k] - ee) / self.reach
+                    parts.append(np.clip(d_rel, -2.0, 2.0))
+                    parts.append([min(float(np.linalg.norm(d_rel)), 2.0),
+                                  1.0 if self.visited[k] else 0.0])
+                else:
+                    parts.append([0.0, 0.0])      # unused slot, reported as done
+                    parts.append([0.0, 1.0])
+            parts.append([1.0 if in_goal else 0.0, hold_progress])
+            obs = np.concatenate([np.asarray(p, dtype=float).reshape(-1) for p in parts])
+            if self.use_activation_dynamics:
+                obs = np.concatenate([obs, np.asarray(self._activation, dtype=float).reshape(-1)])
+            return obs
         parts.append(np.clip(rel, -2.0, 2.0))
         parts.append([min(dist, 2.0)])
         parts.append(np.clip(ee_v / self.EE_SPEED_REF, -1.0, 1.0))
@@ -926,7 +1064,10 @@ class ArmTaskEnv(gym.Env):
 
         # Potential before the step, on the current goal.
         ee_before = self._end_effector_from_angles(self.q)
-        phi_before = -float(np.linalg.norm(self.goal_position - ee_before)) / self.reach
+        if self.free_order:
+            phi_before = self._free_order_potential(ee_before)
+        else:
+            phi_before = -float(np.linalg.norm(self.goal_position - ee_before)) / self.reach
 
         # Physics
         tau = self._actuator_torque(a, self.q, self.qd)
@@ -943,36 +1084,80 @@ class ArmTaskEnv(gym.Env):
         ee_accel = float(np.linalg.norm(ee_v - self._prev_ee_v)) / self.dt
         self._prev_ee_v = ee_v.copy()
         joint_speed = float(np.linalg.norm(qd))
-        distance = float(np.linalg.norm(self.goal_position - ee))
-        if distance > self.goal_tolerance:
-            self._entered_from_outside = True
-        in_goal = self._in_goal(distance, ee_speed, joint_speed, q)
-        if distance < self.best_distance:
-            self.best_distance = distance
-
-        # Hold bookkeeping
-        if in_goal and self._entered_from_outside:
-            self.hold_counter = min(self.hold_counter + 1, self.max_episode_steps)
-        else:
-            self.hold_counter = max(0, self.hold_counter - self.hold_decrement)
-
         waypoint_advanced = False
+        waypoint_completed: Optional[int] = None
         intermediate_bonus = 0.0
         success_bonus = 0.0
-        if not self.is_final_waypoint:
-            if self.hold_counter >= self.intermediate_hold_steps and in_goal:
-                self.current_waypoint_index += 1
-                self._apply_waypoint(self.current_waypoint_index)
+
+        if self.free_order:
+            # Whichever outstanding waypoint the hand is nearest is the one a
+            # hold would count for; a switch discards the partial hold so credit
+            # cannot be carried from one point to another.
+            if self._refresh_free_order_target():
                 self.hold_counter = 0
+                self._entered_from_outside = False
+            distance = float(np.linalg.norm(self.goal_position - ee))
+            if distance > self.goal_tolerance:
+                self._entered_from_outside = True
+            in_goal = self._in_goal(distance, ee_speed, joint_speed, q)
+            if distance < self.best_distance:
+                self.best_distance = distance
+            if in_goal and self._entered_from_outside:
+                self.hold_counter = min(self.hold_counter + 1, self.max_episode_steps)
+            else:
+                self.hold_counter = max(0, self.hold_counter - self.hold_decrement)
+            k = int(self.current_waypoint_index)
+            last_one = self.is_final_waypoint
+            needed = self.hold_steps_required if last_one else self.intermediate_hold_steps
+            if in_goal and not self.visited[k] and self.hold_counter >= needed:
+                self.visited[k] = True
                 waypoint_advanced = True
-                intermediate_bonus = self.R_INTERMEDIATE
-                distance = float(np.linalg.norm(self.goal_position - ee))
-                if distance > self.goal_tolerance:
-                    self._entered_from_outside = True
-                in_goal = self._in_goal(distance, ee_speed, joint_speed, q)
-                if in_goal and self._entered_from_outside:
-                    self.hold_counter = 1
-        if self.is_final_waypoint and self.hold_counter >= self.hold_steps_required and not self.success:
+                waypoint_completed = k
+                if not last_one:
+                    # An intermediate point: pay the visit bonus, drop the hold
+                    # and look for whichever point the policy heads to next.
+                    intermediate_bonus = self.R_INTERMEDIATE
+                    self.hold_counter = 0
+                    self._entered_from_outside = False
+                    if self._refresh_free_order_target():
+                        distance = float(np.linalg.norm(self.goal_position - ee))
+                        in_goal = self._in_goal(distance, ee_speed, joint_speed, q)
+                # The last outstanding point needed the full hold, and completing
+                # it is the episode's success - paid once, below.
+        else:
+            distance = float(np.linalg.norm(self.goal_position - ee))
+            if distance > self.goal_tolerance:
+                self._entered_from_outside = True
+            in_goal = self._in_goal(distance, ee_speed, joint_speed, q)
+            if distance < self.best_distance:
+                self.best_distance = distance
+
+            # Hold bookkeeping
+            if in_goal and self._entered_from_outside:
+                self.hold_counter = min(self.hold_counter + 1, self.max_episode_steps)
+            else:
+                self.hold_counter = max(0, self.hold_counter - self.hold_decrement)
+
+            if not self.is_final_waypoint:
+                if self.hold_counter >= self.intermediate_hold_steps and in_goal:
+                    waypoint_completed = int(self.current_waypoint_index)
+                    self.current_waypoint_index += 1
+                    self._apply_waypoint(self.current_waypoint_index)
+                    self.hold_counter = 0
+                    waypoint_advanced = True
+                    intermediate_bonus = self.R_INTERMEDIATE
+                    distance = float(np.linalg.norm(self.goal_position - ee))
+                    if distance > self.goal_tolerance:
+                        self._entered_from_outside = True
+                    in_goal = self._in_goal(distance, ee_speed, joint_speed, q)
+                    if in_goal and self._entered_from_outside:
+                        self.hold_counter = 1
+        if self.free_order:
+            all_done = bool(np.all(self.visited[:len(self.waypoints)])) if self.waypoints is not None else False
+            if all_done and not self.success:
+                self.success = True
+                self.success_step = self.step_count
+        elif self.is_final_waypoint and self.hold_counter >= self.hold_steps_required and not self.success:
             self.success = True
             self.success_step = self.step_count
         if self.success and not self._success_paid:
@@ -980,7 +1165,7 @@ class ArmTaskEnv(gym.Env):
             success_bonus = self.R_SUCCESS
 
         # Reward
-        phi_after = -distance / self.reach
+        phi_after = self._free_order_potential(ee) if self.free_order else -distance / self.reach
         shaping = self.W_SHAPING * (self.discount * phi_after - phi_before)
         dist_term = -self.W_DIST * distance / self.reach
         effort = -self.W_EFFORT * float(np.dot(a, a))
@@ -1006,14 +1191,14 @@ class ArmTaskEnv(gym.Env):
         if self.sensory_delay_steps > 0:
             self._action_history.append(a.copy())
         obs = self._observe()
-        info = self._info(ee, ee_v, distance, in_goal, waypoint_advanced)
+        info = self._info(ee, ee_v, distance, in_goal, waypoint_advanced, waypoint_completed)
         return obs, float(reward), terminated, truncated, info
 
     # ------------------------------------------------------------------ #
     # Info / state
     # ------------------------------------------------------------------ #
     def _info(self, ee: np.ndarray, ee_v: np.ndarray, distance: float, in_goal: bool,
-              waypoint_advanced: bool) -> Dict[str, Any]:
+              waypoint_advanced: bool, waypoint_completed: Optional[int] = None) -> Dict[str, Any]:
         q = self.q
         target_orientation = self._achievable_orientation(self.goal_position)
         orientation_error = (
@@ -1051,8 +1236,14 @@ class ArmTaskEnv(gym.Env):
             "waypoints": [w.tolist() for w in self.waypoints] if self.waypoints is not None else None,
             "current_waypoint_index": int(self.current_waypoint_index),
             "num_waypoints": int(self.num_waypoints),
-            "waypoints_reached": int(self.current_waypoint_index + (1 if self.success else 0)),
+            "waypoints_reached": (int(np.count_nonzero(self.visited[:self.num_waypoints])) if self.free_order
+                                  else int(self.current_waypoint_index + (1 if self.success else 0))),
+            "visited": self.visited[:self.num_waypoints].tolist() if self.waypoints is not None else [],
+            "free_order": self.free_order,
             "waypoint_advanced": bool(waypoint_advanced),
+            # Which waypoint was finished on THIS step. current_waypoint_index
+            # has already moved on to the next target by the time it is read.
+            "waypoint_completed": waypoint_completed,
             "actuation_mode": self.actuation_mode,
             "actuator_torque": self._last_tau.copy(),
             "gravity_torque": dynamics.gravity_vector(q, self._cfg_dyn),
@@ -1081,7 +1272,7 @@ class ArmTaskEnv(gym.Env):
     def describe(self) -> Dict[str, Any]:
         """Everything needed to rebuild this env identically (run manifest)."""
         return {
-            "obs_version": OBS_VERSION,
+            "obs_version": self.obs_version,
             "obs_dim": self.obs_dim,
             "action_dim": self.action_dim,
             "preset": self.preset_name,
@@ -1112,6 +1303,8 @@ class ArmTaskEnv(gym.Env):
             "activation_time_constants": self.config.activation_time_constants,
             "reward_weights": {k: float(getattr(self, k)) for k in self.REWARD_WEIGHT_KEYS},
             "random_waypoints": self.random_waypoints,
+            "free_order": self.free_order,
+            "free_order_slots": self.free_order_slots,
             "waypoint_region": self.waypoint_region,
             "waypoint_grid": self.waypoint_grid,
         }
@@ -1119,10 +1312,11 @@ class ArmTaskEnv(gym.Env):
     @classmethod
     def from_description(cls, desc: Dict[str, Any], **overrides: Any) -> "ArmTaskEnv":
         """Inverse of describe(). ``overrides`` replace individual task settings."""
-        if int(desc.get("obs_version", -1)) != OBS_VERSION:
+        expected_obs_version = OBS_VERSION_FREE_ORDER if desc.get("free_order") else OBS_VERSION
+        if int(desc.get("obs_version", -1)) != expected_obs_version:
             raise ValueError(
                 f"manifest obs_version {desc.get('obs_version')} does not match this code's "
-                f"OBS_VERSION {OBS_VERSION}; the model was trained on a different observation")
+                f"expected {expected_obs_version}; the model was trained on a different observation")
         cfg = ArmConfiguration.from_dict(desc["config"]) if "config" in desc else None
         kwargs = dict(
             preset=desc.get("preset", DEFAULT_PRESET),
@@ -1149,6 +1343,8 @@ class ArmTaskEnv(gym.Env):
             reward_weights={k: v for k, v in (desc.get("reward_weights") or {}).items()
                             if k in cls.REWARD_WEIGHT_KEYS},
             random_waypoints=desc.get("random_waypoints"),
+            free_order=bool(desc.get("free_order", False)),
+            free_order_slots=desc.get("free_order_slots"),
             waypoint_region=desc.get("waypoint_region"),
             waypoint_grid=desc.get("waypoint_grid", 0.02),
         )
