@@ -52,6 +52,11 @@ STAGES = {
                             "chooses its own route; no active-goal channel, no ordering signal"),
                extra=["--random-waypoints", "3", "--free-order", "--activation-dynamics", "0.04,0.06",
                       "--reward-weight", "W_ACCEL=0.02"]),
+    "R5": dict(waypoints="none", timesteps=1_000_000,
+               description=("THREE RANDOM waypoints, end-range rule, HUMAN SPEED COST: hand-speed cap 1.2 m/s "
+                            "at weight 10 (was 1.5 at 0.5, which the champion simply paid to exceed)"),
+               extra=["--random-waypoints", "3", "--activation-dynamics", "0.04,0.06",
+                      "--reward-weight", "W_ACCEL=0.02"]),
     "F2": dict(waypoints="none", timesteps=500_000,
                description=("PILOT: TWO random waypoints, FREE ORDER - isolates chaining, which is where the "
                             "three-point free-order runs stalled (they reached one point and stopped)"),

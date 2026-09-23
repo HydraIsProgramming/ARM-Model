@@ -52,7 +52,8 @@ Reward (all distances normalised by reach R)
       - W_EFFORT * |a|^2                                 effort (no co-contraction penalty)
       - W_SMOOTH * |qd'| / velocity_limit                mild smoothness
       - W_LIMIT  * (joints on a hard stop + end-range spring engagement 0..1)   end-range avoidance
-      - W_SPEED_EXCESS * max(0, |hand velocity| - 1.5)^2  human-like speed cap
+      - W_SPEED_EXCESS * min(max(0, |hand velocity| - 1.5)^2, SPEED_PENALTY_CAP)
+                                                          human-like speed cap
       - W_ACCEL * min((|hand accel| / 10)^2, 4)           smoothness (min-jerk proxy; 0 unless enabled)
       + R_IN_GOAL      if in_goal at the FINAL waypoint  hold stream
       + R_INTERMEDIATE on completing an intermediate waypoint
@@ -157,11 +158,33 @@ class ArmTaskEnv(gym.Env):
     W_SMOOTH: float = 0.05
     W_LIMIT: float = 0.1     # per joint resting on a hard stop (end-range is avoided by humans)
     # Hand speed above a human-like cap is penalised quadratically. Peak hand
-    # speed in human point-to-point reaching is ~1-1.5 m/s for 30-50 cm moves;
-    # without this the policy whips the hand at 4-5 m/s (bang-bang start,
-    # velocity-profile symmetry ~0.2 instead of ~0.45).
-    W_SPEED_EXCESS: float = 0.5
-    EE_SPEED_CAP: float = 1.5  # m/s
+    # speed in human point-to-point reaching is ~1.0-1.5 m/s for 30-50 cm moves.
+    #
+    # Both numbers below were chosen by measurement, not taste. The first
+    # human-limits audit of a trained champion found it peaking at 2.1-2.6 m/s
+    # with 26% of its steps above the cap, because at W=0.5 speeding was always
+    # profitable: arriving sooner earns R_IN_GOAL per extra held step AND cuts
+    # the accumulated distance cost. Scoring five candidate trajectories under a
+    # grid of (cap, weight) showed raising the weight alone does not fix it -
+    # the optimum simply parks just above the cap, 1.68 m/s winning at every
+    # weight when the cap was 1.5. Lowering the cap to 1.2 with W=10 makes a
+    # 1.24 m/s trajectory the highest-scoring one by 11 points, while 1.03 and
+    # 0.81 m/s still lose, so the arm is pushed into the human band from both
+    # sides rather than merely slowed down.
+    #
+    # This is a cost, not a hard limit, and that is the right modelling choice:
+    # nothing physical stops a human hand reaching 2.5 m/s (throwing does), and
+    # the measured arm used only 26-49% of its torque limit at peak speed.
+    # People reach at these speeds because of effort and smoothness, so the
+    # constraint belongs in the objective, as minimum-jerk models have it.
+    W_SPEED_EXCESS: float = 10.0
+    EE_SPEED_CAP: float = 1.2  # m/s
+    # Bound the term on the SQUARED excess so an early exploratory flail cannot
+    # swamp every other signal, as ACCEL_PENALTY_CAP does. 2.25 saturates at
+    # 2.7 m/s and 22.5 per step: the gradient is kept across the whole range the
+    # penalty is meant to shape (everything measured peaked below 2.6 m/s) and
+    # only the pathological tail is flattened.
+    SPEED_PENALTY_CAP: float = 2.25
     # Hand-acceleration penalty (Flash & Hogan 1985 minimum-jerk proxy):
     # -W_ACCEL * (|a_hand| / ACCEL_REF)^2, capped. Off by default; the
     # "clean" training stage enables it.
@@ -175,7 +198,7 @@ class ArmTaskEnv(gym.Env):
     ACTUATION_MUSCLE: str = "muscle"
     ACTUATION_TORQUE: str = "torque"
     REWARD_WEIGHT_KEYS = ("W_SHAPING", "W_DIST", "W_EFFORT", "W_SMOOTH", "W_LIMIT", "W_SPEED_EXCESS",
-                          "EE_SPEED_CAP", "W_ACCEL", "ACCEL_REF", "ACCEL_PENALTY_CAP",
+                          "EE_SPEED_CAP", "SPEED_PENALTY_CAP", "W_ACCEL", "ACCEL_REF", "ACCEL_PENALTY_CAP",
                           "R_IN_GOAL", "R_INTERMEDIATE", "R_SUCCESS")
 
     def __init__(
@@ -1185,7 +1208,8 @@ class ArmTaskEnv(gym.Env):
         smooth = -self.W_SMOOTH * joint_speed / float(self.config.velocity_limits)
         end_range = self._end_range_engagement(q)
         limit_term = -self.W_LIMIT * (float(np.sum(at_limit)) + float(np.sum(end_range)))
-        speed_excess = -self.W_SPEED_EXCESS * max(0.0, ee_speed - self.EE_SPEED_CAP) ** 2
+        speed_excess = -self.W_SPEED_EXCESS * min(max(0.0, ee_speed - self.EE_SPEED_CAP) ** 2,
+                                                 self.SPEED_PENALTY_CAP)
         accel_term = -self.W_ACCEL * min((ee_accel / self.ACCEL_REF) ** 2, self.ACCEL_PENALTY_CAP)
         in_goal_term = self.R_IN_GOAL if (in_goal and self.is_final_waypoint) else 0.0
         reward = (shaping + dist_term + effort + smooth + limit_term + speed_excess + accel_term

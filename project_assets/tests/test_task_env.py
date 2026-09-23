@@ -97,7 +97,10 @@ def test_waypoint_spacing_assertion():
 
 def test_oracle_completes_three_waypoints_and_reward_terms(torque_env):
     env = torque_env
-    pol = OraclePolicy(env)
+    # omega=3 is a human-speed controller (peak ~1.24 m/s). The default
+    # omega=8 oracle whips the hand at 3.4 m/s and is now correctly
+    # scored as a bad policy by the hand-speed cost.
+    pol = OraclePolicy(env, omega=3.0)
     obs, info = env.reset(seed=0)
     total = 0.0
     intermediate = 0
@@ -387,3 +390,40 @@ def test_random_waypoints_sampled_per_episode_and_recorded():
     assert len(env.waypoints) == 2
     env.reset(seed=4)
     assert len(env.waypoints) == 3
+
+
+def test_speed_penalty_makes_overspeed_unprofitable():
+    """The reason the first human-limits check failed.
+
+    Hand speed above the cap buys earlier arrival, and earlier arrival earns
+    R_IN_GOAL for every extra step held. The penalty has to cost more than that
+    gain or the optimal policy speeds - which is exactly what the measured
+    champion did, peaking at 2.1-2.6 m/s with W_SPEED_EXCESS = 0.5.
+    """
+    env = ArmTaskEnv(actuation_mode="torque")
+    reach, dt = 0.40, env.dt
+    steps_at_cap = reach / env.EE_SPEED_CAP / dt
+    for speed in (1.5, 1.8, 2.1, 2.5):
+        steps = reach / speed / dt
+        penalty = env.W_SPEED_EXCESS * min((speed - env.EE_SPEED_CAP) ** 2, env.SPEED_PENALTY_CAP) * steps
+        gain = (steps_at_cap - steps) * env.R_IN_GOAL
+        assert penalty > gain, (
+            f"at {speed} m/s the penalty {penalty:.2f} does not cover the "
+            f"{gain:.2f} gained by arriving early")
+
+
+def test_speed_penalty_is_bounded_but_keeps_its_gradient_in_range():
+    env = ArmTaskEnv(actuation_mode="torque")
+    def term(v):
+        return env.W_SPEED_EXCESS * min(max(0.0, v - env.EE_SPEED_CAP) ** 2, env.SPEED_PENALTY_CAP)
+    assert term(1.1) == 0.0                       # below the cap costs nothing
+    assert term(1.5) < term(2.0) < term(2.6)      # a real gradient where it matters
+    assert term(8.0) == pytest.approx(env.W_SPEED_EXCESS * env.SPEED_PENALTY_CAP)
+    assert term(8.0) <= 25.0                      # bounded for early exploration
+
+
+def test_speed_penalty_reaches_the_reward_and_is_configurable():
+    env = ArmTaskEnv(actuation_mode="torque", reward_weights={"W_SPEED_EXCESS": 7.0})
+    assert env.W_SPEED_EXCESS == 7.0
+    assert "SPEED_PENALTY_CAP" in env.REWARD_WEIGHT_KEYS
+    assert env.describe()["reward_weights"]["SPEED_PENALTY_CAP"] == env.SPEED_PENALTY_CAP
