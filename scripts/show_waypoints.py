@@ -97,6 +97,7 @@ def _frame(info: Dict[str, Any]) -> Dict[str, Any]:
         "in_goal": bool(info["in_goal_region"]),
         "success": bool(info["success"]),
         "reached": int(info["waypoints_reached"]),
+        "visited": list(info.get("visited") or []),
         "step": int(info["step"]),
         "speed": float(info.get("ee_speed", 0.0)),
     }
@@ -138,12 +139,25 @@ def animate(frames_by_episode: List[List[Dict[str, Any]]], env, title: str, fps:
                             color="#ffffff14", zorder=0))
     ax.add_patch(plt.Circle(tuple(shoulder), reach, color="#ffffff22", fill=False, linestyle="--", linewidth=0.8))
 
+    # In free-order mode the arm chooses its own route, so the picture must not
+    # imply one: no line joining the points in list order and no WP1/WP2/WP3
+    # labels. The points are just points; they turn green as they are visited.
+    free_order = bool(getattr(base, "free_order", False))
+    PENDING, DONE = "#9aa0a6", "#2ecc71"
+    wp_fills, wp_rings, wp_dots = [], [], []
     for i, (wp, c) in enumerate(zip(wps, colours)):
-        ax.add_patch(plt.Circle(tuple(wp), tol, color=c, alpha=0.18))
-        ax.add_patch(plt.Circle(tuple(wp), tol, color=c, fill=False, linewidth=1.0))
-        ax.plot(wp[0], wp[1], "*", color=c, markersize=16, zorder=5)
-        ax.text(wp[0] + 0.02, wp[1] + 0.03, f"WP{i + 1}", color=c, fontsize=11, fontweight="bold")
-    if n_wp >= 2:
+        c = PENDING if free_order else c
+        fill = plt.Circle(tuple(wp), tol, color=c, alpha=0.18)
+        ring = plt.Circle(tuple(wp), tol, color=c, fill=False, linewidth=1.0)
+        ax.add_patch(fill)
+        ax.add_patch(ring)
+        dot, = ax.plot([wp[0]], [wp[1]], "*", color=c, markersize=16, zorder=5)
+        if not free_order:
+            ax.text(wp[0] + 0.02, wp[1] + 0.03, f"WP{i + 1}", color=c, fontsize=11, fontweight="bold")
+        wp_fills.append(fill)
+        wp_rings.append(ring)
+        wp_dots.append(dot)
+    if n_wp >= 2 and not free_order:
         arr = np.asarray(wps)
         ax.plot(arr[:, 0], arr[:, 1], "--", color="#ffffff55", linewidth=0.8)
 
@@ -172,14 +186,27 @@ def animate(frames_by_episode: List[List[Dict[str, Any]]], env, title: str, fps:
         xs = [fr["hand"][0] for fr in ep_frames[:j + 1]]
         ys = [fr["hand"][1] for fr in ep_frames[:j + 1]]
         trail.set_data(xs, ys)
-        wp = wps[min(f["wp_index"], n_wp - 1)]
-        active.set_data([wp[0]], [wp[1]])
-        hand.set_color(colours[min(f["wp_index"], n_wp - 1)])
+        if free_order:
+            vis = f.get("visited") or []
+            for i in range(n_wp):
+                c = DONE if (i < len(vis) and vis[i]) else PENDING
+                wp_fills[i].set_color(c)
+                wp_fills[i].set_alpha(0.18)
+                wp_rings[i].set_edgecolor(c)
+                wp_dots[i].set_color(c)
+            active.set_data([], [])          # no "heading" ring: the route is the arm's
+            hand.set_color("white")
+        else:
+            wp = wps[min(f["wp_index"], n_wp - 1)]
+            active.set_data([wp[0]], [wp[1]])
+            hand.set_color(colours[min(f["wp_index"], n_wp - 1)])
         bar.set_width(0.30 * f["hold"])
         bar.set_color("#2ecc71" if f["in_goal"] else "#e67e22")
         state = "HOLD COMPLETE" if f["success"] else ("settling" if f["in_goal"] else "moving")
+        second = (f"visited: {f['reached']}/{n_wp}   (the arm chose the order)" if free_order
+                  else f"waypoints reached: {f['reached']}/{n_wp}   heading: WP{min(f['wp_index'] + 1, n_wp)}")
         status.set_text(f"episode {e + 1}/{len(frames_by_episode)}   t = {f['step'] * dt:4.2f} s\n"
-                        f"waypoints reached: {f['reached']}/{n_wp}   heading: WP{min(f['wp_index'] + 1, n_wp)}\n"
+                        f"{second}\n"
                         f"hand speed: {f['speed']:.2f} m/s   hold: {int(round(100 * f['hold']))}%   {state}")
         return links, hand, trail, active, bar, status
 
@@ -204,7 +231,11 @@ def main(argv=None) -> int:
     args = parse_args(argv)
     model, env = build(args)
     base = getattr(env, "unwrapped", env)
-    print(f"env: preset {base.preset_name}, {base.actuation_mode} actuation, {base.num_waypoints} waypoints, "
+    # num_waypoints is 1 until the first reset draws a random set, so report the
+    # count the task actually uses.
+    n_task = int(base.random_waypoints or base.free_order_slots or base.num_waypoints)
+    print(f"env: preset {base.preset_name}, {base.actuation_mode} actuation, {n_task} waypoints"
+          f"{' (free order: the arm chooses the route)' if base.free_order else ''}, "
           f"tolerance {base.goal_tolerance} m, hold {base.hold_steps_required} steps")
     episodes = []
     for e in range(args.episodes):

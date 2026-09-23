@@ -1200,7 +1200,20 @@ class ArmControllerGUI:
                   f"{raw_env.num_waypoints} waypoints, tolerance {raw_env.goal_tolerance} m, "
                   f"hold {raw_env.hold_steps_required} steps")
             trained_random = bool((self.sim_manifest or {}).get("env", {}).get("random_waypoints"))
-            self.sim_model_kind = "random-waypoint (generalising)" if trained_random else "fixed-waypoint"
+            free_order = bool(getattr(raw_env, "free_order", False))
+            if free_order:
+                self.sim_model_kind = "free-order (sees all points, picks its own route)"
+            elif trained_random:
+                self.sim_model_kind = "random-waypoint (generalising)"
+            else:
+                self.sim_model_kind = "fixed-waypoint"
+            if free_order and wps is not None and len(wps) != raw_env.free_order_slots:
+                raise ValueError(
+                    f"this free-order model reads exactly {raw_env.free_order_slots} points at once; "
+                    f"{len(wps)} were placed. Place {raw_env.free_order_slots} and restart.")
+            if free_order:
+                print(f"[OK] Free-order model: it sees all {raw_env.free_order_slots} points every step "
+                      f"and chooses the order itself; the panel draws no route.")
             if wps is not None and not trained_random:
                 trained_wps = (self.sim_manifest or {}).get("env", {}).get("waypoints")
                 print(f"[WARN] This is a FIXED-waypoint model (trained only on {trained_wps}); "
@@ -1409,21 +1422,35 @@ class ArmControllerGUI:
             k = int(info.get("current_waypoint_index", 0))
             tol = float(info.get("goal_tolerance", 0.05))
             n_wp = len(wps)
-            if n_wp >= 2:
+            # A free-order policy picks its own route, so the panel must not
+            # draw one: no line through the points in list order and no numbers
+            # implying a sequence. Points are grey until the arm has visited
+            # them, green afterwards.
+            free_order = bool(info.get("free_order"))
+            visited = list(info.get("visited") or [])
+            if n_wp >= 2 and not free_order:
                 arr = np.asarray(wps, dtype=float) - shoulder
                 self.ax.plot(arr[:, 0], arr[:, 1], color="gray", linestyle="--", linewidth=0.8, alpha=0.5, zorder=5)
             for i, wp in enumerate(wps):
                 p = np.asarray(wp, dtype=float) - shoulder
-                colour = "green" if i < k or info.get("success") else ("red" if i == k else "lightgray")
+                if free_order:
+                    done = bool(visited[i]) if i < len(visited) else False
+                    colour = "green" if done else "lightgray"
+                else:
+                    colour = "green" if i < k or info.get("success") else ("red" if i == k else "lightgray")
                 self.ax.add_patch(plt.Circle((p[0], p[1]), tol, color=colour, alpha=0.15, zorder=4))
                 self.ax.add_patch(plt.Circle((p[0], p[1]), tol, color=colour, fill=False, linewidth=1.2, zorder=4))
                 self.ax.scatter(p[0], p[1], c=colour, s=160, marker="X", edgecolors="black", linewidths=1.5, zorder=10)
-                self.ax.annotate(f"{i + 1}", (p[0], p[1]), textcoords="offset points", xytext=(8, 8),
-                                 fontsize=10, fontweight="bold")
+                if not free_order:
+                    self.ax.annotate(f"{i + 1}", (p[0], p[1]), textcoords="offset points", xytext=(8, 8),
+                                     fontsize=10, fontweight="bold")
             hold_pct = int(round(100.0 * float(info.get("hold_progress", 0.0))))
             reached = int(info.get("waypoints_reached", 0))
             state = "HOLD COMPLETE" if info.get("success") else ("settling" if info.get("in_goal_region") else "moving")
-            title = f"WP {min(k + 1, n_wp)}/{n_wp} | hold {hold_pct}% | {state} | {reached}/{n_wp} reached"
+            if free_order:
+                title = f"{reached}/{n_wp} visited (arm's own order) | hold {hold_pct}% | {state}"
+            else:
+                title = f"WP {min(k + 1, n_wp)}/{n_wp} | hold {hold_pct}% | {state} | {reached}/{n_wp} reached"
             if self.sim_hold_bar is not None:
                 self.sim_hold_bar["value"] = hold_pct
             if self.sim_progress_label is not None:
