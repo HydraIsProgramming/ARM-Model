@@ -52,6 +52,11 @@ STAGES = {
                             "chooses its own route; no active-goal channel, no ordering signal"),
                extra=["--random-waypoints", "3", "--free-order", "--activation-dynamics", "0.04,0.06",
                       "--reward-weight", "W_ACCEL=0.02"]),
+    "F2": dict(waypoints="none", timesteps=500_000,
+               description=("PILOT: TWO random waypoints, FREE ORDER - isolates chaining, which is where the "
+                            "three-point free-order runs stalled (they reached one point and stopped)"),
+               extra=["--random-waypoints", "2", "--free-order", "--activation-dynamics", "0.04,0.06",
+                      "--reward-weight", "W_ACCEL=0.02"]),
     "C": dict(waypoints="3", timesteps=800_000, description="three waypoints + hand load 0-1 kg + sensory noise/delay",
               extra=["--hand-load-range", "0,1", "--obs-noise", "0.01,0.05", "--sensory-delay", "2"]),
 }
