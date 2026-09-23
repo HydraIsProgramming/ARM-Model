@@ -256,3 +256,46 @@ def test_ordered_task_is_untouched():
     assert not env.free_order
     info = run(env, OraclePolicy(env))
     assert info["success"] and info["waypoints_reached"] == 3
+
+
+def test_completing_a_waypoint_does_not_cut_the_per_step_reward():
+    """The regression that killed the first free-order run.
+
+    With the dense term keyed to the nearest outstanding waypoint, finishing one
+    made that term jump from ~0 to -0.25 and worse, so the step after a
+    completion paid far less than the step before it and the policy learned to
+    park on the first point it reached and never leave. Keyed to the remaining
+    tour, completing a waypoint leaves the term where it was.
+    """
+    env = make()
+    policy = RouteOraclePolicy(env, (0, 1, 2))
+    obs, _ = env.reset(seed=0)
+    prev_terms = None
+    checked = 0
+    for _ in range(900):
+        action, _ = policy.predict(obs, deterministic=True)
+        obs, _, terminated, truncated, info = env.step(action)
+        terms = dict(env._last_reward_terms)
+        if info["waypoint_completed"] is not None and prev_terms is not None:
+            # the one-off bonus aside, the recurring part must not fall off a cliff
+            before = prev_terms["distance"] + prev_terms["shaping"]
+            after = terms["distance"] + terms["shaping"]
+            assert after > before - 0.05, (
+                f"completing waypoint {info['waypoint_completed']} cut the recurring reward "
+                f"from {before:.3f} to {after:.3f}")
+            checked += 1
+        prev_terms = terms
+        if terminated or truncated:
+            break
+    assert checked >= 2, "expected at least two completions to check"
+
+
+def test_dense_term_improves_monotonically_as_waypoints_are_completed():
+    env = make()
+    env.reset(seed=0)
+    ee = np.array([1.30, 0.05])
+    values = []
+    for visited in ([False, False, False], [True, False, False], [True, True, False]):
+        env.visited[:] = visited
+        values.append(env.W_DIST * env._free_order_potential(ee))
+    assert values[0] < values[1] < values[2] <= 0.0

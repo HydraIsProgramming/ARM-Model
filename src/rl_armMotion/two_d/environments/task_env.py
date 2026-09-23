@@ -1167,7 +1167,20 @@ class ArmTaskEnv(gym.Env):
         # Reward
         phi_after = self._free_order_potential(ee) if self.free_order else -distance / self.reach
         shaping = self.W_SHAPING * (self.discount * phi_after - phi_before)
-        dist_term = -self.W_DIST * distance / self.reach
+        if self.free_order:
+            # The dense term follows the REMAINING TOUR, not the distance to the
+            # nearest outstanding waypoint. Keyed to the nearest waypoint it sits
+            # at ~0 while the hand rests on an unvisited point and drops to
+            # -0.25..-0.48 the instant that point is completed, so the arm is
+            # charged for finishing one: the immediate gradient says "arrive
+            # somewhere and never leave", which is exactly what the first
+            # free-order run learned (0.25 of 3 waypoints, zero target switches).
+            # The tour length does not change when the waypoint the hand is
+            # standing on is completed - that leg is zero either way - and
+            # shrinks as points are done, so finishing one is never punished.
+            dist_term = self.W_DIST * phi_after
+        else:
+            dist_term = -self.W_DIST * distance / self.reach
         effort = -self.W_EFFORT * float(np.dot(a, a))
         smooth = -self.W_SMOOTH * joint_speed / float(self.config.velocity_limits)
         end_range = self._end_range_engagement(q)
