@@ -1,4 +1,17 @@
-"""Shared fixtures: src on sys.path, oracle policies, small envs."""
+"""Shared fixtures: src on sys.path, oracle policies, small envs.
+
+The matplotlib backend is pinned to Agg here, before anything can import
+matplotlib. Without it the suite picks TkAgg, and any test that draws tries to
+open a Tk connection: that fails outright when a GUI is already running (this
+Python's Tcl/Tk cannot serve two apps - "Can't find a usable tk.tcl"), so
+whether the tests passed depended on whether a window happened to be open.
+MPLBACKEND is set rather than calling matplotlib.use() so it also applies inside
+subprocesses the tests spawn.
+"""
+
+import os
+
+os.environ.setdefault("MPLBACKEND", "Agg")
 
 import sys
 from pathlib import Path

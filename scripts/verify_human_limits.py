@@ -55,7 +55,11 @@ BANDS = {
     "symmetry": (0.35, 0.55, "time to peak speed / movement time"),
     "submovements": (1.0, 2.0, "speed peaks per reach"),
     "dimensionless_jerk": (0.0, 60.0, "smoothness"),
-    "peak_speed": (0.0, 1.5, "m/s, the configured human cap"),
+    # The verdict is against HUMAN reaching (1.0-1.5 m/s peak for 30-50 cm
+    # moves), not against the model's own cap: the cap is the cost threshold
+    # we chose, and judging human-likeness by it would be marking our own
+    # homework. Whether the cost actually binds is reported separately.
+    "peak_speed": (0.0, 1.5, "m/s, human point-to-point reaching"),
     "movement_time": (0.4, 1.2, "s per reach"),
 }
 
@@ -166,6 +170,15 @@ def main():
             flagged.append((key, med, lo, hi, note))
         print(f"  {key:<22} {med:>10.2f} (p90 {np.percentile(vals, 90):>5.2f}) "
               f"{f'{lo:.2f}-{hi:.2f}':>16}   {'in band' if inside else 'OUTSIDE'}")
+
+    # Does the hand-speed cost actually bind? The optimum sits just ABOVE the
+    # cap rather than at it - which is why the cap is set below the human band,
+    # so that "just above" still lands inside it.
+    sp = np.concatenate([e["ee_speed"] for e in eps])
+    over = float(np.mean(sp > base.EE_SPEED_CAP))
+    verdict = "binds" if over < 0.10 else "does NOT bind: the policy pays and speeds anyway"
+    print(f"\n  hand-speed cost: cap {base.EE_SPEED_CAP:.2f} m/s, peak {sp.max():.2f} m/s, "
+          f"{over:.1%} of steps above the cap ({verdict})")
 
     # ---------------- promised capabilities ----------------
     print("\nCAPABILITIES (each measured, not asserted)")

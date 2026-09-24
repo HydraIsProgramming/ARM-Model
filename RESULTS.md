@@ -56,6 +56,15 @@ So the two models trade against each other, and the choice depends on what the a
 human-likeness**, at the cost of a quarter of its accuracy and of the co-contraction
 stiffening, which reverses: it no longer stiffens more to hold than to move.
 
+One caveat on the cost itself: it still does not fully bind. R5 spends 14.1 % of its steps
+above its own 1.2 m/s cap and peaks at 1.61 m/s, against 27.2 % and 2.76 m/s for R3 at its
+1.5 m/s cap. The optimum parks just *above* the cap rather than at it, exactly as the
+(cap, weight) grid predicted, which is why the cap is set below the human band: "just above
+1.2" still lands inside the 1.0-1.5 m/s of human reaching, and that is what the verdict is
+measured against. Judging peak speed against a model's own cap instead would be marking our
+own homework, so `verify_human_limits.py` scores the human range and reports cap binding as
+a separate diagnostic.
+
 ## Human-arm v2 - Stage R4 (end-range feasibility rule), 2026-09-22 - **PASS 5/5, and a negative result**
 
 Stage R3's investigation turned up a real inconsistency in the task rather than in the
