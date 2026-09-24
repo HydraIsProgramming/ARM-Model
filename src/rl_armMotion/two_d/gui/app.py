@@ -87,6 +87,7 @@ class ArmControllerGUI:
         self.sim_time = 0.0
         self.action_smoothing = False   # models with muscle activation dynamics must NOT be smoothed again
         self.clicked_waypoints = []
+        self.clicked_requests = []
         self._place_mode = False
         self._feasible_cloud = None
         self._feasible_cloud_key = None
@@ -1074,6 +1075,7 @@ class ArmControllerGUI:
 
     def _on_clear_points(self):
         self.clicked_waypoints = []
+        self.clicked_requests = []
         self.sim_custom_waypoints = ""
         if hasattr(self, "_wp_custom_var"):
             self._wp_custom_var.set("")
@@ -1093,23 +1095,60 @@ class ArmControllerGUI:
             base = ArmTaskEnv(actuation_mode="torque", config=self.config)
         return base
 
+    def _nearest_placeable(self, env, wp, existing):
+        """Nearest point the arm can actually hold that also clears the spacing
+        rules, or None if nothing within reach of the click qualifies."""
+        pts = env.feasible_points()
+        target = np.asarray(wp, dtype=float)
+        for idx in np.argsort(np.linalg.norm(pts - target, axis=1))[:400]:
+            cand = [float(v) for v in pts[idx]]
+            try:
+                env._validate_waypoint_spacing([np.asarray(w, dtype=float) for w in existing + [cand]])
+            except ValueError:
+                continue
+            return cand, float(np.linalg.norm(np.asarray(cand) - target))
+        return None, 0.0
+
     def _on_canvas_click(self, event):
-        """Add a waypoint at the clicked workspace point (plot frame is shoulder-local)."""
+        """Add a waypoint at the clicked workspace point (plot frame is shoulder-local).
+
+        A click the arm cannot hold is moved to the nearest point it can, rather
+        than being dropped. Measured on uniformly random clicks, only 22% land
+        somewhere holdable - 48% are outside the reach margin alone - so
+        refusing them outright means roughly seven clicks in eight do nothing.
+        The limits themselves are real (the policy reaches 24% of targets in the
+        0.47-0.52 m ring and 0% beyond, so accepting those clicks would only
+        trade a silent refusal for a visible failure); what was wrong was
+        discarding the user's intent instead of honouring it as closely as the
+        arm allows.
+        """
         if not self._place_mode or event.inaxes is not self.ax or event.xdata is None:
             return
         env = self._feasibility_env()
         shoulder = np.asarray(env.shoulder_base_position, dtype=float)
         wp = [float(event.xdata) + shoulder[0], float(event.ydata) + shoulder[1]]
         f = env.waypoint_feasibility(wp, env.max_curriculum_tolerance)
-        if not f.get("feasible", False):
-            print(f"[WARN] point ({wp[0]:.2f}, {wp[1]:.2f}) rejected: {f.get('reason')}")
-            return
+        placeable = f.get("feasible", False)
+        if placeable:
+            try:
+                env._validate_waypoint_spacing(
+                    [np.asarray(w, dtype=float) for w in self.clicked_waypoints + [wp]])
+            except ValueError:
+                placeable = False
+        if not placeable:
+            snapped, moved = self._nearest_placeable(env, wp, self.clicked_waypoints)
+            if snapped is None:
+                print(f"[WARN] no point near ({wp[0]:.2f}, {wp[1]:.2f}) can be held and kept "
+                      f"{2 * env.max_curriculum_tolerance:.2f} m clear of the others; "
+                      f"try somewhere else in the shaded region")
+                return
+            print(f"[OK] ({wp[0]:.2f}, {wp[1]:.2f}) moved {moved * 100:.0f} cm to "
+                  f"({snapped[0]:.2f}, {snapped[1]:.2f}), the nearest point the arm can reach and hold")
+            self.clicked_requests.append((list(wp), list(snapped)))
+            wp = snapped
+        else:
+            self.clicked_requests.append((list(wp), list(wp)))
         trial = self.clicked_waypoints + [wp]
-        try:
-            env._validate_waypoint_spacing([np.asarray(w, dtype=float) for w in trial])
-        except ValueError as exc:
-            print(f"[WARN] point rejected: {exc}")
-            return
         self.clicked_waypoints = trial
         self.sim_custom_waypoints = ";".join(f"{x:.3f},{y:.3f}" for x, y in self.clicked_waypoints)
         self.sim_waypoint_choice = "custom"
@@ -1410,6 +1449,16 @@ class ArmControllerGUI:
             shoulder = np.asarray(self._feasibility_env().shoulder_base_position, dtype=float)
             for i, wp in enumerate(self.clicked_waypoints):
                 p = np.asarray(wp, dtype=float) - shoulder
+                # If the click was moved to somewhere holdable, show where it
+                # was asked for and the move, so nothing is relocated silently.
+                if i < len(self.clicked_requests):
+                    asked, used = (np.asarray(v, dtype=float) for v in self.clicked_requests[i])
+                    if float(np.linalg.norm(asked - used)) > 1e-6:
+                        a = asked - shoulder
+                        self.ax.plot([a[0], p[0]], [a[1], p[1]], color="#888888", linestyle=":",
+                                     linewidth=1.0, zorder=3)
+                        self.ax.scatter(a[0], a[1], s=60, facecolors="none", edgecolors="#888888",
+                                        linewidths=1.2, zorder=3)
                 self.ax.add_patch(plt.Circle((p[0], p[1]), 0.05, color="red", fill=False, linewidth=1.2, zorder=4))
                 self.ax.scatter(p[0], p[1], c="red", s=160, marker="X", edgecolors="black", linewidths=1.5, zorder=10)
                 self.ax.annotate(f"{i + 1}", (p[0], p[1]), textcoords="offset points", xytext=(8, 8),

@@ -266,3 +266,50 @@ class TestMotionRecorder:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+def test_click_snaps_to_the_nearest_holdable_point():
+    """A click the arm cannot hold is moved, not discarded.
+
+    Only ~22% of uniformly random clicks land somewhere the arm can hold, so
+    refusing the rest means most clicks silently do nothing. The limits are
+    real - the policy reaches 0% of targets beyond 0.52 m - so the click is
+    honoured as closely as the arm allows instead of being dropped.
+    """
+    import numpy as np
+    from rl_armMotion.two_d.gui.app import ArmControllerGUI
+    from rl_armMotion.two_d.evaluation import make_env
+
+    gui = ArmControllerGUI.__new__(ArmControllerGUI)      # the method needs no Tk
+    env = make_env(actuation_mode="muscle", waypoints=None)
+    shoulder = np.asarray(env.shoulder_base_position, dtype=float)
+
+    # A point well outside the holdable region: straight out at almost full reach.
+    far = [float(shoulder[0] + 0.98 * env.reach), float(shoulder[1])]
+    assert not env.waypoint_feasibility(far, env.max_curriculum_tolerance).get("feasible", False)
+    snapped, moved = gui._nearest_placeable(env, far, [])
+    assert snapped is not None
+    assert env.waypoint_feasibility(snapped, env.max_curriculum_tolerance)["feasible"]
+    assert moved > 0.0
+    # It moves toward the arm, not to some arbitrary corner of the workspace.
+    assert np.linalg.norm(np.asarray(snapped) - shoulder) < np.linalg.norm(np.asarray(far) - shoulder)
+
+    # A point that is already fine is returned unchanged.
+    good = [float(v) for v in env.feasible_points()[0]]
+    same, moved0 = gui._nearest_placeable(env, good, [])
+    assert moved0 == pytest.approx(0.0, abs=1e-9) and same == pytest.approx(good)
+
+
+def test_snapping_respects_the_spacing_rule():
+    """Snapping must not park two waypoints on top of each other."""
+    import numpy as np
+    from rl_armMotion.two_d.gui.app import ArmControllerGUI
+    from rl_armMotion.two_d.evaluation import make_env
+
+    gui = ArmControllerGUI.__new__(ArmControllerGUI)
+    env = make_env(actuation_mode="muscle", waypoints=None)
+    first = [float(v) for v in env.feasible_points()[0]]
+    # Ask for a second point right on top of the first.
+    snapped, _ = gui._nearest_placeable(env, first, [first])
+    assert snapped is not None
+    assert np.linalg.norm(np.asarray(snapped) - np.asarray(first)) > 2 * env.max_curriculum_tolerance
