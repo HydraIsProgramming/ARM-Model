@@ -53,11 +53,12 @@ def wilson(k, n, z=1.96):
     return max(0.0, c - h), min(1.0, c + h)
 
 
-def click_points(env, rng, n, anywhere):
-    """Reproduce the GUI click handler: propose a point, keep it only if the
-    feasibility and spacing checks that the handler runs both pass."""
+def click_points(env, rng, n, anywhere, gui):
+    """Reproduce the GUI click handler exactly: propose a point, and if it is
+    not holdable (or breaks the spacing rule) snap it to the nearest point that
+    is, which is what the panel now does."""
     shoulder = np.asarray(env.shoulder_base_position, dtype=float)
-    chosen, rejected = [], 0
+    chosen, moved, dropped = [], [], 0
     pool = None if anywhere else env.feasible_points()
     for _ in range(4000):
         if len(chosen) == n:
@@ -67,17 +68,21 @@ def click_points(env, rng, n, anywhere):
             wp = [float(shoulder[0] + r * np.cos(th)), float(shoulder[1] + r * np.sin(th))]
         else:
             wp = [float(v) for v in pool[rng.integers(len(pool))]]
-        if not env.waypoint_feasibility(wp, env.max_curriculum_tolerance).get("feasible", False):
-            rejected += 1
-            continue
-        trial = chosen + [wp]
-        try:
-            env._validate_waypoint_spacing([np.asarray(w, dtype=float) for w in trial])
-        except ValueError:
-            rejected += 1
-            continue
-        chosen = trial
-    return (chosen if len(chosen) == n else None), rejected
+        ok = env.waypoint_feasibility(wp, env.max_curriculum_tolerance).get("feasible", False)
+        if ok:
+            try:
+                env._validate_waypoint_spacing([np.asarray(w, dtype=float) for w in chosen + [wp]])
+            except ValueError:
+                ok = False
+        if not ok:
+            snapped, dist = gui._nearest_placeable(env, wp, chosen)
+            if snapped is None:
+                dropped += 1
+                continue
+            moved.append(dist)
+            wp = snapped
+        chosen.append(wp)
+    return (chosen if len(chosen) == n else None), moved, dropped
 
 
 def main():
@@ -89,6 +94,8 @@ def main():
     was_random = base.random_waypoints
     base.random_waypoints = None
     rng = np.random.default_rng(args.seed)
+    from rl_armMotion.two_d.gui.app import ArmControllerGUI
+    gui = ArmControllerGUI.__new__(ArmControllerGUI)   # the snap helper needs no Tk
 
     print(f"package {args.package} ({args.which})")
     print(f"{args.trials} trials of {args.points} clicked points, "
@@ -98,10 +105,12 @@ def main():
     ok = 0
     n_done = 0
     rejects = 0
+    snapped = []
     reached_frac, times, misses = [], [], []
     for i in range(args.trials):
-        pts, rej = click_points(base, rng, args.points, args.anywhere)
-        rejects += rej
+        pts, moved, dropped = click_points(base, rng, args.points, args.anywhere, gui)
+        rejects += dropped
+        snapped.extend(moved)
         if pts is None:
             continue
         base.set_waypoints(pts)
@@ -133,10 +142,14 @@ def main():
     if misses:
         print(f"worst point when it fails   : median {np.median(misses):.3f} m from the target "
               f"(tolerance {base.goal_tolerance:.2f})")
-    if args.anywhere:
-        print(f"\nclicks the GUI refused      : {rejects} proposals rejected for "
-              f"{args.trials * args.points} accepted points")
-        print("  (a refused click is the GUI saying 'the arm cannot hold there', not a failure to reach)")
+    total_points = n_done * args.points
+    print(f"clicks honoured             : {total_points}/{total_points + rejects} = "
+          f"{total_points / max(total_points + rejects, 1):.1%}")
+    if snapped:
+        print(f"clicks moved to a holdable point: {len(snapped)} of {total_points} "
+              f"({len(snapped) / max(total_points, 1):.0%}), median {np.median(snapped) * 100:.0f} cm, "
+              f"p90 {np.percentile(snapped, 90) * 100:.0f} cm")
+        print("  (the panel draws the point you asked for and a dotted line to the one used)")
     return 0
 
 

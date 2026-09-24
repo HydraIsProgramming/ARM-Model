@@ -12,6 +12,50 @@
 > Stage A / B3 / R3 sections below, produced by `run_campaign.py` with
 > `campaign_report.json` in each run directory.
 
+## Human-arm v2 - Stage R5 (human hand-speed cost), 2026-09-24
+
+The human-limits audit of the R3 champion found it peaking at 2.14 m/s against a 1.5 m/s
+cap, above the 1.0-1.5 m/s of human reaching, with 26 % of its steps over the cap. The arm
+was still accelerating at peak speed on 26-49 % of its torque limit, so nothing physical
+was violated - and nothing should be, since a human hand exceeds 2.5 m/s when throwing.
+People reach at these speeds because of effort and smoothness, so the constraint belongs in
+the objective. The old weight never bound: speeding buys earlier arrival, which earns
+R_IN_GOAL per extra held step and cuts the accumulated distance cost.
+
+Scoring candidate trajectories over a grid of (cap, weight) showed raising the weight alone
+does not help - the optimum simply parks just above the cap, 1.68 m/s winning at every
+weight while the cap stayed at 1.5. Cap 1.2 m/s at weight 10 makes a 1.24 m/s trajectory
+the best-scoring one by 11 points while 1.03 and 0.81 m/s still lose.
+
+| seed | success | final error | straightness | symmetry |
+|---|---|---|---|---|
+| 1 | 17/20 | 5.1 cm | 1.13 | 0.40 |
+| **2** | **18/20** | 2.9 cm | 1.13 | 0.35 |
+| 3 | 1/20 | 18.1 cm | 1.28 | 0.25 |
+| 4 | 18/20 | 3.9 cm | 1.15 | 0.49 |
+| 5 | 5/20 | 8.1 cm | 1.30 | 0.40 |
+
+Mean 0.59 +/- 0.41; 3/5 seeds >= 80 % -> PASS on the campaign rule, but two seeds failed to
+converge at all, against 5/5 and 0.97 +/- 0.03 for R4 on the same task with the old cost.
+
+**The speed fix worked, and it cost accuracy.** The champion is the first model with *every*
+human-likeness metric inside its band:
+
+| metric | R3 | **R5** | human |
+|---|---|---|---|
+| peak hand speed | 2.14 m/s | **1.35 m/s** | <= 1.5 |
+| straightness | 1.13 | 1.12 | 1.00-1.15 |
+| symmetry | 0.56 (outside) | **0.38** | 0.35-0.55 |
+| dimensionless jerk | 23.6 | 41.1 | < 60 |
+| reach duration | 0.47 s | 0.73 s | 0.4-1.2 |
+| reaches all 3 clicked points | **95 %** | 70 % | - |
+| co-contraction, hold vs move | **0.48 / 0.23** | 0.24 / 0.29 | higher when holding |
+
+So the two models trade against each other, and the choice depends on what the arm is for.
+**R3 is the one to demo** (95 % on freely clicked points). **R5 is the one to cite for
+human-likeness**, at the cost of a quarter of its accuracy and of the co-contraction
+stiffening, which reverses: it no longer stiffens more to hold than to move.
+
 ## Human-arm v2 - Stage R4 (end-range feasibility rule), 2026-09-22 - **PASS 5/5, and a negative result**
 
 Stage R3's investigation turned up a real inconsistency in the task rather than in the

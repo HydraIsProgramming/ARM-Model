@@ -156,6 +156,7 @@ seeds with the same config are how you *measure* variance; seed search is not a 
 | **B3** | **3 waypoints, v2 set, clean** | **`project_assets/outputs/CHAMPION_HUMAN_V1_B3`** (seed 4) | **20/20, 0.1 cm, 5.0 s; all 5 seeds 20/20** |
 | **R3** | **ANY 3 points, re-sampled every episode** | **`project_assets/outputs/CHAMPION_HUMAN_V1_R3`** (seed 1) | **99% on the current task at n=100 - the model to use** |
 | R4 | same task + end-range feasibility rule 5 | `project_assets/outputs/CHAMPION_HUMAN_V1_R4` (seed 1) | 20/20, 2.3 cm, 2.4 s; 5/5 seeds. No better than R3 on matched seeds (p = 0.67) |
+| R5 | same task + human hand-speed cost (cap 1.2 m/s, weight 10) | `project_assets/outputs/CHAMPION_HUMAN_V1_R5` (seed 2) | the ONLY model with every human-likeness metric in band (peak 1.35 m/s). Costs accuracy: 70% on clicked points vs R3's 95%, and 2 of 5 seeds failed to converge |
 
 **Use R3 for anything where the points are not the training points** — it is the best package that
 generalises. On the same 20 random triples the B3 champion reaches 0.25 of 3 waypoints (0 % success)
