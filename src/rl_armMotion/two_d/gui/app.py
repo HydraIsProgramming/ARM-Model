@@ -607,7 +607,7 @@ class ArmControllerGUI:
             values=["from package", "1 waypoint", "2 waypoints", "3 waypoints", "spread", "custom"],
         )
         wp_box.pack(side="left")
-        wp_box.bind("<<ComboboxSelected>>", lambda e: setattr(self, "sim_waypoint_choice", self._wp_choice_var.get()))
+        wp_box.bind("<<ComboboxSelected>>", self._on_waypoint_choice)
         self._wp_custom_var = tk.StringVar(value="")
         custom_entry = ttk.Entry(wp_row, textvariable=self._wp_custom_var, width=22, font=("Courier", 8))
         custom_entry.pack(side="left", padx=(4, 0))
@@ -616,22 +616,38 @@ class ArmControllerGUI:
         ttk.Checkbutton(wp_row, text="Loop", variable=self._loop_var,
                         command=lambda: setattr(self, "sim_loop", bool(self._loop_var.get()))).pack(side="left", padx=(6, 0))
 
-        # Two rows, not one. Packed side by side, the long checkbox label pushed
-        # both buttons off the right edge of a narrow control pane, so the
-        # feature looked as though it did not exist.
+        # Adding and removing are two named buttons, not one checkbox plus a
+        # right-click nobody can discover. They latch, so the panel is either in
+        # "the next click adds a point" or "the next click deletes one" and the
+        # button that is pressed in says which. Picking "custom" above turns
+        # adding on, because that is the only reason to pick it.
         place_row = ttk.Frame(frame)
         place_row.pack(fill="x", pady=(6, 0))
+        ttk.Label(place_row, text="My points:", font=("Courier", 8)).pack(side="left", padx=(0, 4))
+        self._click_mode_var = tk.StringVar(value="off")
+        self._add_btn = ttk.Radiobutton(place_row, text="+ Plot points", value="add", width=14,
+                                        variable=self._click_mode_var, style="Toolbutton",
+                                        command=self._on_click_mode)
+        self._add_btn.pack(side="left")
+        self._del_btn = ttk.Radiobutton(place_row, text="- Remove points", value="remove", width=16,
+                                        variable=self._click_mode_var, style="Toolbutton",
+                                        command=self._on_click_mode)
+        self._del_btn.pack(side="left", padx=(4, 0))
+        ttk.Radiobutton(place_row, text="Done", value="off", width=6,
+                        variable=self._click_mode_var, style="Toolbutton",
+                        command=self._on_click_mode).pack(side="left", padx=(4, 0))
+        # Kept so anything that toggled placement by the old name still works.
         self._place_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(place_row, text="Use MY OWN points (then click on the arm panel)",
-                        variable=self._place_var, command=self._on_place_toggle).pack(side="left")
 
         place_row2 = ttk.Frame(frame)
         place_row2.pack(fill="x", pady=(0, 4))
-        self._place_hint = ttk.Label(place_row2, text="tick the box, click points, then Go",
+        self._place_hint = ttk.Label(place_row2, text="press '+ Plot points', then click on the arm panel",
                                      font=("Courier", 7), foreground="#666666")
         self._place_hint.pack(side="left", padx=(18, 6))
         ttk.Button(place_row2, text="Go", width=5,
                    command=self._on_restart_with_points).pack(side="left")
+        ttk.Button(place_row2, text="Undo", width=6,
+                   command=self._undo_last_point).pack(side="left", padx=(4, 0))
         ttk.Button(place_row2, text="Clear", width=6,
                    command=self._on_clear_points).pack(side="left", padx=(4, 0))
 
@@ -1081,16 +1097,48 @@ class ArmControllerGUI:
         self._start_simulation()
 
     def _on_place_toggle(self):
-        self._place_mode = bool(self._place_var.get())
-        if getattr(self, "_place_hint", None) is not None:
-            self._place_hint.config(
-                text="now click points on the arm panel" if self._place_mode
-                     else "tick the box, click points, then Go")
-        print(f"[OK] Waypoint placement {'ON: click the arm panel to add points' if self._place_mode else 'OFF'}")
+        """Legacy entry point: the checkbox became the mode buttons below."""
+        self._click_mode_var.set("add" if self._place_var.get() else "off")
+        self._on_click_mode()
+
+    def _on_click_mode(self):
+        """Adding, removing, or neither - whichever button is pressed in."""
+        mode = self._click_mode_var.get()
+        self._place_mode = mode in ("add", "remove")
+        self._place_var.set(self._place_mode)
+        # A running episode owns the panel and hides the points being placed,
+        # so entering either mode stops it: you are about to define a new run.
+        if self._place_mode and self.simulation_active:
+            self._stop_simulation()
+        self._refresh_place_hint()
+        print(f"[OK] {'clicks ADD points' if mode == 'add' else 'clicks REMOVE points' if mode == 'remove' else 'click placement off'}")
+
+    def _on_waypoint_choice(self, _event=None):
+        """Picking 'custom' is only ever a prelude to plotting your own points."""
+        self.sim_waypoint_choice = self._wp_choice_var.get()
+        if self.sim_waypoint_choice == "custom":
+            self._click_mode_var.set("add")
+        else:
+            self._click_mode_var.set("off")
+        self._on_click_mode()
+
+    def _refresh_place_hint(self):
+        if getattr(self, "_place_hint", None) is None:
+            return
+        n = len(self.clicked_waypoints)
+        mode = self._click_mode_var.get() if hasattr(self, "_click_mode_var") else "off"
+        if mode == "add":
+            text = f"click the panel to add ({n} placed)" + (" - press Go" if n else "")
+        elif mode == "remove":
+            text = f"click a point to delete it ({n} placed)" if n else "nothing to remove"
+        else:
+            text = f"{n} point(s) ready - press Go" if n else "press '+ Plot points', then click on the arm panel"
+        self._place_hint.config(text=text)
 
     def _on_clear_points(self):
         self.clicked_waypoints = []
         self.clicked_requests = []
+        self._refresh_place_hint()
         self.sim_custom_waypoints = ""
         if hasattr(self, "_wp_custom_var"):
             self._wp_custom_var.set("")
@@ -1124,6 +1172,42 @@ class ArmControllerGUI:
             return cand, float(np.linalg.norm(np.asarray(cand) - target))
         return None, 0.0
 
+    def _remove_point_near(self, wp):
+        """Drop the placed point nearest the click, if one is close enough."""
+        if not self.clicked_waypoints:
+            return False
+        target = np.asarray(wp, dtype=float)
+        d = [float(np.linalg.norm(np.asarray(p, dtype=float) - target)) for p in self.clicked_waypoints]
+        i = int(np.argmin(d))
+        if d[i] > 0.12:                      # a click well away from every point is not a delete
+            return False
+        gone = self.clicked_waypoints.pop(i)
+        if i < len(self.clicked_requests):
+            self.clicked_requests.pop(i)
+        self._sync_clicked_points(f"removed the point at ({gone[0]:.2f}, {gone[1]:.2f})")
+        return True
+
+    def _undo_last_point(self):
+        if not self.clicked_waypoints:
+            print("[WARN] no points to undo")
+            return
+        gone = self.clicked_waypoints.pop()
+        if self.clicked_requests:
+            self.clicked_requests.pop()
+        self._sync_clicked_points(f"undid the point at ({gone[0]:.2f}, {gone[1]:.2f})")
+
+    def _sync_clicked_points(self, message=None):
+        """Keep the text box, the hint and the console in step with the points."""
+        self.sim_custom_waypoints = ";".join(f"{x:.3f},{y:.3f}" for x, y in self.clicked_waypoints)
+        self.sim_waypoint_choice = "custom" if self.clicked_waypoints else self.sim_waypoint_choice
+        if hasattr(self, "_wp_custom_var"):
+            self._wp_custom_var.set(self.sim_custom_waypoints)
+        if hasattr(self, "_wp_choice_var") and self.clicked_waypoints:
+            self._wp_choice_var.set("custom")
+        self._refresh_place_hint()
+        if message:
+            print(f"[OK] {message}; {len(self.clicked_waypoints)} point(s) left")
+
     def _on_canvas_click(self, event):
         """Add a waypoint at the clicked workspace point (plot frame is shoulder-local).
 
@@ -1142,6 +1226,15 @@ class ArmControllerGUI:
         env = self._feasibility_env()
         shoulder = np.asarray(env.shoulder_base_position, dtype=float)
         wp = [float(event.xdata) + shoulder[0], float(event.ydata) + shoulder[1]]
+        # In remove mode every click deletes; right-click deletes in any mode.
+        if getattr(self, "_click_mode_var", None) is not None and self._click_mode_var.get() == "remove":
+            if not self._remove_point_near(wp):
+                print("[WARN] click closer to one of your points to remove it")
+            return
+        if getattr(event, "button", 1) in (2, 3):
+            if not self._remove_point_near(wp):
+                print("[WARN] right-click closer to a placed point to remove it")
+            return
         f = env.waypoint_feasibility(wp, env.max_curriculum_tolerance)
         placeable = f.get("feasible", False)
         if placeable:
@@ -1163,18 +1256,10 @@ class ArmControllerGUI:
             wp = snapped
         else:
             self.clicked_requests.append((list(wp), list(wp)))
-        trial = self.clicked_waypoints + [wp]
-        self.clicked_waypoints = trial
-        if getattr(self, "_place_hint", None) is not None:
-            self._place_hint.config(text=f"{len(trial)} point(s) placed - press Go")
-        self.sim_custom_waypoints = ";".join(f"{x:.3f},{y:.3f}" for x, y in self.clicked_waypoints)
-        self.sim_waypoint_choice = "custom"
-        if hasattr(self, "_wp_custom_var"):
-            self._wp_custom_var.set(self.sim_custom_waypoints)
-        if hasattr(self, "_wp_choice_var"):
-            self._wp_choice_var.set("custom")
-        print(f"[OK] waypoint {len(self.clicked_waypoints)} placed at ({wp[0]:.3f}, {wp[1]:.3f}); "
-              f"press Go to run")
+        self.clicked_waypoints = self.clicked_waypoints + [wp]
+        self._sync_clicked_points()
+        print(f"[OK] point {len(self.clicked_waypoints)} placed at ({wp[0]:.3f}, {wp[1]:.3f}); "
+              f"right-click it to remove, or press Go to run")
 
     def _feasible_cloud_points(self):
         """Shoulder-local scatter of feasible waypoint positions (cached per config)."""

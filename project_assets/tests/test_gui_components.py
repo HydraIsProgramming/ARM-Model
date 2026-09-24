@@ -313,3 +313,118 @@ def test_snapping_respects_the_spacing_rule():
     snapped, _ = gui._nearest_placeable(env, first, [first])
     assert snapped is not None
     assert np.linalg.norm(np.asarray(snapped) - np.asarray(first)) > 2 * env.max_curriculum_tolerance
+
+
+def _placement_gui():
+    """A real GUI with a window, in placement mode, ready to take clicks."""
+    from types import SimpleNamespace
+    import numpy as np
+    from rl_armMotion.two_d.gui.app import ArmControllerGUI
+    from rl_armMotion.two_d.config import ArmConfiguration
+    from rl_armMotion.two_d.environments.task_env import DEFAULT_PRESET
+
+    gui = ArmControllerGUI(ArmConfiguration.get_preset(DEFAULT_PRESET))
+    gui.create_window()
+    gui._click_mode_var.set("add")
+    gui._on_click_mode()
+    shoulder = np.asarray(gui._feasibility_env().shoulder_base_position, dtype=float)
+
+    def click(x, y, button=1):
+        gui._on_canvas_click(SimpleNamespace(inaxes=gui.ax, xdata=x - shoulder[0],
+                                             ydata=y - shoulder[1], button=button))
+    return gui, click
+
+
+def test_right_click_removes_the_point_you_clicked():
+    """Correcting one bad placement must not mean clearing them all."""
+    tk = pytest.importorskip("tkinter")
+    try:
+        gui, click = _placement_gui()
+    except tk.TclError:
+        pytest.skip("no Tk display available")
+    try:
+        for p in [(1.15, 0.33), (1.42, 0.08), (1.30, -0.30)]:
+            click(*p)
+        assert len(gui.clicked_waypoints) == 3
+        click(1.42, 0.08, button=3)
+        assert len(gui.clicked_waypoints) == 2
+        assert all(abs(p[0] - 1.42) > 1e-6 for p in gui.clicked_waypoints)
+        # a right-click away from every point removes nothing
+        click(1.00, 0.60, button=3)
+        assert len(gui.clicked_waypoints) == 2
+        # the text box stays in step with what is actually placed
+        assert gui.sim_custom_waypoints.count(";") == 1
+    finally:
+        gui.root.destroy()
+
+
+def test_undo_and_clear_keep_the_state_consistent():
+    tk = pytest.importorskip("tkinter")
+    try:
+        gui, click = _placement_gui()
+    except tk.TclError:
+        pytest.skip("no Tk display available")
+    try:
+        click(1.20, 0.30)
+        click(1.40, 0.05)
+        gui._undo_last_point()
+        assert len(gui.clicked_waypoints) == 1
+        assert gui.sim_custom_waypoints.count(";") == 0
+        gui._undo_last_point()
+        assert gui.clicked_waypoints == [] and gui.sim_custom_waypoints == ""
+        gui._undo_last_point()                      # undoing nothing must not raise
+        click(1.20, 0.30)
+        gui._on_clear_points()
+        assert gui.clicked_waypoints == [] and gui.clicked_requests == []
+    finally:
+        gui.root.destroy()
+
+
+def test_remove_mode_deletes_with_an_ordinary_click():
+    """Right-click was invisible; deleting has its own button now."""
+    tk = pytest.importorskip("tkinter")
+    try:
+        gui, click = _placement_gui()
+    except tk.TclError:
+        pytest.skip("no Tk display available")
+    try:
+        for p in [(1.15, 0.33), (1.42, 0.08), (1.30, -0.30)]:
+            click(*p)
+        assert len(gui.clicked_waypoints) == 3
+
+        gui._click_mode_var.set("remove")
+        gui._on_click_mode()
+        click(1.42, 0.08)                      # a plain left click, in remove mode
+        assert len(gui.clicked_waypoints) == 2
+        assert all(abs(p[0] - 1.42) > 1e-6 for p in gui.clicked_waypoints)
+        click(1.00, 0.60)                      # empty space deletes nothing
+        assert len(gui.clicked_waypoints) == 2
+
+        gui._click_mode_var.set("add")         # and adding still adds
+        gui._on_click_mode()
+        click(1.40, 0.05)
+        assert len(gui.clicked_waypoints) == 3
+    finally:
+        gui.root.destroy()
+
+
+def test_choosing_custom_turns_plotting_on_and_leaving_it_turns_it_off():
+    tk = pytest.importorskip("tkinter")
+    from rl_armMotion.two_d.gui.app import ArmControllerGUI
+    from rl_armMotion.two_d.config import ArmConfiguration
+    from rl_armMotion.two_d.environments.task_env import DEFAULT_PRESET
+    try:
+        gui = ArmControllerGUI(ArmConfiguration.get_preset(DEFAULT_PRESET))
+        gui.create_window()
+    except tk.TclError:
+        pytest.skip("no Tk display available")
+    try:
+        gui._wp_choice_var.set("custom")
+        gui._on_waypoint_choice()
+        assert gui._click_mode_var.get() == "add" and gui._place_mode
+
+        gui._wp_choice_var.set("3 waypoints")
+        gui._on_waypoint_choice()
+        assert gui._click_mode_var.get() == "off" and not gui._place_mode
+    finally:
+        gui.root.destroy()
