@@ -523,11 +523,44 @@ class ArmControllerGUI:
 
         return frame
 
+    def _scrollable_body(self, parent):
+        """A scrollable area inside ``parent``.
+
+        The simulation controls live in a pane of a Panedwindow, so when that
+        pane is short everything below the fold is simply cut off - which is how
+        the Plot/Remove buttons became unreachable, with the Loop checkbox
+        visibly clipped to "[x] L" on the row above them. Putting the rows in a
+        scrolled canvas means no control can be lost to a small window.
+        """
+        canvas = tk.Canvas(parent, highlightthickness=0, borderwidth=0)
+        bar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+        body = ttk.Frame(canvas)
+        window = canvas.create_window((0, 0), window=body, anchor="nw")
+        canvas.configure(yscrollcommand=bar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        bar.pack(side="right", fill="y")
+
+        def _resize_region(_event=None):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def _match_width(event):
+            canvas.itemconfigure(window, width=event.width)
+
+        def _wheel(event):
+            canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
+
+        body.bind("<Configure>", _resize_region)
+        canvas.bind("<Configure>", _match_width)
+        for widget in (canvas, body):
+            widget.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", _wheel))
+            widget.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
+        return body
     def _create_model_selection_frame(self, parent):
         """Create arm-model selection frame."""
         frame = ttk.LabelFrame(parent, text="ARM MODEL SELECTION", padding=5)
+        body = self._scrollable_body(frame)
 
-        control_row = ttk.Frame(frame)
+        control_row = ttk.Frame(body)
         control_row.pack(fill="x", pady=(0, 6))
         ttk.Button(control_row, text="Load Model", command=self._on_select_model).pack(
             side="left", padx=(0, 4), fill="x"
@@ -549,7 +582,60 @@ class ArmControllerGUI:
         self.sim_model_label.pack(side="left", fill="x", expand=True, padx=(6, 0))
 
         # Simulation speed control
-        speed_row = ttk.Frame(frame)
+        # Waypoint demo controls
+        wp_row = ttk.Frame(body)
+        wp_row.pack(fill="x", pady=(2, 4))
+        ttk.Label(wp_row, text="Waypoints:", font=("Courier", 8)).pack(side="left", padx=(0, 4))
+        self._wp_choice_var = tk.StringVar(value=self.sim_waypoint_choice)
+        wp_box = ttk.Combobox(
+            wp_row, textvariable=self._wp_choice_var, state="readonly", width=13,
+            values=["from package", "1 waypoint", "2 waypoints", "3 waypoints", "spread", "custom"],
+        )
+        wp_box.pack(side="left")
+        wp_box.bind("<<ComboboxSelected>>", self._on_waypoint_choice)
+        self._wp_custom_var = tk.StringVar(value="")
+        custom_entry = ttk.Entry(wp_row, textvariable=self._wp_custom_var, width=22, font=("Courier", 8))
+        custom_entry.pack(side="left", padx=(4, 0))
+        custom_entry.bind("<KeyRelease>", lambda e: setattr(self, "sim_custom_waypoints", self._wp_custom_var.get()))
+        self._loop_var = tk.BooleanVar(value=self.sim_loop)
+        ttk.Checkbutton(wp_row, text="Loop", variable=self._loop_var,
+                        command=lambda: setattr(self, "sim_loop", bool(self._loop_var.get()))).pack(side="left", padx=(6, 0))
+
+        # Adding and removing are two named buttons, not one checkbox plus a
+        # right-click nobody can discover. They latch, so the panel is either in
+        # "the next click adds a point" or "the next click deletes one" and the
+        # button that is pressed in says which. Picking "custom" above turns
+        # adding on, because that is the only reason to pick it.
+        place_row = ttk.Frame(body)
+        place_row.pack(fill="x", pady=(6, 0))
+        self._click_mode_var = tk.StringVar(value="off")
+        self._add_btn = ttk.Radiobutton(place_row, text="+ Add point", value="add", width=12,
+                                        variable=self._click_mode_var, style="Toolbutton",
+                                        command=self._on_click_mode)
+        self._add_btn.pack(side="left")
+        self._del_btn = ttk.Radiobutton(place_row, text="- Remove point", value="remove", width=15,
+                                        variable=self._click_mode_var, style="Toolbutton",
+                                        command=self._on_click_mode)
+        self._del_btn.pack(side="left", padx=(4, 0))
+        ttk.Radiobutton(place_row, text="Done", value="off", width=6,
+                        variable=self._click_mode_var, style="Toolbutton",
+                        command=self._on_click_mode).pack(side="left", padx=(4, 0))
+        # Kept so anything that toggled placement by the old name still works.
+        self._place_var = tk.BooleanVar(value=False)
+
+        place_row2 = ttk.Frame(body)
+        place_row2.pack(fill="x", pady=(0, 4))
+        self._place_hint = ttk.Label(place_row2, text="press '+ Plot points', then click on the arm panel",
+                                     font=("Courier", 7), foreground="#666666")
+        self._place_hint.pack(side="left", padx=(18, 6))
+        ttk.Button(place_row2, text="Go", width=5,
+                   command=self._on_restart_with_points).pack(side="left")
+        ttk.Button(place_row2, text="Undo", width=6,
+                   command=self._undo_last_point).pack(side="left", padx=(4, 0))
+        ttk.Button(place_row2, text="Clear", width=6,
+                   command=self._on_clear_points).pack(side="left", padx=(4, 0))
+
+        speed_row = ttk.Frame(body)
         speed_row.pack(fill="x", pady=(2, 4))
         ttk.Label(speed_row, text="Sim Speed:", font=("Courier", 8)).pack(side="left", padx=(0, 4))
         self._sim_speed_var = tk.IntVar(value=5)
@@ -570,7 +656,7 @@ class ArmControllerGUI:
         speed_slider.bind("<ButtonRelease-1>", _on_speed_change)
 
         # Action smoothing control
-        smooth_row = ttk.Frame(frame)
+        smooth_row = ttk.Frame(body)
         smooth_row.pack(fill="x", pady=(2, 4))
         self._smooth_var = tk.BooleanVar(value=self.action_smoothing)
         smooth_check = ttk.Checkbutton(
@@ -597,61 +683,7 @@ class ArmControllerGUI:
         alpha_slider.bind("<Motion>", _on_alpha_change)
         alpha_slider.bind("<ButtonRelease-1>", _on_alpha_change)
 
-        # Waypoint demo controls
-        wp_row = ttk.Frame(frame)
-        wp_row.pack(fill="x", pady=(2, 4))
-        ttk.Label(wp_row, text="Waypoints:", font=("Courier", 8)).pack(side="left", padx=(0, 4))
-        self._wp_choice_var = tk.StringVar(value=self.sim_waypoint_choice)
-        wp_box = ttk.Combobox(
-            wp_row, textvariable=self._wp_choice_var, state="readonly", width=13,
-            values=["from package", "1 waypoint", "2 waypoints", "3 waypoints", "spread", "custom"],
-        )
-        wp_box.pack(side="left")
-        wp_box.bind("<<ComboboxSelected>>", self._on_waypoint_choice)
-        self._wp_custom_var = tk.StringVar(value="")
-        custom_entry = ttk.Entry(wp_row, textvariable=self._wp_custom_var, width=22, font=("Courier", 8))
-        custom_entry.pack(side="left", padx=(4, 0))
-        custom_entry.bind("<KeyRelease>", lambda e: setattr(self, "sim_custom_waypoints", self._wp_custom_var.get()))
-        self._loop_var = tk.BooleanVar(value=self.sim_loop)
-        ttk.Checkbutton(wp_row, text="Loop", variable=self._loop_var,
-                        command=lambda: setattr(self, "sim_loop", bool(self._loop_var.get()))).pack(side="left", padx=(6, 0))
-
-        # Adding and removing are two named buttons, not one checkbox plus a
-        # right-click nobody can discover. They latch, so the panel is either in
-        # "the next click adds a point" or "the next click deletes one" and the
-        # button that is pressed in says which. Picking "custom" above turns
-        # adding on, because that is the only reason to pick it.
-        place_row = ttk.Frame(frame)
-        place_row.pack(fill="x", pady=(6, 0))
-        ttk.Label(place_row, text="My points:", font=("Courier", 8)).pack(side="left", padx=(0, 4))
-        self._click_mode_var = tk.StringVar(value="off")
-        self._add_btn = ttk.Radiobutton(place_row, text="+ Plot points", value="add", width=14,
-                                        variable=self._click_mode_var, style="Toolbutton",
-                                        command=self._on_click_mode)
-        self._add_btn.pack(side="left")
-        self._del_btn = ttk.Radiobutton(place_row, text="- Remove points", value="remove", width=16,
-                                        variable=self._click_mode_var, style="Toolbutton",
-                                        command=self._on_click_mode)
-        self._del_btn.pack(side="left", padx=(4, 0))
-        ttk.Radiobutton(place_row, text="Done", value="off", width=6,
-                        variable=self._click_mode_var, style="Toolbutton",
-                        command=self._on_click_mode).pack(side="left", padx=(4, 0))
-        # Kept so anything that toggled placement by the old name still works.
-        self._place_var = tk.BooleanVar(value=False)
-
-        place_row2 = ttk.Frame(frame)
-        place_row2.pack(fill="x", pady=(0, 4))
-        self._place_hint = ttk.Label(place_row2, text="press '+ Plot points', then click on the arm panel",
-                                     font=("Courier", 7), foreground="#666666")
-        self._place_hint.pack(side="left", padx=(18, 6))
-        ttk.Button(place_row2, text="Go", width=5,
-                   command=self._on_restart_with_points).pack(side="left")
-        ttk.Button(place_row2, text="Undo", width=6,
-                   command=self._undo_last_point).pack(side="left", padx=(4, 0))
-        ttk.Button(place_row2, text="Clear", width=6,
-                   command=self._on_clear_points).pack(side="left", padx=(4, 0))
-
-        hold_row = ttk.Frame(frame)
+        hold_row = ttk.Frame(body)
         hold_row.pack(fill="x", pady=(2, 4))
         ttk.Label(hold_row, text="Hold:", font=("Courier", 8)).pack(side="left", padx=(0, 4))
         self.sim_hold_bar = ttk.Progressbar(hold_row, orient="horizontal", length=160, mode="determinate", maximum=100)
@@ -659,7 +691,7 @@ class ArmControllerGUI:
         self.sim_progress_label = ttk.Label(hold_row, text="reached 0/0  |  episodes 0/0", font=("Courier", 8))
         self.sim_progress_label.pack(side="left", padx=(8, 0))
 
-        details_frame = ttk.LabelFrame(frame, text="Model Details", padding=4)
+        details_frame = ttk.LabelFrame(body, text="Model Details", padding=4)
         details_frame.pack(fill="x", pady=(0, 6))
         self.sim_model_details_text = tk.Text(
             details_frame,

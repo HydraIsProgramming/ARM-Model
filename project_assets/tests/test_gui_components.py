@@ -315,16 +315,35 @@ def test_snapping_respects_the_spacing_rule():
     assert np.linalg.norm(np.asarray(snapped) - np.asarray(first)) > 2 * env.max_curriculum_tolerance
 
 
-def _placement_gui():
-    """A real GUI with a window, in placement mode, ready to take clicks."""
-    from types import SimpleNamespace
-    import numpy as np
+@pytest.fixture(scope="module")
+def placement_gui():
+    """One GUI window shared by the placement tests.
+
+    Creating a Tk root per test fails on the third one under this Python
+    ("Can't find a usable tk.tcl"), which silently turned a real test into a
+    skip. One root, reset between tests, avoids the whole problem.
+    """
+    tk = pytest.importorskip("tkinter")
     from rl_armMotion.two_d.gui.app import ArmControllerGUI
     from rl_armMotion.two_d.config import ArmConfiguration
     from rl_armMotion.two_d.environments.task_env import DEFAULT_PRESET
+    try:
+        gui = ArmControllerGUI(ArmConfiguration.get_preset(DEFAULT_PRESET))
+        gui.create_window()
+    except tk.TclError as exc:                      # genuinely headless
+        pytest.skip(f"no Tk display available: {exc}")
+    yield gui
+    gui.root.destroy()
 
-    gui = ArmControllerGUI(ArmConfiguration.get_preset(DEFAULT_PRESET))
-    gui.create_window()
+
+@pytest.fixture
+def placement(placement_gui):
+    """The shared GUI in a clean state, plus a click helper."""
+    import numpy as np
+    from types import SimpleNamespace
+
+    gui = placement_gui
+    gui._on_clear_points()
     gui._click_mode_var.set("add")
     gui._on_click_mode()
     shoulder = np.asarray(gui._feasibility_env().shoulder_base_position, dtype=float)
@@ -335,96 +354,76 @@ def _placement_gui():
     return gui, click
 
 
-def test_right_click_removes_the_point_you_clicked():
+def test_right_click_removes_the_point_you_clicked(placement):
     """Correcting one bad placement must not mean clearing them all."""
-    tk = pytest.importorskip("tkinter")
-    try:
-        gui, click = _placement_gui()
-    except tk.TclError:
-        pytest.skip("no Tk display available")
-    try:
-        for p in [(1.15, 0.33), (1.42, 0.08), (1.30, -0.30)]:
-            click(*p)
-        assert len(gui.clicked_waypoints) == 3
-        click(1.42, 0.08, button=3)
-        assert len(gui.clicked_waypoints) == 2
-        assert all(abs(p[0] - 1.42) > 1e-6 for p in gui.clicked_waypoints)
-        # a right-click away from every point removes nothing
-        click(1.00, 0.60, button=3)
-        assert len(gui.clicked_waypoints) == 2
-        # the text box stays in step with what is actually placed
-        assert gui.sim_custom_waypoints.count(";") == 1
-    finally:
-        gui.root.destroy()
+    gui, click = placement
+    for p in [(1.15, 0.33), (1.42, 0.08), (1.30, -0.30)]:
+        click(*p)
+    assert len(gui.clicked_waypoints) == 3
+    click(1.42, 0.08, button=3)
+    assert len(gui.clicked_waypoints) == 2
+    assert all(abs(p[0] - 1.42) > 1e-6 for p in gui.clicked_waypoints)
+    click(1.00, 0.60, button=3)                 # away from every point: removes nothing
+    assert len(gui.clicked_waypoints) == 2
+    assert gui.sim_custom_waypoints.count(";") == 1
 
 
-def test_undo_and_clear_keep_the_state_consistent():
-    tk = pytest.importorskip("tkinter")
-    try:
-        gui, click = _placement_gui()
-    except tk.TclError:
-        pytest.skip("no Tk display available")
-    try:
-        click(1.20, 0.30)
-        click(1.40, 0.05)
-        gui._undo_last_point()
-        assert len(gui.clicked_waypoints) == 1
-        assert gui.sim_custom_waypoints.count(";") == 0
-        gui._undo_last_point()
-        assert gui.clicked_waypoints == [] and gui.sim_custom_waypoints == ""
-        gui._undo_last_point()                      # undoing nothing must not raise
-        click(1.20, 0.30)
-        gui._on_clear_points()
-        assert gui.clicked_waypoints == [] and gui.clicked_requests == []
-    finally:
-        gui.root.destroy()
+def test_undo_and_clear_keep_the_state_consistent(placement):
+    gui, click = placement
+    click(1.20, 0.30)
+    click(1.40, 0.05)
+    gui._undo_last_point()
+    assert len(gui.clicked_waypoints) == 1
+    assert gui.sim_custom_waypoints.count(";") == 0
+    gui._undo_last_point()
+    assert gui.clicked_waypoints == [] and gui.sim_custom_waypoints == ""
+    gui._undo_last_point()                      # undoing nothing must not raise
+    click(1.20, 0.30)
+    gui._on_clear_points()
+    assert gui.clicked_waypoints == [] and gui.clicked_requests == []
 
 
-def test_remove_mode_deletes_with_an_ordinary_click():
+def test_remove_mode_deletes_with_an_ordinary_click(placement):
     """Right-click was invisible; deleting has its own button now."""
-    tk = pytest.importorskip("tkinter")
-    try:
-        gui, click = _placement_gui()
-    except tk.TclError:
-        pytest.skip("no Tk display available")
-    try:
-        for p in [(1.15, 0.33), (1.42, 0.08), (1.30, -0.30)]:
-            click(*p)
-        assert len(gui.clicked_waypoints) == 3
+    gui, click = placement
+    for p in [(1.15, 0.33), (1.42, 0.08), (1.30, -0.30)]:
+        click(*p)
+    assert len(gui.clicked_waypoints) == 3
 
-        gui._click_mode_var.set("remove")
-        gui._on_click_mode()
-        click(1.42, 0.08)                      # a plain left click, in remove mode
-        assert len(gui.clicked_waypoints) == 2
-        assert all(abs(p[0] - 1.42) > 1e-6 for p in gui.clicked_waypoints)
-        click(1.00, 0.60)                      # empty space deletes nothing
-        assert len(gui.clicked_waypoints) == 2
+    gui._click_mode_var.set("remove")
+    gui._on_click_mode()
+    click(1.42, 0.08)                           # a plain left click, in remove mode
+    assert len(gui.clicked_waypoints) == 2
+    assert all(abs(p[0] - 1.42) > 1e-6 for p in gui.clicked_waypoints)
+    click(1.00, 0.60)                           # empty space deletes nothing
+    assert len(gui.clicked_waypoints) == 2
 
-        gui._click_mode_var.set("add")         # and adding still adds
-        gui._on_click_mode()
-        click(1.40, 0.05)
-        assert len(gui.clicked_waypoints) == 3
-    finally:
-        gui.root.destroy()
+    gui._click_mode_var.set("add")              # and adding still adds
+    gui._on_click_mode()
+    click(1.40, 0.05)
+    assert len(gui.clicked_waypoints) == 3
 
 
-def test_choosing_custom_turns_plotting_on_and_leaving_it_turns_it_off():
-    tk = pytest.importorskip("tkinter")
-    from rl_armMotion.two_d.gui.app import ArmControllerGUI
-    from rl_armMotion.two_d.config import ArmConfiguration
-    from rl_armMotion.two_d.environments.task_env import DEFAULT_PRESET
-    try:
-        gui = ArmControllerGUI(ArmConfiguration.get_preset(DEFAULT_PRESET))
-        gui.create_window()
-    except tk.TclError:
-        pytest.skip("no Tk display available")
-    try:
-        gui._wp_choice_var.set("custom")
-        gui._on_waypoint_choice()
-        assert gui._click_mode_var.get() == "add" and gui._place_mode
+def test_choosing_custom_turns_plotting_on_and_leaving_it_turns_it_off(placement):
+    gui, _ = placement
+    gui._wp_choice_var.set("custom")
+    gui._on_waypoint_choice()
+    assert gui._click_mode_var.get() == "add" and gui._place_mode
 
-        gui._wp_choice_var.set("3 waypoints")
-        gui._on_waypoint_choice()
-        assert gui._click_mode_var.get() == "off" and not gui._place_mode
-    finally:
-        gui.root.destroy()
+    gui._wp_choice_var.set("3 waypoints")
+    gui._on_waypoint_choice()
+    assert gui._click_mode_var.get() == "off" and not gui._place_mode
+
+
+def test_every_simulation_control_is_reachable_in_a_short_pane(placement_gui):
+    """The Plot/Remove buttons were built but clipped out of view by a short
+    pane, so the panel body is scrollable and the buttons sit near its top."""
+    gui = placement_gui
+    for name in ("_add_btn", "_del_btn", "_place_hint"):
+        assert getattr(gui, name, None) is not None, f"{name} was never created"
+    body = gui._add_btn.master.master                 # place_row -> scrolled body
+    canvas = body.master
+    assert canvas.winfo_class() == "Canvas", "the controls are not inside a scrolled canvas"
+    gui.root.update_idletasks()
+    # the placement row sits above the later rows, so a short pane still shows it
+    assert gui._add_btn.master.winfo_y() < gui.sim_hold_bar.master.winfo_y()
