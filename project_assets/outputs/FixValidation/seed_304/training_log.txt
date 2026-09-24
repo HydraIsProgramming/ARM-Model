@@ -1,0 +1,7 @@
+[2026-09-07T15:29:49] Starting Fischer session: algorithm=SAC, timesteps=300,000, direction=EAST, actuation=muscle, waypoints=[[0.2, 1.2], [2.2, 0.5], [1.0, -1.6]], seed=304
+[2026-09-07T15:29:49] Save dir: C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\FixValidation\seed_304
+[2026-09-07T15:29:49] Waypoint mode active: 3 waypoints, current_waypoint_index=0 at every episode reset
+[2026-09-07T15:29:49] Ablation config: hold_decrement=3, hold_curriculum=on, curriculum_mode=eval
+[2026-09-07T15:29:49] Waypoint mode: tolerance curriculum floor raised to 0.2 m (eval standard is 0.6 m)
+[2026-09-07T15:29:49] Best-model checkpointing active: deterministic eval every 25K steps, best snapshot saved to sac_model_best.zip
+[2026-09-07T15:29:49] Speed config: net_arch=[64, 64], batch=64, utd=0.5, device=cpu

@@ -20,7 +20,6 @@ from time import time
 
 from rl_armMotion.two_d.config import ArmConfiguration
 from rl_armMotion.two_d.environments.task_env import ArmTaskEnv, ActionSmoother, DEFAULT_PRESET, OBS_VERSION
-from rl_armMotion.two_d.gui.waypoint_editing import index_near, nearest_placeable
 from rl_armMotion.two_d.evaluation import (
     CANONICAL_WAYPOINTS, EVAL_STANDARD, WAYPOINTS_SPREAD, detect_actuation_mode, find_manifest,
     load_package, make_env, read_manifest, resolve_waypoints,
@@ -524,44 +523,11 @@ class ArmControllerGUI:
 
         return frame
 
-    def _scrollable_body(self, parent):
-        """A scrollable area inside ``parent``.
-
-        The simulation controls live in a pane of a Panedwindow, so when that
-        pane is short everything below the fold is simply cut off - which is how
-        the Plot/Remove buttons became unreachable, with the Loop checkbox
-        visibly clipped to "[x] L" on the row above them. Putting the rows in a
-        scrolled canvas means no control can be lost to a small window.
-        """
-        canvas = tk.Canvas(parent, highlightthickness=0, borderwidth=0)
-        bar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
-        body = ttk.Frame(canvas)
-        window = canvas.create_window((0, 0), window=body, anchor="nw")
-        canvas.configure(yscrollcommand=bar.set)
-        canvas.pack(side="left", fill="both", expand=True)
-        bar.pack(side="right", fill="y")
-
-        def _resize_region(_event=None):
-            canvas.configure(scrollregion=canvas.bbox("all"))
-
-        def _match_width(event):
-            canvas.itemconfigure(window, width=event.width)
-
-        def _wheel(event):
-            canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
-
-        body.bind("<Configure>", _resize_region)
-        canvas.bind("<Configure>", _match_width)
-        for widget in (canvas, body):
-            widget.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", _wheel))
-            widget.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
-        return body
     def _create_model_selection_frame(self, parent):
         """Create arm-model selection frame."""
         frame = ttk.LabelFrame(parent, text="ARM MODEL SELECTION", padding=5)
-        body = self._scrollable_body(frame)
 
-        control_row = ttk.Frame(body)
+        control_row = ttk.Frame(frame)
         control_row.pack(fill="x", pady=(0, 6))
         ttk.Button(control_row, text="Load Model", command=self._on_select_model).pack(
             side="left", padx=(0, 4), fill="x"
@@ -583,60 +549,7 @@ class ArmControllerGUI:
         self.sim_model_label.pack(side="left", fill="x", expand=True, padx=(6, 0))
 
         # Simulation speed control
-        # Waypoint demo controls
-        wp_row = ttk.Frame(body)
-        wp_row.pack(fill="x", pady=(2, 4))
-        ttk.Label(wp_row, text="Waypoints:", font=("Courier", 8)).pack(side="left", padx=(0, 4))
-        self._wp_choice_var = tk.StringVar(value=self.sim_waypoint_choice)
-        wp_box = ttk.Combobox(
-            wp_row, textvariable=self._wp_choice_var, state="readonly", width=13,
-            values=["from package", "1 waypoint", "2 waypoints", "3 waypoints", "spread", "custom"],
-        )
-        wp_box.pack(side="left")
-        wp_box.bind("<<ComboboxSelected>>", self._on_waypoint_choice)
-        self._wp_custom_var = tk.StringVar(value="")
-        custom_entry = ttk.Entry(wp_row, textvariable=self._wp_custom_var, width=22, font=("Courier", 8))
-        custom_entry.pack(side="left", padx=(4, 0))
-        custom_entry.bind("<KeyRelease>", lambda e: setattr(self, "sim_custom_waypoints", self._wp_custom_var.get()))
-        self._loop_var = tk.BooleanVar(value=self.sim_loop)
-        ttk.Checkbutton(wp_row, text="Loop", variable=self._loop_var,
-                        command=lambda: setattr(self, "sim_loop", bool(self._loop_var.get()))).pack(side="left", padx=(6, 0))
-
-        # Adding and removing are two named buttons, not one checkbox plus a
-        # right-click nobody can discover. They latch, so the panel is either in
-        # "the next click adds a point" or "the next click deletes one" and the
-        # button that is pressed in says which. Picking "custom" above turns
-        # adding on, because that is the only reason to pick it.
-        place_row = ttk.Frame(body)
-        place_row.pack(fill="x", pady=(6, 0))
-        self._click_mode_var = tk.StringVar(value="off")
-        self._add_btn = ttk.Radiobutton(place_row, text="+ Add point", value="add", width=12,
-                                        variable=self._click_mode_var, style="Toolbutton",
-                                        command=self._on_click_mode)
-        self._add_btn.pack(side="left")
-        self._del_btn = ttk.Radiobutton(place_row, text="- Remove point", value="remove", width=15,
-                                        variable=self._click_mode_var, style="Toolbutton",
-                                        command=self._on_click_mode)
-        self._del_btn.pack(side="left", padx=(4, 0))
-        ttk.Radiobutton(place_row, text="Done", value="off", width=6,
-                        variable=self._click_mode_var, style="Toolbutton",
-                        command=self._on_click_mode).pack(side="left", padx=(4, 0))
-        # Kept so anything that toggled placement by the old name still works.
-        self._place_var = tk.BooleanVar(value=False)
-
-        place_row2 = ttk.Frame(body)
-        place_row2.pack(fill="x", pady=(0, 4))
-        self._place_hint = ttk.Label(place_row2, text="press '+ Plot points', then click on the arm panel",
-                                     font=("Courier", 7), foreground="#666666")
-        self._place_hint.pack(side="left", padx=(18, 6))
-        ttk.Button(place_row2, text="Go", width=5,
-                   command=self._on_restart_with_points).pack(side="left")
-        ttk.Button(place_row2, text="Undo", width=6,
-                   command=self._undo_last_point).pack(side="left", padx=(4, 0))
-        ttk.Button(place_row2, text="Clear", width=6,
-                   command=self._on_clear_points).pack(side="left", padx=(4, 0))
-
-        speed_row = ttk.Frame(body)
+        speed_row = ttk.Frame(frame)
         speed_row.pack(fill="x", pady=(2, 4))
         ttk.Label(speed_row, text="Sim Speed:", font=("Courier", 8)).pack(side="left", padx=(0, 4))
         self._sim_speed_var = tk.IntVar(value=5)
@@ -657,7 +570,7 @@ class ArmControllerGUI:
         speed_slider.bind("<ButtonRelease-1>", _on_speed_change)
 
         # Action smoothing control
-        smooth_row = ttk.Frame(body)
+        smooth_row = ttk.Frame(frame)
         smooth_row.pack(fill="x", pady=(2, 4))
         self._smooth_var = tk.BooleanVar(value=self.action_smoothing)
         smooth_check = ttk.Checkbutton(
@@ -684,7 +597,34 @@ class ArmControllerGUI:
         alpha_slider.bind("<Motion>", _on_alpha_change)
         alpha_slider.bind("<ButtonRelease-1>", _on_alpha_change)
 
-        hold_row = ttk.Frame(body)
+        # Waypoint demo controls
+        wp_row = ttk.Frame(frame)
+        wp_row.pack(fill="x", pady=(2, 4))
+        ttk.Label(wp_row, text="Waypoints:", font=("Courier", 8)).pack(side="left", padx=(0, 4))
+        self._wp_choice_var = tk.StringVar(value=self.sim_waypoint_choice)
+        wp_box = ttk.Combobox(
+            wp_row, textvariable=self._wp_choice_var, state="readonly", width=13,
+            values=["from package", "1 waypoint", "2 waypoints", "3 waypoints", "spread", "custom"],
+        )
+        wp_box.pack(side="left")
+        wp_box.bind("<<ComboboxSelected>>", lambda e: setattr(self, "sim_waypoint_choice", self._wp_choice_var.get()))
+        self._wp_custom_var = tk.StringVar(value="")
+        custom_entry = ttk.Entry(wp_row, textvariable=self._wp_custom_var, width=22, font=("Courier", 8))
+        custom_entry.pack(side="left", padx=(4, 0))
+        custom_entry.bind("<KeyRelease>", lambda e: setattr(self, "sim_custom_waypoints", self._wp_custom_var.get()))
+        self._loop_var = tk.BooleanVar(value=self.sim_loop)
+        ttk.Checkbutton(wp_row, text="Loop", variable=self._loop_var,
+                        command=lambda: setattr(self, "sim_loop", bool(self._loop_var.get()))).pack(side="left", padx=(6, 0))
+
+        place_row = ttk.Frame(frame)
+        place_row.pack(fill="x", pady=(2, 4))
+        self._place_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(place_row, text="Place waypoints by clicking the arm panel (green = feasible area)",
+                        variable=self._place_var, command=self._on_place_toggle).pack(side="left")
+        ttk.Button(place_row, text="Clear points", command=self._on_clear_points).pack(side="left", padx=(8, 0))
+        ttk.Button(place_row, text="Restart with points", command=self._on_restart_with_points).pack(side="left", padx=(4, 0))
+
+        hold_row = ttk.Frame(frame)
         hold_row.pack(fill="x", pady=(2, 4))
         ttk.Label(hold_row, text="Hold:", font=("Courier", 8)).pack(side="left", padx=(0, 4))
         self.sim_hold_bar = ttk.Progressbar(hold_row, orient="horizontal", length=160, mode="determinate", maximum=100)
@@ -692,7 +632,7 @@ class ArmControllerGUI:
         self.sim_progress_label = ttk.Label(hold_row, text="reached 0/0  |  episodes 0/0", font=("Courier", 8))
         self.sim_progress_label.pack(side="left", padx=(8, 0))
 
-        details_frame = ttk.LabelFrame(body, text="Model Details", padding=4)
+        details_frame = ttk.LabelFrame(frame, text="Model Details", padding=4)
         details_frame.pack(fill="x", pady=(0, 6))
         self.sim_model_details_text = tk.Text(
             details_frame,
@@ -1130,48 +1070,12 @@ class ArmControllerGUI:
         self._start_simulation()
 
     def _on_place_toggle(self):
-        """Legacy entry point: the checkbox became the mode buttons below."""
-        self._click_mode_var.set("add" if self._place_var.get() else "off")
-        self._on_click_mode()
-
-    def _on_click_mode(self):
-        """Adding, removing, or neither - whichever button is pressed in."""
-        mode = self._click_mode_var.get()
-        self._place_mode = mode in ("add", "remove")
-        self._place_var.set(self._place_mode)
-        # A running episode owns the panel and hides the points being placed,
-        # so entering either mode stops it: you are about to define a new run.
-        if self._place_mode and self.simulation_active:
-            self._stop_simulation()
-        self._refresh_place_hint()
-        print(f"[OK] {'clicks ADD points' if mode == 'add' else 'clicks REMOVE points' if mode == 'remove' else 'click placement off'}")
-
-    def _on_waypoint_choice(self, _event=None):
-        """Picking 'custom' is only ever a prelude to plotting your own points."""
-        self.sim_waypoint_choice = self._wp_choice_var.get()
-        if self.sim_waypoint_choice == "custom":
-            self._click_mode_var.set("add")
-        else:
-            self._click_mode_var.set("off")
-        self._on_click_mode()
-
-    def _refresh_place_hint(self):
-        if getattr(self, "_place_hint", None) is None:
-            return
-        n = len(self.clicked_waypoints)
-        mode = self._click_mode_var.get() if hasattr(self, "_click_mode_var") else "off"
-        if mode == "add":
-            text = f"click the panel to add ({n} placed)" + (" - press Go" if n else "")
-        elif mode == "remove":
-            text = f"click a point to delete it ({n} placed)" if n else "nothing to remove"
-        else:
-            text = f"{n} point(s) ready - press Go" if n else "press '+ Plot points', then click on the arm panel"
-        self._place_hint.config(text=text)
+        self._place_mode = bool(self._place_var.get())
+        print(f"[OK] Waypoint placement {'ON: click the arm panel to add points' if self._place_mode else 'OFF'}")
 
     def _on_clear_points(self):
         self.clicked_waypoints = []
         self.clicked_requests = []
-        self._refresh_place_hint()
         self.sim_custom_waypoints = ""
         if hasattr(self, "_wp_custom_var"):
             self._wp_custom_var.set("")
@@ -1179,7 +1083,7 @@ class ArmControllerGUI:
 
     def _on_restart_with_points(self):
         if not self.clicked_waypoints:
-            messagebox.showwarning("Waypoints", "Tick 'Use MY OWN points' and click on the arm panel first.")
+            messagebox.showwarning("Waypoints", "Place at least one point first (tick 'Place waypoints by clicking').")
             return
         if self.simulation_active:
             self._stop_simulation()
@@ -1192,42 +1096,18 @@ class ArmControllerGUI:
         return base
 
     def _nearest_placeable(self, env, wp, existing):
-        """Nearest holdable point clear of the others (shared with the demo window)."""
-        return nearest_placeable(env, wp, existing)
-
-    def _remove_point_near(self, wp):
-        """Drop the placed point nearest the click, if one is close enough."""
-        if not self.clicked_waypoints:
-            return False
-        i = index_near(self.clicked_waypoints, wp)
-        if i is None:
-            return False
-        gone = self.clicked_waypoints.pop(i)
-        if i < len(self.clicked_requests):
-            self.clicked_requests.pop(i)
-        self._sync_clicked_points(f"removed the point at ({gone[0]:.2f}, {gone[1]:.2f})")
-        return True
-
-    def _undo_last_point(self):
-        if not self.clicked_waypoints:
-            print("[WARN] no points to undo")
-            return
-        gone = self.clicked_waypoints.pop()
-        if self.clicked_requests:
-            self.clicked_requests.pop()
-        self._sync_clicked_points(f"undid the point at ({gone[0]:.2f}, {gone[1]:.2f})")
-
-    def _sync_clicked_points(self, message=None):
-        """Keep the text box, the hint and the console in step with the points."""
-        self.sim_custom_waypoints = ";".join(f"{x:.3f},{y:.3f}" for x, y in self.clicked_waypoints)
-        self.sim_waypoint_choice = "custom" if self.clicked_waypoints else self.sim_waypoint_choice
-        if hasattr(self, "_wp_custom_var"):
-            self._wp_custom_var.set(self.sim_custom_waypoints)
-        if hasattr(self, "_wp_choice_var") and self.clicked_waypoints:
-            self._wp_choice_var.set("custom")
-        self._refresh_place_hint()
-        if message:
-            print(f"[OK] {message}; {len(self.clicked_waypoints)} point(s) left")
+        """Nearest point the arm can actually hold that also clears the spacing
+        rules, or None if nothing within reach of the click qualifies."""
+        pts = env.feasible_points()
+        target = np.asarray(wp, dtype=float)
+        for idx in np.argsort(np.linalg.norm(pts - target, axis=1))[:400]:
+            cand = [float(v) for v in pts[idx]]
+            try:
+                env._validate_waypoint_spacing([np.asarray(w, dtype=float) for w in existing + [cand]])
+            except ValueError:
+                continue
+            return cand, float(np.linalg.norm(np.asarray(cand) - target))
+        return None, 0.0
 
     def _on_canvas_click(self, event):
         """Add a waypoint at the clicked workspace point (plot frame is shoulder-local).
@@ -1247,15 +1127,6 @@ class ArmControllerGUI:
         env = self._feasibility_env()
         shoulder = np.asarray(env.shoulder_base_position, dtype=float)
         wp = [float(event.xdata) + shoulder[0], float(event.ydata) + shoulder[1]]
-        # In remove mode every click deletes; right-click deletes in any mode.
-        if getattr(self, "_click_mode_var", None) is not None and self._click_mode_var.get() == "remove":
-            if not self._remove_point_near(wp):
-                print("[WARN] click closer to one of your points to remove it")
-            return
-        if getattr(event, "button", 1) in (2, 3):
-            if not self._remove_point_near(wp):
-                print("[WARN] right-click closer to a placed point to remove it")
-            return
         f = env.waypoint_feasibility(wp, env.max_curriculum_tolerance)
         placeable = f.get("feasible", False)
         if placeable:
@@ -1277,10 +1148,16 @@ class ArmControllerGUI:
             wp = snapped
         else:
             self.clicked_requests.append((list(wp), list(wp)))
-        self.clicked_waypoints = self.clicked_waypoints + [wp]
-        self._sync_clicked_points()
-        print(f"[OK] point {len(self.clicked_waypoints)} placed at ({wp[0]:.3f}, {wp[1]:.3f}); "
-              f"use '- Remove points' to delete one, or press Go to run")
+        trial = self.clicked_waypoints + [wp]
+        self.clicked_waypoints = trial
+        self.sim_custom_waypoints = ";".join(f"{x:.3f},{y:.3f}" for x, y in self.clicked_waypoints)
+        self.sim_waypoint_choice = "custom"
+        if hasattr(self, "_wp_custom_var"):
+            self._wp_custom_var.set(self.sim_custom_waypoints)
+        if hasattr(self, "_wp_choice_var"):
+            self._wp_choice_var.set("custom")
+        print(f"[OK] waypoint {len(self.clicked_waypoints)} placed at ({wp[0]:.3f}, {wp[1]:.3f}); "
+              f"press 'Restart with points' to run")
 
     def _feasible_cloud_points(self):
         """Shoulder-local scatter of feasible waypoint positions (cached per config)."""
@@ -1586,7 +1463,7 @@ class ArmControllerGUI:
                 self.ax.scatter(p[0], p[1], c="red", s=160, marker="X", edgecolors="black", linewidths=1.5, zorder=10)
                 self.ax.annotate(f"{i + 1}", (p[0], p[1]), textcoords="offset points", xytext=(8, 8),
                                  fontsize=10, fontweight="bold")
-            title = f"{len(self.clicked_waypoints)} of your own point(s) placed - press Go"
+            title = f"{len(self.clicked_waypoints)} waypoint(s) placed - press 'Restart with points'"
         if info is not None:
             # Waypoints are in the workspace frame; the plot is shoulder-local.
             shoulder = np.asarray(info.get("shoulder_position", [0.0, 0.0]), dtype=float)

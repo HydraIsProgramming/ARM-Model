@@ -1,0 +1,10 @@
+============================================================================
+FINAL SEARCH
+  seeds [501, 502, 503, 504], 400,000 steps each
+  net 256,256, batch 256, utd 1.0, decrement 5
+  4 parallel x 5 threads, cpu
+============================================================================
+  [seed 501] starting
+  [seed 502] starting
+  [seed 503] starting
+  [seed 504] starting

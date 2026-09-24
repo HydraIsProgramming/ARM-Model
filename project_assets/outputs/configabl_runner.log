@@ -1,0 +1,16 @@
+========================================================================
+CONFIG ABLATION -- isolating why the fast settings fail
+  arms  : ['orig', 'small_net', 'small_bat', 'low_utd']
+  seeds : [401, 402]   steps: 200,000
+  4 parallel x 5 threads
+========================================================================
+  [orig/401] starting
+  [small_net/401] starting
+  [small_bat/401] starting
+  [low_utd/401] starting
+  [small_net/401] FAIL (25.6 min)
+  [orig/402] starting
+  [low_utd/401] ok (34.6 min)
+  [small_net/402] starting
+  [orig/402] FAIL (15.9 min)
+  [small_bat/402] starting

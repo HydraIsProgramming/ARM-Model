@@ -1,0 +1,9 @@
+======================================================================
+ORIENTATION FIX VALIDATION
+  seeds [301, 302, 303, 304], 300,000 steps each
+  net 64,64, batch 64, utd 0.5, 4 parallel x 5 threads
+======================================================================
+  [seed 301] starting
+  [seed 302] starting
+  [seed 303] starting
+  [seed 304] starting

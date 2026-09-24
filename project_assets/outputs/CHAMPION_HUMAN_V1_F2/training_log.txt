@@ -1,0 +1,14 @@
+[2026-09-23T14:01:40] Run: SAC 500,000 steps, seed 4, threads 4, device cpu, preset 2dof_human_right, actuation muscle, waypoints none
+[2026-09-23T14:01:40] Package dir: C:\arm-model-runs\stageF2\seed_4
+[2026-09-23T14:01:40] Free order: the policy sees all 2 waypoints and picks its own route (observation 22-D, version 3)
+[2026-09-23T14:01:40] Random waypoints: 2 per episode from 744 feasible grid points (x 0.71..1.45, y -0.45..0.45)
+[2026-09-23T14:01:40] Env: obs_dim 22, action_dim 4, dt 0.02, train tol 0.15 m, hold 10, decrement 5, activation dynamics [0.04, 0.06], reward weights {'W_SHAPING': 2.0, 'W_DIST': 0.5, 'W_EFFORT': 0.02, 'W_SMOOTH': 0.05, 'W_LIMIT': 0.1, 'W_SPEED_EXCESS': 0.5, 'EE_SPEED_CAP': 1.5, 'W_ACCEL': 0.02, 'ACCEL_REF': 10.0, 'ACCEL_PENALTY_CAP': 4.0, 'R_IN_GOAL': 1.0, 'R_INTERMEDIATE': 10.0, 'R_SUCCESS': 50.0}
+[2026-09-23T14:01:40] Resolved hyperparameters: {"algorithm": "SAC", "gamma": 0.99, "learning_rate": 0.0003, "buffer_size": 300000, "learning_starts": 5000, "batch_size": 256, "tau": 0.005, "train_freq": [1, "step"], "gradient_steps": 1, "ent_coef": "auto", "target_entropy": -4.0, "n_steps": 1, "seed": 4, "device": "cpu", "net_arch": [256, 256], "n_envs": 1, "policy_kwargs": {"net_arch": [256, 256], "use_sde": false}}
+[2026-09-23T16:05:56] Training complete in 7455.6s (500,000 total steps)
+[2026-09-23T16:05:56] Episodes: 1,000; mean reward (100 ep): 317.46
+[2026-09-23T16:05:56] Curriculum: tolerance 0.07 m, hold 10, best score [0.5, 1.196, -0.070195, -80.8] at step 400000
+[2026-09-23T16:05:56] Saved package: {'model': 'C:\\arm-model-runs\\stageF2\\seed_4\\sac_model', 'history': 'C:\\arm-model-runs\\stageF2\\seed_4\\training_history.csv', 'stats': 'C:\\arm-model-runs\\stageF2\\seed_4\\training_stats.json', 'manifest': 'C:\\arm-model-runs\\stageF2\\seed_4\\run_manifest.json'}
+[2026-09-23T16:06:07] FINAL (best checkpoint, 20 episodes): 12/20 success, wp 1.25, hold 0.36, dist 0.129 m, steps 102
+[2026-09-23T16:06:07] Human-likeness: straightness 1.14, symmetry 0.47, submovements 1.1, jerk 18
+[2026-09-23T16:06:07] Validators skipped (--skip-validators).
+[2026-09-23T16:06:07] ============================================================
