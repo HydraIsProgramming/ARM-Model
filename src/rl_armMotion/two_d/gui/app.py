@@ -616,13 +616,24 @@ class ArmControllerGUI:
         ttk.Checkbutton(wp_row, text="Loop", variable=self._loop_var,
                         command=lambda: setattr(self, "sim_loop", bool(self._loop_var.get()))).pack(side="left", padx=(6, 0))
 
+        # Two rows, not one. Packed side by side, the long checkbox label pushed
+        # both buttons off the right edge of a narrow control pane, so the
+        # feature looked as though it did not exist.
         place_row = ttk.Frame(frame)
-        place_row.pack(fill="x", pady=(2, 4))
+        place_row.pack(fill="x", pady=(6, 0))
         self._place_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(place_row, text="Place waypoints by clicking the arm panel (green = feasible area)",
+        ttk.Checkbutton(place_row, text="Use MY OWN points (then click on the arm panel)",
                         variable=self._place_var, command=self._on_place_toggle).pack(side="left")
-        ttk.Button(place_row, text="Clear points", command=self._on_clear_points).pack(side="left", padx=(8, 0))
-        ttk.Button(place_row, text="Restart with points", command=self._on_restart_with_points).pack(side="left", padx=(4, 0))
+
+        place_row2 = ttk.Frame(frame)
+        place_row2.pack(fill="x", pady=(0, 4))
+        self._place_hint = ttk.Label(place_row2, text="tick the box, click points, then Go",
+                                     font=("Courier", 7), foreground="#666666")
+        self._place_hint.pack(side="left", padx=(18, 6))
+        ttk.Button(place_row2, text="Go", width=5,
+                   command=self._on_restart_with_points).pack(side="left")
+        ttk.Button(place_row2, text="Clear", width=6,
+                   command=self._on_clear_points).pack(side="left", padx=(4, 0))
 
         hold_row = ttk.Frame(frame)
         hold_row.pack(fill="x", pady=(2, 4))
@@ -1071,6 +1082,10 @@ class ArmControllerGUI:
 
     def _on_place_toggle(self):
         self._place_mode = bool(self._place_var.get())
+        if getattr(self, "_place_hint", None) is not None:
+            self._place_hint.config(
+                text="now click points on the arm panel" if self._place_mode
+                     else "tick the box, click points, then Go")
         print(f"[OK] Waypoint placement {'ON: click the arm panel to add points' if self._place_mode else 'OFF'}")
 
     def _on_clear_points(self):
@@ -1083,7 +1098,7 @@ class ArmControllerGUI:
 
     def _on_restart_with_points(self):
         if not self.clicked_waypoints:
-            messagebox.showwarning("Waypoints", "Place at least one point first (tick 'Place waypoints by clicking').")
+            messagebox.showwarning("Waypoints", "Tick 'Use MY OWN points' and click on the arm panel first.")
             return
         if self.simulation_active:
             self._stop_simulation()
@@ -1150,6 +1165,8 @@ class ArmControllerGUI:
             self.clicked_requests.append((list(wp), list(wp)))
         trial = self.clicked_waypoints + [wp]
         self.clicked_waypoints = trial
+        if getattr(self, "_place_hint", None) is not None:
+            self._place_hint.config(text=f"{len(trial)} point(s) placed - press Go")
         self.sim_custom_waypoints = ";".join(f"{x:.3f},{y:.3f}" for x, y in self.clicked_waypoints)
         self.sim_waypoint_choice = "custom"
         if hasattr(self, "_wp_custom_var"):
@@ -1157,7 +1174,7 @@ class ArmControllerGUI:
         if hasattr(self, "_wp_choice_var"):
             self._wp_choice_var.set("custom")
         print(f"[OK] waypoint {len(self.clicked_waypoints)} placed at ({wp[0]:.3f}, {wp[1]:.3f}); "
-              f"press 'Restart with points' to run")
+              f"press Go to run")
 
     def _feasible_cloud_points(self):
         """Shoulder-local scatter of feasible waypoint positions (cached per config)."""
@@ -1463,7 +1480,7 @@ class ArmControllerGUI:
                 self.ax.scatter(p[0], p[1], c="red", s=160, marker="X", edgecolors="black", linewidths=1.5, zorder=10)
                 self.ax.annotate(f"{i + 1}", (p[0], p[1]), textcoords="offset points", xytext=(8, 8),
                                  fontsize=10, fontweight="bold")
-            title = f"{len(self.clicked_waypoints)} waypoint(s) placed - press 'Restart with points'"
+            title = f"{len(self.clicked_waypoints)} of your own point(s) placed - press Go"
         if info is not None:
             # Waypoints are in the workspace frame; the plot is shoulder-local.
             shoulder = np.asarray(info.get("shoulder_position", [0.0, 0.0]), dtype=float)
