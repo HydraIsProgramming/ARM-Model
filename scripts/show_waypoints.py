@@ -157,9 +157,10 @@ def animate(frames_by_episode: List[List[Dict[str, Any]]], env, title: str, fps:
         wp_fills.append(fill)
         wp_rings.append(ring)
         wp_dots.append(dot)
-    if n_wp >= 2 and not free_order:
-        arr = np.asarray(wps)
-        ax.plot(arr[:, 0], arr[:, 1], "--", color="#ffffff55", linewidth=0.8)
+    # No line between the waypoints: it joined them in list order and read as a
+    # track the arm was being steered along, when the policy is only given a
+    # target position and works the movement out itself. The path it actually
+    # takes is the trail.
 
     trail, = ax.plot([], [], "-", color="#ffffff66", linewidth=1.2, zorder=3)
     links, = ax.plot([], [], "-o", color="#f5f5f5", linewidth=4, markersize=7, zorder=4)

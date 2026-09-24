@@ -1477,9 +1477,11 @@ class ArmControllerGUI:
             # them, green afterwards.
             free_order = bool(info.get("free_order"))
             visited = list(info.get("visited") or [])
-            if n_wp >= 2 and not free_order:
-                arr = np.asarray(wps, dtype=float) - shoulder
-                self.ax.plot(arr[:, 0], arr[:, 1], color="gray", linestyle="--", linewidth=0.8, alpha=0.5, zorder=5)
+            # No line is drawn between the waypoints. It was only ever
+            # decoration joining them in list order, but it reads as a track the
+            # arm is being steered along, which is the opposite of what happens:
+            # the policy is given a target position and works out the movement
+            # itself, and the path it actually takes is the trail it leaves.
             for i, wp in enumerate(wps):
                 p = np.asarray(wp, dtype=float) - shoulder
                 if free_order:
