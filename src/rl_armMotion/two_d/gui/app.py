@@ -1259,7 +1259,7 @@ class ArmControllerGUI:
         self.clicked_waypoints = self.clicked_waypoints + [wp]
         self._sync_clicked_points()
         print(f"[OK] point {len(self.clicked_waypoints)} placed at ({wp[0]:.3f}, {wp[1]:.3f}); "
-              f"right-click it to remove, or press Go to run")
+              f"use '- Remove points' to delete one, or press Go to run")
 
     def _feasible_cloud_points(self):
         """Shoulder-local scatter of feasible waypoint positions (cached per config)."""
