@@ -57,6 +57,11 @@ STAGES = {
                             "at weight 10 (was 1.5 at 0.5, which the champion simply paid to exceed)"),
                extra=["--random-waypoints", "3", "--activation-dynamics", "0.04,0.06",
                       "--reward-weight", "W_ACCEL=0.02"]),
+    "R6": dict(waypoints="none", timesteps=1_000_000,
+               description=("THREE RANDOM waypoints, end-range rule, BINDING speed cost: the hand-speed "
+                            "penalty gains a linear term so it has a real slope at the cap"),
+               extra=["--random-waypoints", "3", "--activation-dynamics", "0.04,0.06",
+                      "--reward-weight", "W_ACCEL=0.02"]),
     "F2": dict(waypoints="none", timesteps=500_000,
                description=("PILOT: TWO random waypoints, FREE ORDER - isolates chaining, which is where the "
                             "three-point free-order runs stalled (they reached one point and stopped)"),

@@ -52,8 +52,10 @@ Reward (all distances normalised by reach R)
       - W_EFFORT * |a|^2                                 effort (no co-contraction penalty)
       - W_SMOOTH * |qd'| / velocity_limit                mild smoothness
       - W_LIMIT  * (joints on a hard stop + end-range spring engagement 0..1)   end-range avoidance
-      - W_SPEED_EXCESS * min(max(0, |hand velocity| - 1.5)^2, SPEED_PENALTY_CAP)
-                                                          human-like speed cap
+      - W_SPEED_LINEAR * max(0, |v_hand| - cap)
+        - W_SPEED_EXCESS * min(max(0, |v_hand| - cap)^2, SPEED_PENALTY_CAP)
+                                                          human-like speed cap; the linear
+                                                          part is what makes it bind
       - W_ACCEL * min((|hand accel| / 10)^2, 4)           smoothness (min-jerk proxy; 0 unless enabled)
       + R_IN_GOAL      if in_goal at the FINAL waypoint  hold stream
       + R_INTERMEDIATE on completing an intermediate waypoint
@@ -177,13 +179,43 @@ class ArmTaskEnv(gym.Env):
     # the measured arm used only 26-49% of its torque limit at peak speed.
     # People reach at these speeds because of effort and smoothness, so the
     # constraint belongs in the objective, as minimum-jerk models have it.
-    W_SPEED_EXCESS: float = 10.0
+    # Halved from 10 once the linear term below took over the binding: with
+    # W_lin = 3 the optimum sits at the same place for a quadratic weight of
+    # 10, 5 or 3, and the lighter weight charges far less for the fast
+    # trajectories of early exploration - which is where Stage R5 lost two
+    # of its five seeds at weight 10.
+    W_SPEED_EXCESS: float = 5.0
     EE_SPEED_CAP: float = 1.2  # m/s
-    # Bound the term on the SQUARED excess so an early exploratory flail cannot
-    # swamp every other signal, as ACCEL_PENALTY_CAP does. 2.25 saturates at
-    # 2.7 m/s and 22.5 per step: the gradient is kept across the whole range the
-    # penalty is meant to shape (everything measured peaked below 2.6 m/s) and
-    # only the pathological tail is flattened.
+    # A purely quadratic penalty can never hold the peak AT the cap, whatever
+    # its weight, because its slope there is zero:
+    #     d/dv [ W (v - cap)^2 ] at v = cap  =  2 W (v - cap)  =  0
+    # while the marginal benefit of speeding is strictly positive - a faster
+    # hand arrives sooner, which both earns R_IN_GOAL for more steps and stops
+    # paying the distance cost. So the optimum always sits a little above the
+    # cap, which is what both trained models did: R3 peaked 43% over its cap and
+    # R5, with the weight raised twenty-fold, still peaked 13% over.
+    #
+    # A linear term has a non-zero slope at the cap and does outweigh that
+    # benefit: sweeping candidate trajectories moves the optimum from 11% over
+    # the cap at W_lin = 0 to 4% over at W_lin = 3, where it then stays even at
+    # W_lin = 10.
+    #
+    # That 4% is a floor, not a tuning failure. The penalty is paid per step, so
+    # what a trajectory actually loses is the time-integral of the excess - and
+    # for a peak just over the cap, both the excess AND the number of steps
+    # spent above it shrink together, making the integrated cost second-order in
+    # the overshoot however steep the per-step slope. No per-step cost of this
+    # kind can pin the peak exactly at the cap without also charging speeds
+    # below it, which would just make the arm sluggish.
+    #
+    # So the cap is set below the target rather than at it: 1.2 m/s with the
+    # realised ~4% overshoot lands the peak near 1.25 m/s, inside the 1.0-1.5
+    # m/s of human reaching, and the audit scores that human range rather than
+    # our own cap.
+    W_SPEED_LINEAR: float = 3.0
+    # Bound the QUADRATIC part so an early exploratory flail cannot swamp every
+    # other signal, as ACCEL_PENALTY_CAP does. 2.25 saturates at 2.7 m/s; the
+    # linear part is left unbounded so the gradient never vanishes.
     SPEED_PENALTY_CAP: float = 2.25
     # Hand-acceleration penalty (Flash & Hogan 1985 minimum-jerk proxy):
     # -W_ACCEL * (|a_hand| / ACCEL_REF)^2, capped. Off by default; the
@@ -198,7 +230,8 @@ class ArmTaskEnv(gym.Env):
     ACTUATION_MUSCLE: str = "muscle"
     ACTUATION_TORQUE: str = "torque"
     REWARD_WEIGHT_KEYS = ("W_SHAPING", "W_DIST", "W_EFFORT", "W_SMOOTH", "W_LIMIT", "W_SPEED_EXCESS",
-                          "EE_SPEED_CAP", "SPEED_PENALTY_CAP", "W_ACCEL", "ACCEL_REF", "ACCEL_PENALTY_CAP",
+                          "EE_SPEED_CAP", "W_SPEED_LINEAR", "SPEED_PENALTY_CAP",
+                          "W_ACCEL", "ACCEL_REF", "ACCEL_PENALTY_CAP",
                           "R_IN_GOAL", "R_INTERMEDIATE", "R_SUCCESS")
 
     def __init__(
@@ -1208,8 +1241,9 @@ class ArmTaskEnv(gym.Env):
         smooth = -self.W_SMOOTH * joint_speed / float(self.config.velocity_limits)
         end_range = self._end_range_engagement(q)
         limit_term = -self.W_LIMIT * (float(np.sum(at_limit)) + float(np.sum(end_range)))
-        speed_excess = -self.W_SPEED_EXCESS * min(max(0.0, ee_speed - self.EE_SPEED_CAP) ** 2,
-                                                 self.SPEED_PENALTY_CAP)
+        over_cap = max(0.0, ee_speed - self.EE_SPEED_CAP)
+        speed_excess = -(self.W_SPEED_LINEAR * over_cap
+                         + self.W_SPEED_EXCESS * min(over_cap ** 2, self.SPEED_PENALTY_CAP))
         accel_term = -self.W_ACCEL * min((ee_accel / self.ACCEL_REF) ** 2, self.ACCEL_PENALTY_CAP)
         in_goal_term = self.R_IN_GOAL if (in_goal and self.is_final_waypoint) else 0.0
         reward = (shaping + dist_term + effort + smooth + limit_term + speed_excess + accel_term

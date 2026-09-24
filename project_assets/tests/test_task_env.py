@@ -427,3 +427,38 @@ def test_speed_penalty_reaches_the_reward_and_is_configurable():
     assert env.W_SPEED_EXCESS == 7.0
     assert "SPEED_PENALTY_CAP" in env.REWARD_WEIGHT_KEYS
     assert env.describe()["reward_weights"]["SPEED_PENALTY_CAP"] == env.SPEED_PENALTY_CAP
+
+
+def test_speed_penalty_has_a_non_zero_slope_at_the_cap():
+    """The reason a quadratic-only cost could never hold the peak at the cap.
+
+    d/dv [W (v-cap)^2] is zero at v = cap, so the first sliver of overspeed was
+    free while the benefit of arriving sooner was not. The linear term gives the
+    cost a real slope there.
+    """
+    env = ArmTaskEnv(actuation_mode="torque")
+    cap = env.EE_SPEED_CAP
+
+    def term(v):
+        over = max(0.0, v - cap)
+        return env.W_SPEED_LINEAR * over + env.W_SPEED_EXCESS * min(over ** 2, env.SPEED_PENALTY_CAP)
+
+    eps = 1e-4
+    slope_at_cap = (term(cap + eps) - term(cap)) / eps
+    assert slope_at_cap == pytest.approx(env.W_SPEED_LINEAR, rel=1e-3)
+    assert slope_at_cap > 1.0, "a cost with no slope at the cap cannot hold the peak there"
+    assert term(cap) == 0.0 and term(cap - 0.1) == 0.0     # nothing is charged below the cap
+
+
+def test_speed_penalty_still_grows_without_bound_above_the_cap():
+    """The quadratic part saturates to bound exploratory flailing, but the
+    linear part must not, or fast trajectories stop being distinguished."""
+    env = ArmTaskEnv(actuation_mode="torque")
+
+    def term(v):
+        over = max(0.0, v - env.EE_SPEED_CAP)
+        return env.W_SPEED_LINEAR * over + env.W_SPEED_EXCESS * min(over ** 2, env.SPEED_PENALTY_CAP)
+
+    assert term(4.0) > term(3.5) > term(3.0)
+    assert env.W_SPEED_LINEAR in {v for v in [getattr(env, k) for k in env.REWARD_WEIGHT_KEYS]}
+    assert env.describe()["reward_weights"]["W_SPEED_LINEAR"] == env.W_SPEED_LINEAR
