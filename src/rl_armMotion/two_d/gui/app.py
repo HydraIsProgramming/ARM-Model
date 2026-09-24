@@ -1650,13 +1650,32 @@ Points: {len(self.trajectory_points)}
                 ee_pos = self.controller.get_end_effector_position()
                 self.trajectory_points.append(ee_pos)
 
-            # Update visualizations
-            self._update_visualization()
-            self._update_metrics_display()
-            self._update_torque_plot()
+            # Update visualizations.
+            #
+            # Redrawing all four matplotlib canvases every tick costs a whole
+            # core and starves the Tk event loop, so the window stops answering
+            # clicks and Windows marks it "not responding" - even when the arm
+            # is standing still and there is nothing new to draw. Only the arm
+            # panel needs to keep up with motion; the supporting plots are
+            # readable at 5 Hz, and when nothing is moving nothing needs
+            # redrawing at all beyond an occasional refresh.
+            self._frame_tick = getattr(self, "_frame_tick", 0) + 1
+            moving = bool(self.simulation_active or self.playing_back or self.recording)
+            slow_tick = self._frame_tick % 4 == 0
+            if moving or slow_tick:
+                self._update_visualization()
+            if moving and slow_tick:
+                self._update_metrics_display()
+                self._update_torque_plot()
+                self._update_vel_acc_plot()
+            elif not moving and self._frame_tick % 20 == 0:
+                # Idle: a 1 Hz refresh keeps the panels current (including the
+                # final trace after a run ends) for almost no cost.
+                self._update_metrics_display()
+                self._update_torque_plot()
+                self._update_vel_acc_plot()
             if self.simulation_active:
                 self._append_ee_kinematics_sample(time())
-            self._update_vel_acc_plot()
 
             # Update FPS counter
             current_time = time()
