@@ -20,6 +20,7 @@ from time import time
 
 from rl_armMotion.two_d.config import ArmConfiguration
 from rl_armMotion.two_d.environments.task_env import ArmTaskEnv, ActionSmoother, DEFAULT_PRESET, OBS_VERSION
+from rl_armMotion.two_d.gui.waypoint_editing import index_near, nearest_placeable
 from rl_armMotion.two_d.evaluation import (
     CANONICAL_WAYPOINTS, EVAL_STANDARD, WAYPOINTS_SPREAD, detect_actuation_mode, find_manifest,
     load_package, make_env, read_manifest, resolve_waypoints,
@@ -1191,27 +1192,15 @@ class ArmControllerGUI:
         return base
 
     def _nearest_placeable(self, env, wp, existing):
-        """Nearest point the arm can actually hold that also clears the spacing
-        rules, or None if nothing within reach of the click qualifies."""
-        pts = env.feasible_points()
-        target = np.asarray(wp, dtype=float)
-        for idx in np.argsort(np.linalg.norm(pts - target, axis=1))[:400]:
-            cand = [float(v) for v in pts[idx]]
-            try:
-                env._validate_waypoint_spacing([np.asarray(w, dtype=float) for w in existing + [cand]])
-            except ValueError:
-                continue
-            return cand, float(np.linalg.norm(np.asarray(cand) - target))
-        return None, 0.0
+        """Nearest holdable point clear of the others (shared with the demo window)."""
+        return nearest_placeable(env, wp, existing)
 
     def _remove_point_near(self, wp):
         """Drop the placed point nearest the click, if one is close enough."""
         if not self.clicked_waypoints:
             return False
-        target = np.asarray(wp, dtype=float)
-        d = [float(np.linalg.norm(np.asarray(p, dtype=float) - target)) for p in self.clicked_waypoints]
-        i = int(np.argmin(d))
-        if d[i] > 0.12:                      # a click well away from every point is not a delete
+        i = index_near(self.clicked_waypoints, wp)
+        if i is None:
             return False
         gone = self.clicked_waypoints.pop(i)
         if i < len(self.clicked_requests):
