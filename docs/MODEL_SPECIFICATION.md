@@ -1,14 +1,51 @@
 # Model Specification — Human-Arm v2 (reward, constraints, physics, training)
 
-Everything below is read from the code as of commit `607c766` on branch `human-arm-v2`
+Physics, constraints and algorithm settings are read from the code on branch `human-arm-v2`
 (`src/rl_armMotion/two_d/`: `config/arm_config.py`, `utils/dynamics.py`, `utils/muscle_model.py`,
 `environments/task_env.py`, `training/curriculum_callback.py`, `models/trainers.py`, `evaluation.py`).
-Every number is recorded in each trained model's `run_manifest.json`, so a package reproduces exactly the
-reward and constraints it was trained with.
+The **reward weights differ between training stages**, so §3.2 gives each stage's weights as recorded in
+its own `run_manifest.json` rather than today's defaults. The data and figures behind every number in §7
+are in `project_assets/report/` (see its README).
 
 Notation: $q = (\theta_0, \theta_1)$ joint angles (rad), $\dot q$ joint velocities (rad/s), $p$ hand
 position (m, workspace frame), $v = \dot p$ hand velocity, $g^{(k)}$ the active waypoint, $R = 0.65$ m the
 arm's reach, $\Delta t = 0.02$ s the control step, $a \in [0,1]^4$ the action (muscle activations).
+
+---
+
+## 0. Constraints at a glance
+
+Two kinds of limit act on the arm. **Hard** limits are properties of the simulated body and cannot be exceeded
+whatever the policy does. **Soft** limits are costs in the reward; the policy can exceed them, and pays for it.
+The distinction matters: the trained arm never breaks a hard limit (verified over every step of 30 episodes by
+`scripts/verify_human_limits.py`), but it does trade against soft ones — the deployed R3 model peaks at 2.14 m/s
+against its 1.5 m/s speed cap.
+
+| constraint | value | kind | how it is enforced |
+|---|---|---|---|
+| segment lengths | upper arm 0.30 m, forearm + hand 0.35 m | body | Winter (2009), 75 kg / 1.75 m adult |
+| segment masses | 2.10 kg, 1.65 kg (COM 0.131 m, 0.175 m) | body | enter the mass matrix and gravity |
+| gravity | 9.81 m/s² | body | $G(q)$ in the equations of motion (§1.5) |
+| shoulder range of motion | −150° … +90° (flexion −60° … 180°) | **hard** | integrator clamps the angle and removes velocity into the stop |
+| elbow range of motion | 0° … 145° | **hard** | as above |
+| joint torque | shoulder 25 N·m, elbow 12 N·m | **hard** | net actuator torque clipped (~40 % of adult maximum) |
+| joint speed | 8 rad/s | **hard** | safety clamp; muscles lose force with speed well before (§1.6) |
+| muscle activation | 0 … 1 per muscle | **hard** | the action space |
+| activation rise / fall | 40 ms / 60 ms | **hard** | first-order filter, force cannot change instantly (B3 onward) |
+| passive end-range stiffness | 20 N·m/rad inside 10° of each stop | body | a spring pushing the joint back out (§1.3) |
+| joint damping | 0.30 N·m·s/rad | body | viscous term in $	au_{	ext{passive}}$ |
+| muscle force–length, force–velocity | Hill-type (Thelen 2003; Hill 1938) | body | $F = a\,F_{\max}\,f_L\,f_V$ (§1.6) |
+| hand speed | cap 1.5 m/s (R3, R4) / 1.2 m/s (R5, R6) | soft | reward cost above the cap (§3.1) |
+| hand acceleration | reference 10 m/s² | soft | reward cost, minimum-jerk proxy (§3.1) |
+| end-range posture | 10° from each stop | soft | reward cost for entering the zone (§3.1) |
+| target: reachable | IK solution inside the ROM | task | feasibility rule 1 (§2.1) |
+| target: holdable | static gravity torque ≤ 80 % of the limit | task | rule 2 |
+| target: not degenerate | ≥ 0.18 m inside the reach circle | task | rule 3 |
+| target: distinct | > 0.30 m apart, and from the start pose | task | rule 4 |
+| target: comfortable | holding pose clears the end-range zone | task | rule 5 (R4 onward) |
+| "reached" | within 5 cm, hand < 0.10 m/s, joints < 1.0 rad/s | task | in-goal test (§2.2) |
+| "held" | 25 consecutive in-goal steps (0.5 s), −5 per step outside | task | hold counter (§2.3) |
+| episode | 500 steps × 20 ms = 10 s | task | truncation, not termination, in training |
 
 ---
 
@@ -94,9 +131,11 @@ $$\ell = \ell_{\text{opt}} - s\, r\,(\theta - \theta_{\text{ref}}), \qquad V = s
 | shoulder | 0.04 m | 625 N | 0.20 m | 6 $\ell_{\text{opt}}$/s |
 | elbow | 0.03 m | 400 N | 0.10 m | 6 $\ell_{\text{opt}}$/s |
 
-  Consequences: $f_L \ge 0.45$ everywhere in the range of motion (weaker at the ends, never dead); unloaded joint
-  speed $\approx 12$ rad/s; equal co-contraction gives zero net torque but damps motion (a stiffening strategy the
-  policy is free to use — there is no co-contraction penalty).
+  Consequences: $f_L \ge 0.45$ everywhere in the range of motion (weaker at the ends, never dead). Force falls to
+  zero at a joint speed of $V_{\max}\,\ell_{\text{opt}}/r$ = **30 rad/s** at the shoulder and **20 rad/s** at the
+  elbow, well above the 8 rad/s velocity clamp, so within reach the muscles weaken with speed but never quit
+  (about half force at 5 rad/s at the shoulder). Equal co-contraction gives zero net torque but damps motion —
+  a stiffening strategy the policy is free to use; there is no co-contraction penalty.
 - **Activation dynamics** (Zajac 1989, first order, used in the "clean" Stage B3 models): with commanded
   excitation $u$ and activation state $a$,
 
@@ -213,39 +252,118 @@ $\tau = a \cdot \tau_{\max}$, used as the non-muscle baseline.)
 
 ## 3. Reward
 
-All distances are normalised by the reach $R$. Let $d_t = \|p_t - g^{(k_t)}\|$ and the potential
-$\Phi(s) = -d/R$ on the augmented state (hand position, active waypoint index). Per step:
+The reward is computed once per 20 ms control step, after the physics and the waypoint bookkeeping. All
+distances are normalised by the reach $R = L_1 + L_2 = 0.65$ m.
+
+### 3.1 The reward function (ordered task — every stage except F2/F3)
+
+Let $p_t$ be the hand position, $g^{(k)}$ the active waypoint, $d_t = \lVert g^{(k)} - p_t \rVert$, and define the
+potential on the augmented state (hand position, active waypoint index)
+
+$$\Phi(s) = -\frac{d}{R}.$$
+
+The reward for the transition $s_t \to s_{t+1}$ under action $a_t$ is the sum of ten terms:
 
 $$
 \begin{aligned}
-r_t \;=\;& W_{\text{shaping}}\,\big(\gamma\,\Phi(s_{t+1}) - \Phi(s_t)\big) && \text{potential-based shaping, } W = 2.0,\ \gamma = 0.99 \\
-&- W_{\text{dist}}\, d_{t+1}/R && W = 0.5 \\
-&- W_{\text{effort}}\, \|a_t\|^2 && W = 0.02 \\
-&- W_{\text{smooth}}\, \|\dot q_{t+1}\| / 8 && W = 0.05 \\
-&- W_{\text{limit}}\,\Big(\#\{\text{joints on a hard stop}\} + \sum_j e_j\Big) && W = 0.1 \\
-&- W_{\text{speed}}\, \max(0,\ \|v_{t+1}\| - 1.5)^2 && W = 0.5 \text{ (human speed cap, m/s)} \\
-&- W_{\text{accel}}\, \min\!\big((\|\dot v_{t+1}\|/10)^2,\ 4\big) && W = 0.02 \text{ (Stage B3; 0 in A/B)} \\
-&+ R_{\text{goal}}\,[\text{in\_goal} \wedge k = N-1] && 1.0 \text{ per step, final waypoint only} \\
-&+ R_{\text{inter}}\,[\text{intermediate waypoint completed this step}] && 10.0 \\
-&+ R_{\text{succ}}\,[\text{hold completed this step, first time}] && 50.0
+r_t \;=\;& \underbrace{W_{\text{shape}}\big(\gamma\,\Phi(s_{t+1}) - \Phi(s_t)\big)}_{\text{shaping}}
+\;\underbrace{-\;W_{\text{dist}}\,\frac{d_{t+1}}{R}}_{\text{distance}}
+\;\underbrace{-\;W_{\text{effort}}\,\lVert a_t\rVert^2}_{\text{effort}}
+\;\underbrace{-\;W_{\text{smooth}}\,\frac{\lVert\dot q_{t+1}\rVert}{\omega_{\max}}}_{\text{smoothness}} \\
+&\underbrace{-\;W_{\text{limit}}\Big(n^{\text{stop}}_{t+1} + \textstyle\sum_j e_{j,t+1}\Big)}_{\text{joint limit}}
+\;\underbrace{-\;\Big(W_{\text{lin}}\,\delta_{t+1} + W_{\text{speed}}\,\min\!\big(\delta_{t+1}^2,\ C_{\text{speed}}\big)\Big)}_{\text{speed excess}}
+\;\underbrace{-\;W_{\text{accel}}\,\min\!\Big(\big(\tfrac{\lVert\dot v_{t+1}\rVert}{A_{\text{ref}}}\big)^2,\ C_{\text{accel}}\Big)}_{\text{hand acceleration}} \\
+&\underbrace{+\;R_{\text{goal}}\,\mathbb{1}[\text{in goal} \wedge k = N-1]}_{\text{in-goal stream}}
+\;\underbrace{+\;R_{\text{inter}}\,\mathbb{1}[\text{intermediate waypoint completed}]}_{\text{intermediate bonus}}
+\;\underbrace{+\;R_{\text{succ}}\,\mathbb{1}[\text{hold completed, first time}]}_{\text{success bonus}}
 \end{aligned}
 $$
 
-where $e_j \in [0,1]$ is the fraction of the $10^\circ$ end-range spring margin joint $j$ has entered
-(end-range postures are avoided by humans and were a free "prop" for a straight arm), and
-$\|\dot v\| = \|v_{t+1} - v_t\|/\Delta t$ is the hand acceleration (a Flash & Hogan minimum-jerk proxy).
+with
 
-Design notes:
-- **Shaping is two-sided and potential-based** (Ng, Harada & Russell 1999) on the augmented state, so it is
-  policy-invariant; on the step a waypoint completes, $\Phi(s_t)$ uses the old goal and $\Phi(s_{t+1})$ the new
-  one, and the returned observation already describes the new goal.
-- **Why hovering loses.** With non-terminating episodes the in-goal stream is only available at the final
-  waypoint; sitting at an intermediate waypoint earns ≈ 0/step while completing it earns +10 and unlocks the
-  stream. Cycling in and out of the final ball to avoid completing the hold earns strictly less than holding
-  (tested with scripted trajectories).
-- **Scale.** Dense terms lie in about [−1.5, +1] per step; a three-waypoint episode that reaches the final hold at
-  step 150 and holds earns ≈ +350 + 70; zero action for a full episode scores ≈ −340.
-- No co-contraction penalty: co-contraction is how a muscle-driven arm stiffens to hold precisely.
+| symbol | meaning |
+|---|---|
+| $\gamma = 0.99$ | SAC discount; the shaping uses the same $\gamma$ so it is exactly potential-based |
+| $\omega_{\max} = 8$ rad/s | joint velocity limit, used only to normalise |
+| $n^{\text{stop}}$ | number of joints resting on a hard stop this step |
+| $e_j \in [0,1]$ | how far joint $j$ has entered its 10° passive end-range zone (0 outside, 1 at the stop) |
+| $\delta = \max(0,\ \lVert v\rVert - v_{\text{cap}})$ | hand speed above the cap, m/s |
+| $\lVert\dot v\rVert = \lVert v_{t+1} - v_t\rVert / \Delta t$ | hand acceleration, a minimum-jerk proxy (Flash & Hogan 1985) |
+| $N$ | number of waypoints; $k = N-1$ is the final one |
+
+**In goal** means all three at once: position error $< \varepsilon$ (0.05 m at the production standard), hand
+speed $< 0.10$ m/s, and joint speed $\lVert\dot q\rVert < 1.0$ rad/s. An **intermediate** waypoint is completed
+after 5 consecutive in-goal steps (0.1 s); the **final** one after the hold counter reaches 25 (0.5 s), where
+the counter rises by 1 per in-goal step and falls by 5 per step outside.
+
+### 3.2 The weights each stage was actually trained with
+
+These are read from each run's own manifest, not from the current code — the weights changed between stages,
+and quoting today's defaults for an older model would misreport what it learned from. "off" means the term did
+not exist when that stage was trained.
+
+| stage | $W_{\text{shape}}$ | $W_{\text{dist}}$ | $W_{\text{effort}}$ | $W_{\text{smooth}}$ | $W_{\text{limit}}$ | $v_{\text{cap}}$ | $W_{\text{speed}}$ | $W_{\text{lin}}$ | $C_{\text{speed}}$ | $W_{\text{accel}}$ | $R_{\text{goal}}$ | $R_{\text{inter}}$ | $R_{\text{succ}}$ |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| A | 2.0 | 0.5 | 0.02 | 0.05 | 0.1 | off | off | off | off | off | 1 | 10 | 50 |
+| B | 2.0 | 0.5 | 0.02 | 0.05 | 0.1 | 1.5 | 0.5 | off | ∞ | off | 1 | 10 | 50 |
+| B3 | 2.0 | 0.5 | 0.02 | 0.05 | 0.1 | 1.5 | 0.5 | off | ∞ | 0.02 | 1 | 10 | 50 |
+| **R3 (deployed)** | **2.0** | **0.5** | **0.02** | **0.05** | **0.1** | **1.5** | **0.5** | **off** | **∞** | **0.02** | **1** | **10** | **50** |
+| R4 | 2.0 | 0.5 | 0.02 | 0.05 | 0.1 | 1.5 | 0.5 | off | ∞ | 0.02 | 1 | 10 | 50 |
+| R5 | 2.0 | 0.5 | 0.02 | 0.05 | 0.1 | 1.2 | 10.0 | off | 2.25 | 0.02 | 1 | 10 | 50 |
+| R6 | 2.0 | 0.5 | 0.02 | 0.05 | 0.1 | 1.2 | 5.0 | 3.0 | 2.25 | 0.02 | 1 | 10 | 50 |
+| F2 | 2.0 | 0.5 | 0.02 | 0.05 | 0.1 | 1.5 | 0.5 | off | ∞ | 0.02 | 1 | 10 | 50 |
+
+$A_{\text{ref}} = 10$ m/s², $C_{\text{accel}} = 4$ throughout. So the reward the deployed R3 model learned from is,
+explicitly,
+
+$$
+r_t = 2\big(0.99\,\Phi_{t+1} - \Phi_t\big) - 0.5\,\tfrac{d_{t+1}}{0.65} - 0.02\lVert a_t\rVert^2 - 0.05\,\tfrac{\lVert\dot q_{t+1}\rVert}{8}
+- 0.1\big(n^{\text{stop}} + \textstyle\sum_j e_j\big) - 0.5\max(0, \lVert v\rVert - 1.5)^2 - 0.02\min\!\big((\tfrac{\lVert\dot v\rVert}{10})^2, 4\big)
++ \mathbb{1}[\ldots] + 10\,\mathbb{1}[\ldots] + 50\,\mathbb{1}[\ldots].
+$$
+
+Rebuilding a model from its manifest reproduces exactly its own row: a key absent from a manifest is treated as
+"off" (weight 0, cap unbounded) rather than filled with today's default (`ArmTaskEnv.LEGACY_REWARD_OFF`). Until
+that rule existed, rebuilding R3 silently switched on the R6-era linear speed term; one R3 episode was scored
+−42 for speed where its own reward charges −3.8. Success, reach and hold were never affected — they come from
+the hold logic, not the reward — but a return computed after the fact for an older model was.
+
+### 3.3 Why each term is there
+
+| term | job | where it came from |
+|---|---|---|
+| shaping | a gradient toward the goal from the first update | potential-based (Ng, Harada & Russell 1999), so it cannot change which policy is optimal; two-sided so leaving the goal costs what approaching it paid |
+| distance | a dense pull that does not vanish when the hand is still | without it the only signal at rest is the shaping, which is zero when nothing moves |
+| effort | prefer lower activations for the same result | a metabolic-cost proxy; kept small so it never outweighs reaching |
+| smoothness | discourage needless joint speed | mild; the acceleration term does most of the smoothing |
+| joint limit | stay off the hard stops and out of end range | Stage A's first attempt: every seed rested a straight arm on its elbow stop at the kinematic singularity |
+| speed excess | human reaching speed, not whip-cracking | Stage A peaked at 4–5 m/s; quadratic above 1.5 m/s from Stage B; linear term added in R6 because a quadratic has zero slope at the cap and cannot hold the peak there |
+| hand acceleration | bell-shaped velocity profiles | minimum-jerk proxy; brought symmetry from ~0.2 toward the human 0.35–0.55 |
+| in-goal stream | pay for **holding**, not touching | only at the final waypoint, so parking at an intermediate one earns nothing |
+| intermediate bonus | make completing a waypoint worth leaving it | +10 once per waypoint |
+| success bonus | mark the task done | +50 once; episodes do **not** end on success in training, so the policy learns to keep holding |
+
+There is **no co-contraction penalty**: squeezing both muscles of a pair is how a muscle-driven arm stiffens to
+hold still, and the trained policy does exactly that (0.48 co-contraction holding vs 0.23 moving, R3).
+
+### 3.4 Free-order variant (Stages F2, F3)
+
+When the policy sees every waypoint at once and chooses the order (`free_order=True`), the potential becomes the
+shortest remaining tour from the hand through the unvisited waypoints $U$,
+
+$$\Phi(s) = -\frac{1}{R}\,\min_{\sigma \in \text{perm}(U)} \Big(\lVert p - g_{\sigma_1}\rVert + \sum_{i} \lVert g_{\sigma_i} - g_{\sigma_{i+1}}\rVert\Big),$$
+
+(exact for up to 6 points, greedy beyond), and the dense term becomes $W_{\text{dist}}\,\Phi(s_{t+1})$ instead of
+the distance to one waypoint. Both depend only on the state, so the shaping stays policy-invariant. The first F3
+run keyed the dense term to the *nearest* outstanding waypoint instead; that term jumped from −0.007 to −0.25 the
+moment a waypoint was completed, so finishing one was charged, and the policy learned to reach one point and stop.
+
+### 3.5 Scale
+
+Dense terms lie roughly in $[-1.5, +1]$ per step. The deployed model on the demonstration points (99 steps)
+collects +50 success, +25 in-goal, +20 intermediate and +3.6 shaping, against −19.8 distance, −3.8 speed, −3.5
+effort, −2.2 acceleration and −1.4 smoothness: **+67.9 in total**. A policy that does nothing for 500 steps scores
+−355 (measured, all muscles off). (Figure 10 of the report pack.)
 
 ---
 
@@ -280,8 +398,32 @@ Evaluation every 20 000 steps with seeded, randomised-start episodes (`evaluate_
 | entropy coefficient | automatic (target entropy −4 = −|A|) |
 | update-to-data ratio | 1 gradient step per environment step |
 | device | CPU (measured 3.5–5× faster than the GPU for this network) |
-| budget | 300 000 steps (2 waypoints), 600 000 steps (3 waypoints) |
+| budget | 300 000 (Stage A), 600 000 (B, B3), 1 000 000 (R3–R6), 500 000 (F2) steps per seed |
 | seeds | 5 per stage (1–5), identical across stages for matched comparison |
+
+**What SAC optimises.** Soft Actor-Critic (Haarnoja et al. 2018) maximises return plus policy entropy,
+
+$$J(\pi) = \sum_t \mathbb{E}\big[\, r(s_t, a_t) + \alpha\,\mathcal{H}\big(\pi(\cdot \mid s_t)\big) \big],$$
+
+which keeps the policy exploring until the reward justifies committing. Stable-Baselines3 implements it with two
+critics $Q_{\theta_1}, Q_{\theta_2}$, slowly-updated target copies $\bar\theta_i$, and a tanh-squashed Gaussian
+actor $\pi_\phi$ (its output is rescaled to the muscle-activation range [0, 1]). Per gradient step, on a batch
+from the replay buffer:
+
+$$y = r + \gamma\,(1 - \text{done})\Big(\min_{i=1,2} Q_{\bar\theta_i}(s', \tilde a') - \alpha \log \pi_\phi(\tilde a' \mid s')\Big), \quad \tilde a' \sim \pi_\phi(\cdot \mid s')$$
+
+$$\mathcal{L}_Q = \tfrac{1}{2}\sum_{i=1,2} \mathbb{E}\big[(Q_{\theta_i}(s,a) - y)^2\big] \qquad \text{(critic)}$$
+
+$$\mathcal{L}_\pi = \mathbb{E}_s\Big[\alpha \log \pi_\phi(\tilde a \mid s) - \min_{i} Q_{\theta_i}(s, \tilde a)\Big], \quad \tilde a = \tanh(\mu_\phi(s) + \sigma_\phi(s)\,\epsilon) \qquad \text{(actor)}$$
+
+$$\mathcal{L}_\alpha = -\,\mathbb{E}\Big[\log\alpha\,\big(\log \pi_\phi(\tilde a \mid s) + \bar{\mathcal{H}}\big)\Big], \quad \bar{\mathcal{H}} = -\dim(A) = -4 \qquad \text{(temperature)}$$
+
+$$\bar\theta_i \leftarrow \tau\,\theta_i + (1 - \tau)\,\bar\theta_i, \quad \tau = 0.005 \qquad \text{(target update)}$$
+
+"done" is 1 only for a true termination. Training episodes end by **truncation** at 500 steps, never by success,
+so the critic bootstraps through the time limit and the policy is valued for holding, not for stopping. In
+practice the temperature $\alpha$ starts at 1, crashes to ~0.007 within 40K steps, climbs back and settles near
+0.04 (report figure 5), and the actor loss falls steadily as the learned Q-values rise.
 
 Seeding contract: the seed reaches SAC (its RNG and the action space), the environment (`reset(seed)`), torch
 (`use_deterministic_algorithms`) and NumPy; thread count and library versions are recorded. Same manifest ⇒
@@ -311,6 +453,10 @@ Human-likeness metrics computed per movement segment (`kinematics_metrics.py`): 
 | **B3** | **3 waypoints (v2)** | **muscle + activation dynamics + accel. penalty** | **5 / 5** | **1.00 ± 0.00** | **20/20, 0.1 cm, 5.0 s** (fastest seed 1.8 s) |
 | **R3** | **3 RANDOM waypoints per episode** | **muscle + activation dynamics + accel. penalty** | **5 / 5** | **0.92 ± 0.06** | **20/20 on unseen triples, 2.1 cm, 2.6 s** |
 | **R4** | **3 RANDOM waypoints, end-range rule 5** | **muscle + activation dynamics + accel. penalty** | **5 / 5** | **0.97 ± 0.03** | **20/20 on unseen triples, 2.3 cm, 2.4 s** |
+| R5 | R4 + human speed cost (quadratic, cap 1.2, weight 10) | muscle + activation dynamics | 3 / 5 | 0.59 ± 0.41 | 18/20, 2.9 cm; peak 1.35 m/s |
+| R6 | R4 + binding speed cost (linear 3 + quadratic 5) | muscle + activation dynamics | 3 / 5 | 0.78 ± 0.24 | 19/20, 4.7 cm; peak 1.30 m/s |
+| F2 | 2 random points, FREE ORDER (policy chooses the route) | muscle + activation dynamics | 0 / 5 | 0.49 ± 0.12 | 13/20; chooses both visiting orders |
+| F3 | 3 random points, free order | muscle + activation dynamics | — | stopped at ~400K, 0–10 % | two attempts; reaches one point and stops |
 
 Stages A, B and B3 train on one fixed waypoint set and memorise it: on 20 random triples the B3 champion
 reaches 0.25 of 3 waypoints (0 % success, 24.7 cm final error) while the R3 champion reaches 3.00 of 3
@@ -321,6 +467,31 @@ exist. On the identical corrected task, matched seeds, identical episodes (100 p
 indistinguishable: R3 94.4 % +/- 3.2, R4 93.0 % +/- 5.8, paired difference -1.4 % +/- 6.9 (t = -0.46,
 p = 0.67). The gain came from the rule, not from retraining on it - see RESULTS.md.
 
+**The speed/accuracy trade-off.** Every version of the human speed cost bought human-like motion at the price
+of reliability. Measured the way a user actually uses the arm — three freely clicked points, 40 trials each:
+
+| champion (best seed) | peak hand speed | human-likeness metrics in band | reaches all 3 clicked points |
+|---|---|---|---|
+| R3 | 2.14 m/s | 4 of 6 | **38/40 = 95 %** |
+| R5 | 1.35 m/s | **6 of 6** | 28/40 = 70 % |
+| R6 | 1.30 m/s | 5 of 6 (submovements 2.5) | 17/40 = 42 % |
+
+These are the champions — each stage's best seed, audited over 30 episodes. Across all five seeds of a stage
+the picture is less flattering, and the statistic matters: by **median** over seeds R6 is inside 5 of 6 bands,
+R4 and R5 4, R3 3; by **mean**, R4 is inside 5 and R5 only 3, because jerk and submovements are skewed by
+single outlier episodes (R5's per-seed jerk runs from 62 to 4,771). So "R5 moves like a human" is a claim
+about its best seed, not about the stage. Report figure 8 shows every seed with its median.
+
+R3 is therefore the deployed model: the most reliable, and the one that shows human co-contraction (0.48 while
+holding against 0.23 while moving). The R5 champion is the one to cite for human-like kinematics, with the
+caveat above.
+
+**Compute.** 63 training runs across 13 stages and attempts: 36.7 M environment steps and 193 seed-hours on a
+CPU. Five seeds ran in parallel, so a 1 M-step stage took about 5–6 hours of wall-clock time
+(R3 5.9 h, R4 5.5 h, R5 4.7 h, R6 5.2 h per seed).
+
 Negative results kept on record: warm-starting a 3-waypoint policy from a 2-waypoint model is worse than
 training from scratch; a final waypoint within the coarse curriculum tolerance of the reach circle induces a
-straight-arm "rest on the elbow spring" solution that cannot be unlearned.
+straight-arm "rest on the elbow spring" solution that cannot be unlearned; retraining on the corrected
+target set (R4) bought nothing measurable over R3 (p = 0.67); a free-order dense term keyed to the nearest
+waypoint charged the arm for completing one, and it learned to stop after the first point.
