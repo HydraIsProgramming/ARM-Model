@@ -89,3 +89,42 @@ def test_project_sac_defaults_merge_with_overrides():
     assert tr.model.gamma == pytest.approx(0.99)
     rh = tr.resolved_hyperparams
     assert rh["net_arch"] == [16, 16] and rh["buffer_size"] == 300_000
+
+
+def test_rebuilt_env_uses_the_reward_the_model_was_trained_with():
+    """A reward key missing from an old manifest means the term did not exist
+    yet, so it must be OFF - not today's default.
+
+    Every stage before R6 predates at least one reward key. Rebuilding the
+    deployed R3 model used to switch on a linear speed charge it never trained
+    against, which scored one of its episodes -42 for speed.
+    """
+    import math
+    from rl_armMotion.two_d.environments.task_env import ArmTaskEnv
+
+    env = ArmTaskEnv(actuation_mode="torque")
+    desc = env.describe()
+    # an R3-era manifest: speed penalty recorded, the newer keys absent
+    desc["reward_weights"] = {k: v for k, v in desc["reward_weights"].items()
+                              if k not in ("W_SPEED_LINEAR", "SPEED_PENALTY_CAP")}
+    desc["reward_weights"].update({"W_SPEED_EXCESS": 0.5, "EE_SPEED_CAP": 1.5})
+    old = ArmTaskEnv.from_description(desc)
+    assert old.W_SPEED_LINEAR == 0.0
+    assert math.isinf(old.SPEED_PENALTY_CAP)
+    assert old.W_SPEED_EXCESS == 0.5 and old.EE_SPEED_CAP == 1.5
+
+    # a Stage-A-era manifest: no speed or acceleration penalty existed at all
+    desc["reward_weights"] = {k: v for k, v in desc["reward_weights"].items()
+                              if k not in ("W_SPEED_EXCESS", "EE_SPEED_CAP", "W_ACCEL",
+                                           "ACCEL_REF", "ACCEL_PENALTY_CAP")}
+    stage_a = ArmTaskEnv.from_description(desc)
+    assert stage_a.W_SPEED_EXCESS == 0.0 and stage_a.W_SPEED_LINEAR == 0.0 and stage_a.W_ACCEL == 0.0
+
+
+def test_a_current_manifest_round_trips_every_reward_weight():
+    """New manifests record every key, so nothing falls back to a legacy value."""
+    from rl_armMotion.two_d.environments.task_env import ArmTaskEnv
+    env = ArmTaskEnv(actuation_mode="torque")
+    rebuilt = ArmTaskEnv.from_description(env.describe())
+    for k in ArmTaskEnv.REWARD_WEIGHT_KEYS:
+        assert getattr(rebuilt, k) == getattr(env, k), k

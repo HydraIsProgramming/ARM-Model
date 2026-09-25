@@ -1380,6 +1380,33 @@ class ArmTaskEnv(gym.Env):
             "waypoint_grid": self.waypoint_grid,
         }
 
+    # What an absent reward key means: the term did not exist when that model
+    # was trained, so it has to be OFF, not set to today's default. A weight
+    # missing from a manifest is therefore zero and a cap missing from one is
+    # unbounded. Keys that have existed since the first manifest are always
+    # recorded and never reach this table.
+    #
+    # Getting this wrong is silent. Every stage before R6 predates at least one
+    # of these keys, so rebuilding, say, the deployed R3 model used to switch on
+    # a linear speed charge (3.0 per m/s over the cap) it never trained against,
+    # and one of its episodes was scored -42 for speed where training would have
+    # charged a fraction of that. Success, reach and hold were never affected -
+    # they come from the hold logic, not the reward - but any return computed
+    # for an older model was.
+    LEGACY_REWARD_OFF: Dict[str, float] = {
+        "W_SPEED_EXCESS": 0.0,          # no speed penalty before Stage B
+        "W_ACCEL": 0.0,                 # no acceleration penalty before B2/B3
+        "SPEED_PENALTY_CAP": float("inf"),   # the quadratic was uncapped before R5
+        "W_SPEED_LINEAR": 0.0,          # the linear speed term arrived in R6
+    }
+
+    @classmethod
+    def _reward_weights_as_trained(cls, recorded: Optional[Dict[str, float]]) -> Dict[str, float]:
+        """The reward weights a model was actually trained under."""
+        recorded = {k: v for k, v in (recorded or {}).items() if k in cls.REWARD_WEIGHT_KEYS}
+        missing = {k: v for k, v in cls.LEGACY_REWARD_OFF.items() if k not in recorded}
+        return {**missing, **recorded}
+
     @classmethod
     def from_description(cls, desc: Dict[str, Any], **overrides: Any) -> "ArmTaskEnv":
         """Inverse of describe(). ``overrides`` replace individual task settings."""
@@ -1411,8 +1438,7 @@ class ArmTaskEnv(gym.Env):
             obs_noise_std=tuple(desc["obs_noise_std"]) if desc.get("obs_noise_std") else None,
             sensory_delay_steps=desc.get("sensory_delay_steps", 0),
             config=cfg,
-            reward_weights={k: v for k, v in (desc.get("reward_weights") or {}).items()
-                            if k in cls.REWARD_WEIGHT_KEYS},
+            reward_weights=cls._reward_weights_as_trained(desc.get("reward_weights")),
             random_waypoints=desc.get("random_waypoints"),
             free_order=bool(desc.get("free_order", False)),
             free_order_slots=desc.get("free_order_slots"),
