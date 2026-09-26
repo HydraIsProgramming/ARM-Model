@@ -11,6 +11,17 @@ python scripts/plot_training.py          # data/*.csv -> figures/*.png and *.pdf
 Both scripts are idempotent. The figures read **only** the CSVs, so anyone can restyle or extend them without
 the models or the 6 GB of run directories.
 
+**[`ARM_RL_Model_Technical_Report.pdf`](ARM_RL_Model_Technical_Report.pdf)** puts it all in one document for
+presenting: the model, every constraint, the full reward function, SAC's equations, how long training takes, and
+the results, with all the figures plus five explanatory diagrams. Rebuild it with
+
+```
+python scripts/report_diagrams.py        # diagrams -> build/diagrams/
+python scripts/build_report_pdf.py       # data + figures + diagrams -> the PDF
+```
+
+Its tables of timing, results and reward weights are read from `data/` at build time.
+
 **The formulas** — reward function, per-stage weights, constraints, physics, muscle model, SAC's loss equations,
 curriculum and evaluation — are in [`docs/MODEL_SPECIFICATION.md`](../../docs/MODEL_SPECIFICATION.md). Its §0 is a
 one-table summary of every constraint; §3 is the reward.
