@@ -187,6 +187,27 @@ singularity (elbow flexion has no first-order effect on hand distance there).
    A joint with no passive margin is exempt, so gravity-free legacy presets keep their feasible set.
    Added in Stage R4.
 
+**Full human workspace (Stage R7 on).** Rules 3 and 5 together excluded 62 % of what the arm can reach within
+its joint ranges (0.30 of 0.79 m² on the 2 cm grid; rule 3 alone removed 954 of 1984 grid points, rule 5 186,
+rule 2 none). Rule 3 in particular kept every target where the elbow is bent at least ~88°, so the arm was never
+asked to reach far out, overhead, low or behind the hip. With `joint_margin_deg` set (CLI `--joint-margin-deg`),
+rules 3 and 5 are replaced by one human-limits rule:
+
+3'. the target is reachable with every joint at least `joint_margin_deg` (5°) inside its hard stop, i.e. within
+    the human range of motion without jamming a joint against its stop; `reach_margin` (0 m) is the only distance
+    rule, and the inner limit is just the IK.
+
+Rules 1, 2 and 4 are unchanged. Effect: 744 → **1850** grid points, 0.228–0.649 m from the shoulder and up to
+0.43 m behind it. What remains excluded is what this arm genuinely cannot do: closer than 0.23 m (elbow ≤ 140°),
+full extension itself (elbow on its stop), and the pocket in front of the chest that would need more than 55° of
+shoulder extension — a person reaches there by moving the elbow out to the side, which a sagittal-plane arm
+cannot. Both settings are recorded in the manifest; a manifest without them (every model up to R6) rebuilds with
+rules 3 and 5, so older packages keep their original region.
+
+Before R7, the deployed R3 on 200 three-target episodes from the full workspace
+(`scripts/eval_workspace_regions.py`): 10 % episode success — 100 % of targets in its own area and close in, but
+17 % in the outer ring, 12 % overhead, 15 % hanging low and 57 % behind the body.
+
 ### 2.1b Random waypoints (the generalising task, Stages R3 and R4)
 
 `ArmTaskEnv(random_waypoints=N)` draws a fresh ordered set of N targets at every `reset()`
