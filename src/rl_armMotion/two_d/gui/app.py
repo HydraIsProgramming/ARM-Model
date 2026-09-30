@@ -2027,18 +2027,30 @@ class ArmControllerGUI:
             line.set_data(th, np.asarray(data, dtype=float))
         for line, data in zip(self._ln_acc, (self.ee_ax_hist, self.ee_ay_hist)):
             line.set_data(th, np.asarray(data, dtype=float))
-        for ax, has, times, text in zip((self.torque_ax, self.velacc_ax_vel, self.velacc_ax_acc),
-                                        (have_torque, have_hand, have_hand), (t, th, th), self._plot_empty_text):
+        panels = ((self.torque_ax, have_torque, t, self._ln_tau + self._ln_grav),
+                  (self.velacc_ax_vel, have_hand, th, self._ln_vel),
+                  (self.velacc_ax_acc, have_hand, th, self._ln_acc))
+        for (ax, has, times, lines), text in zip(panels, self._plot_empty_text):
             text.set_visible(not has)
             if not has:
                 ax.set_xlim(0.0, 10.0)
                 ax.set_ylim(-1.0, 1.0)
                 continue
-            ax.relim()
-            ax.autoscale_view(scalex=False)
             # Keep the recent window readable for long runs.
             end = float(times[-1])
-            ax.set_xlim(max(0.0, end - 20.0), max(end, 1.0))
+            lo, hi = max(0.0, end - 20.0), max(end, 1.0)
+            ax.set_xlim(lo, hi)
+            # Limits are set from the data on screen every refresh. (Autoscaling
+            # cannot be relied on: setting the empty plot's -1..1 turns it off,
+            # which left every trace clipped at +/-1.) Extra room at the top
+            # keeps the legend clear of the traces.
+            shown = [np.asarray(line.get_ydata(), dtype=float)[times >= lo] for line in lines]
+            shown = np.concatenate([v[np.isfinite(v)] for v in shown]) if shown else np.array([])
+            if shown.size == 0:
+                continue
+            y0, y1 = float(shown.min()), float(shown.max())
+            span = max(y1 - y0, 0.05 * max(abs(y0), abs(y1)), 0.1)
+            ax.set_ylim(y0 - 0.08 * span, y1 + 0.35 * span)
         self.torque_canvas.draw_idle()
 
     def _update_vel_acc_plot(self):

@@ -92,6 +92,14 @@ def test_a_run_reports_the_simulators_own_numbers(gui):
     assert gui.latest_shoulder_torque == pytest.approx(float(info["actuator_torque"][0]))
     assert gui.shoulder_gravity_hist[-1] == pytest.approx(float(info["gravity_torque"][0]))
     assert len(gui._ln_vel[0].get_xdata()) == n
+    # Every trace fits its plot. The plots were drawn empty first (fixed -1..1),
+    # which once switched autoscaling off and clipped everything at +/-1.
+    for ax, lines in ((gui.torque_ax, gui._ln_tau), (gui.velacc_ax_vel, gui._ln_vel),
+                      (gui.velacc_ax_acc, gui._ln_acc)):
+        lo, hi = ax.get_ylim()
+        for line in lines:
+            y = np.asarray(line.get_ydata(), dtype=float)
+            assert lo <= y.min() and y.max() <= hi, (ax.get_title(loc="left"), lo, hi, y.min(), y.max())
 
     # The readouts say what the simulator says.
     assert gui._tiles["target"].cget("text").endswith("of 3")
