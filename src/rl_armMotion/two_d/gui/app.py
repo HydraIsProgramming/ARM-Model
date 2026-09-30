@@ -1,5 +1,23 @@
-"""Interactive arm controller GUI using Tkinter and Matplotlib (fully open-source)"""
+"""Interactive arm controller GUI (Tkinter + Matplotlib).
 
+One window, three columns:
+
+  controls   a scrollable column of numbered sections - 1 model, 2 target
+             points, 3 manual joint control, 4 arm properties - so no control
+             can be pushed out of view on a short screen;
+  arm view   the arm, its targets and the run's progress, with the live
+             torque / hand-velocity / hand-acceleration plots underneath;
+  readouts   live status, the four muscles' activation, every reading, and
+             the loaded model's details.
+
+A header says what the window is doing (idle, running a model, recording,
+playing back) and a status line along the bottom shows the last message.
+
+    python -m rl_armMotion.two_d.gui.app [--package DIR|MODEL.zip] [--which best]
+                                         [--waypoints 1|2|3|spread|'x,y;x,y'] [--autostart] [--no-loop]
+"""
+
+import json
 import os
 import pickle
 import sys
@@ -11,11 +29,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import ttk, filedialog, messagebox
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
+from matplotlib.lines import Line2D
 from time import time
 
 from rl_armMotion.two_d.config import ArmConfiguration
@@ -26,6 +46,55 @@ from rl_armMotion.two_d.evaluation import (
 )
 from rl_armMotion.two_d.models.trainers import RLTrainer
 from rl_armMotion.two_d.utils import ArmKinematics, ArmController, MotionRecorder, ArmVisualizer, dynamics
+
+PROJECT_ROOT = Path(__file__).resolve().parents[4]
+OUTPUTS_DIR = PROJECT_ROOT / "project_assets" / "outputs"
+
+# ----------------------------------------------------------------- palette
+BG = "#eef0f3"          # window background, between cards
+CARD = "#ffffff"
+BORDER = "#d9dde3"
+INK = "#1b1d21"
+MUTED = "#5d6470"
+ACCENT = "#2a78d6"
+GOOD = "#1f9d55"
+WARN = "#c77700"
+BAD = "#d64545"
+TRACK = "#e6e9ee"
+SHOULDER_C = "#2a78d6"
+ELBOW_C = "#e8743b"
+ARM_C = "#262a31"
+
+# What each trained package is, for the quick-pick list. Anything not listed
+# is described from its own manifest.
+KNOWN_PACKAGES = {
+    "R3": "reaches any 3 points (deployed)",
+    "R4": "any 3 points, end-range rule",
+    "R5": "any 3 points, human speed cost",
+    "R6": "any 3 points, binding speed cap",
+    "F2": "2 points, picks its own order",
+    "B3": "3 fixed points only",
+    "B": "3 fixed points only (v1)",
+    "A": "2 fixed points only",
+}
+PACKAGE_ORDER = ["R3", "R4", "R5", "R6", "F2", "B3", "B", "A"]
+
+WAYPOINT_CHOICES = [                 # (internal value, label on screen)
+    ("from package", "Model's own points"),
+    ("1 waypoint", "1 demo point"),
+    ("2 waypoints", "2 demo points"),
+    ("3 waypoints", "3 demo points"),
+    ("spread", "Spread-out set"),
+    ("custom", "My own points"),
+]
+
+# Order of info["muscle_activations"]: (positive, negative) muscle per joint.
+MUSCLE_NAMES = [
+    ("Shoulder flexors", "front deltoid, pectoralis", SHOULDER_C),
+    ("Shoulder extensors", "back deltoid, latissimus", "#7fb0ea"),
+    ("Elbow flexors", "biceps, brachialis", ELBOW_C),
+    ("Elbow extensors", "triceps", "#f2ae8a"),
+]
 
 
 class ArmControllerGUI:
@@ -58,11 +127,13 @@ class ArmControllerGUI:
 
         # Policy simulation state
         self.simulation_active = False
+        self.sim_paused = False
         self.sim_env = None
         self.sim_obs = None
         self.sim_model = None
         self.sim_algorithm = None
         self.sim_model_path = ""
+        self.sim_model_kind = "-"
         self.sim_step_count = 0
         self.sim_episode_count = 0
         self.sim_episode_reward = 0.0
@@ -95,28 +166,39 @@ class ArmControllerGUI:
         self.prev_sim_velocities = np.zeros(self.config.dof, dtype=float)
         self.latest_shoulder_torque = 0.0
         self.latest_elbow_torque = 0.0
+        self._initial_model = None
+        self._pending_autostart = False
+        self._last_slow_update = 0.0
+        self._last_step_wall = None
 
-        # Torque history for live plotting
+        # Torque history for live plotting: the muscles' torque and the torque
+        # gravity demands at each joint, both straight from the simulator.
         self.torque_time_hist = deque(maxlen=2000)
         self.shoulder_torque_hist = deque(maxlen=2000)
         self.elbow_torque_hist = deque(maxlen=2000)
+        self.shoulder_gravity_hist = deque(maxlen=2000)
+        self.elbow_gravity_hist = deque(maxlen=2000)
 
-        # End-effector velocity/acceleration history for live plotting
+        # Hand velocity/acceleration history, sampled every simulated step on
+        # simulated time (not wall-clock), so it is right at any playback speed.
         self.ee_kin_time_hist = deque(maxlen=2000)
         self.ee_vx_hist = deque(maxlen=2000)
         self.ee_vy_hist = deque(maxlen=2000)
+        self.ee_speed_hist = deque(maxlen=2000)
         self.ee_ax_hist = deque(maxlen=2000)
         self.ee_ay_hist = deque(maxlen=2000)
-        self._ee_prev_pos_xy = None
-        self._ee_prev_vel_xy = np.zeros(2, dtype=float)
-        self._ee_prev_time = None
-        self._ee_plot_time = 0.0
+        self._ee_prev_vel_xy = None
+        self._hand_trail = deque(maxlen=250)
 
         # Create main window
         self.root = tk.Tk()
-        self.root.title("RL Arm Motion - Interactive Controller")
-        self.root.geometry("1200x900")
+        self.root.title("Human Arm RL - Interactive Controller")
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self.root.configure(bg=BG)
+        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        w, h = min(1760, int(sw * 0.92)), min(1040, int(sh * 0.88))
+        self.root.geometry(f"{w}x{h}+{max(0, (sw - w) // 2)}+{max(0, (sh - h) // 3)}")
+        self.root.minsize(1240, 740)
 
         # Matplotlib figure
         self.fig = None
@@ -137,6 +219,12 @@ class ArmControllerGUI:
         self.velacc_canvas = None
         self.record_button = None
         self.playback_button = None
+        self._tiles = {}
+        self._muscle_rows = []
+        self._package_choices = {}
+        self._scroll_columns = []
+
+    # ================================================================ helpers
 
     @staticmethod
     def _normalize_model_base(filepath: str) -> str:
@@ -179,8 +267,21 @@ class ArmControllerGUI:
             pass
         return {}
 
+    def _log(self, message: str):
+        """Print a message and show it on the status line."""
+        print(message)
+        bar = getattr(self, "_status_label", None)
+        if bar is None:
+            return
+        text = message.replace("[OK] ", "").replace("[WARN] ", "")
+        colour = WARN if message.startswith("[WARN]") else (BAD if message.startswith("[ERR") else INK)
+        try:
+            bar.config(text=text, fg=colour)
+        except tk.TclError:
+            pass
+
     def _set_model_details_text(self, text: str):
-        """Update model-details text box in visualization panel."""
+        """Update the model-details text box."""
         if self.sim_model_details_text is None:
             return
         self.sim_model_details_text.config(state="normal")
@@ -188,17 +289,24 @@ class ArmControllerGUI:
         self.sim_model_details_text.insert(1.0, text)
         self.sim_model_details_text.config(state="disabled")
 
+    def _refresh_joint_labels(self):
+        for i in range(self.config.dof):
+            label = self.angle_labels.get(i)
+            if label is not None:
+                a = float(self.controller.angles[i])
+                label.config(text=f"{a:+.2f} rad  ({np.degrees(a):+.0f}°)")
+
     def _set_controller_state_from_arrays(self, angles, velocities):
         """Apply angle/velocity arrays to controller and refresh labels."""
         self.controller.angles = np.asarray(angles, dtype=float).copy()
         self.controller.velocities = np.asarray(velocities, dtype=float).copy()
         self._compute_positions()
-        for i in range(self.config.dof):
-            self.angle_labels[i].config(text=f"{self.controller.angles[i]:.2f}rad")
+        self._refresh_joint_labels()
 
     def _estimate_joint_torques(self, angles, velocities, accelerations):
         """Joint torques from the arm's rigid-body inverse dynamics
-        (M(q) q'' + C(q, q') q' + G(q)), i.e. what the actuators must supply."""
+        (M(q) q'' + C(q, q') q' + G(q)), i.e. what the actuators must supply.
+        Used only when the simulator does not report its own torque."""
         q = np.asarray(angles, dtype=float)
         qd = np.asarray(velocities, dtype=float)
         qdd = np.asarray(accelerations, dtype=float)
@@ -208,527 +316,523 @@ class ArmControllerGUI:
             tau = np.zeros(max(q.shape[0], 2))
         return float(tau[0]), float(tau[1]) if tau.shape[0] > 1 else 0.0
 
-    def _append_torque_sample(self, shoulder_torque, elbow_torque, current_time):
+    def _append_torque_sample(self, shoulder_torque, elbow_torque, current_time,
+                              shoulder_gravity=np.nan, elbow_gravity=np.nan):
         """Append a new torque sample to history buffers."""
         self.torque_time_hist.append(float(current_time))
         self.shoulder_torque_hist.append(float(shoulder_torque))
         self.elbow_torque_hist.append(float(elbow_torque))
+        self.shoulder_gravity_hist.append(float(shoulder_gravity))
+        self.elbow_gravity_hist.append(float(elbow_gravity))
         self.latest_shoulder_torque = float(shoulder_torque)
         self.latest_elbow_torque = float(elbow_torque)
 
-    def _update_torque_plot(self):
-        """Redraw torque plot with latest history."""
-        if self.torque_ax is None or self.torque_canvas is None:
-            return
-
-        self.torque_ax.clear()
-        if self.torque_time_hist:
-            t = np.array(self.torque_time_hist, dtype=float)
-            t = t - t[0]
-            shoulder = np.array(self.shoulder_torque_hist, dtype=float)
-            elbow = np.array(self.elbow_torque_hist, dtype=float)
-
-            self.torque_ax.plot(t, shoulder, linewidth=1.4, label="Shoulder Torque")
-            self.torque_ax.plot(t, elbow, linewidth=1.4, label="Elbow Torque")
-            self.torque_ax.legend(loc="upper right", fontsize=8)
-
-            # Keep recent window readable for long runs.
-            if t[-1] > 20.0:
-                self.torque_ax.set_xlim(t[-1] - 20.0, t[-1])
-
-        self.torque_ax.set_title("Shoulder/Elbow Torque")
-        self.torque_ax.set_xlabel("Time (s)")
-        self.torque_ax.set_ylabel("Torque (Nm)")
-        self.torque_ax.grid(True, alpha=0.3)
-        self.torque_canvas.draw_idle()
+    def _clear_torque_history(self):
+        for d in (self.torque_time_hist, self.shoulder_torque_hist, self.elbow_torque_hist,
+                  self.shoulder_gravity_hist, self.elbow_gravity_hist):
+            d.clear()
+        self.latest_shoulder_torque = 0.0
+        self.latest_elbow_torque = 0.0
 
     def _reset_ee_kinematics(self):
-        """Reset end-effector velocity/acceleration histories."""
-        self.ee_kin_time_hist.clear()
-        self.ee_vx_hist.clear()
-        self.ee_vy_hist.clear()
-        self.ee_ax_hist.clear()
-        self.ee_ay_hist.clear()
-        self._ee_prev_pos_xy = None
-        self._ee_prev_vel_xy = np.zeros(2, dtype=float)
-        self._ee_prev_time = None
-        self._ee_plot_time = 0.0
+        """Reset hand velocity/acceleration histories."""
+        for d in (self.ee_kin_time_hist, self.ee_vx_hist, self.ee_vy_hist, self.ee_speed_hist,
+                  self.ee_ax_hist, self.ee_ay_hist):
+            d.clear()
+        self._ee_prev_vel_xy = None
 
-    def _append_ee_kinematics_sample(self, now_s: float):
-        """Append one velocity/acceleration sample from current end-effector pose."""
-        ee_pos = np.asarray(self.controller.get_end_effector_position(), dtype=float)
-        pos_xy = ee_pos[:2]
-
-        if self._ee_prev_time is None or self._ee_prev_pos_xy is None:
-            vx, vy, ax, ay = 0.0, 0.0, 0.0, 0.0
-            dt = 0.0
+    def _append_hand_sample(self, info, dt):
+        """One hand velocity/acceleration sample per simulated step, from the
+        simulator's own hand velocity, on simulated time."""
+        v = np.asarray(info.get("ee_velocity", (0.0, 0.0)), dtype=float)[:2]
+        if self._ee_prev_vel_xy is None:
+            a = np.zeros(2)
         else:
-            dt = max(now_s - float(self._ee_prev_time), 1e-8)
-            vel_xy = (pos_xy - self._ee_prev_pos_xy) / dt
-            acc_xy = (vel_xy - self._ee_prev_vel_xy) / dt
-            vx, vy = float(vel_xy[0]), float(vel_xy[1])
-            ax, ay = float(acc_xy[0]), float(acc_xy[1])
-            self._ee_prev_vel_xy = vel_xy
+            a = (v - self._ee_prev_vel_xy) / max(dt, 1e-8)
+        self._ee_prev_vel_xy = v.copy()
+        self.ee_kin_time_hist.append(float(self.sim_time))
+        self.ee_vx_hist.append(float(v[0]))
+        self.ee_vy_hist.append(float(v[1]))
+        self.ee_speed_hist.append(float(np.linalg.norm(v)))
+        self.ee_ax_hist.append(float(a[0]))
+        self.ee_ay_hist.append(float(a[1]))
 
-        self._ee_plot_time += dt
-        self.ee_kin_time_hist.append(float(self._ee_plot_time))
-        self.ee_vx_hist.append(vx)
-        self.ee_vy_hist.append(vy)
-        self.ee_ax_hist.append(ax)
-        self.ee_ay_hist.append(ay)
-        self._ee_prev_pos_xy = pos_xy.copy()
-        self._ee_prev_time = float(now_s)
+    # ============================================================== styling
 
-    def _update_vel_acc_plot(self):
-        """Redraw end-effector velocity/acceleration subplot."""
-        if (
-            self.velacc_ax_vel is None
-            or self.velacc_ax_acc is None
-            or self.velacc_canvas is None
-        ):
-            return
+    def _setup_style(self):
+        families = set(tkfont.families(self.root))
+        ui = "Segoe UI" if "Segoe UI" in families else "Arial"
+        mono = "Consolas" if "Consolas" in families else "Courier"
+        self.f_body = (ui, 10)
+        self.f_small = (ui, 9)
+        self.f_bold = (ui, 10, "bold")
+        self.f_head = (ui, 11, "bold")
+        self.f_title = (ui, 15, "bold")
+        self.f_value = (ui, 14, "bold")
+        self.f_big = (ui, 12, "bold")
+        self.f_mono = (mono, 9)
 
-        self.velacc_ax_vel.clear()
-        self.velacc_ax_acc.clear()
+        style = ttk.Style(self.root)
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+        style.configure(".", background=CARD, foreground=INK, font=self.f_body)
+        style.configure("TFrame", background=CARD)
+        style.configure("Bg.TFrame", background=BG)
+        style.configure("TLabel", background=CARD, foreground=INK)
+        style.configure("Muted.TLabel", background=CARD, foreground=MUTED, font=self.f_small)
+        style.configure("TCheckbutton", background=CARD)
+        style.configure("TRadiobutton", background=CARD)
+        style.map("TCheckbutton", background=[("active", CARD)])
+        style.map("TRadiobutton", background=[("active", CARD)])
+        style.configure("TButton", padding=(10, 5), background="#f3f4f6", bordercolor=BORDER)
+        style.map("TButton", background=[("active", "#e4e7eb"), ("disabled", "#f5f6f7")])
+        style.configure("Accent.TButton", background=ACCENT, foreground="white", bordercolor=ACCENT,
+                        font=self.f_bold, padding=(12, 7))
+        style.map("Accent.TButton", background=[("active", "#1f64b8"), ("disabled", "#9dbbe3")],
+                  foreground=[("disabled", "#eef3fb")])
+        style.configure("Stop.TButton", background=BAD, foreground="white", bordercolor=BAD,
+                        font=self.f_bold, padding=(12, 7))
+        style.map("Stop.TButton", background=[("active", "#b83434")])
+        style.configure("Toggle.TButton", padding=(10, 6))
+        style.configure("On.Toggle.TButton", background="#e2f4ea", bordercolor=GOOD, foreground=GOOD,
+                        font=self.f_bold)
+        style.map("On.Toggle.TButton", background=[("active", "#d2eedd")])
+        style.configure("Hold.Horizontal.TProgressbar", troughcolor=TRACK, background=GOOD,
+                        bordercolor=TRACK, lightcolor=GOOD, darkcolor=GOOD, thickness=14)
+        style.configure("TCombobox", fieldbackground="white", padding=4)
+        style.configure("TEntry", fieldbackground="white", padding=4)
+        style.configure("Horizontal.TScale", background=CARD, troughcolor=TRACK)
 
-        if not self.simulation_active:
-            self.velacc_ax_vel.set_title("End-Effector Velocity")
-            self.velacc_ax_vel.set_ylabel("m/s")
-            self.velacc_ax_vel.grid(True, alpha=0.3)
-            self.velacc_ax_vel.text(
-                0.5, 0.5, "Simulation not running",
-                ha="center", va="center", transform=self.velacc_ax_vel.transAxes, fontsize=8
-            )
+    @staticmethod
+    def _autowrap(label, pad=6):
+        """Wrap a label to the width it is given, so narrow columns never cut text off."""
+        label.bind("<Configure>", lambda e: label.config(wraplength=max(60, e.width - pad)))
+        return label
 
-            self.velacc_ax_acc.set_title("End-Effector Acceleration")
-            self.velacc_ax_acc.set_xlabel("Time (s)")
-            self.velacc_ax_acc.set_ylabel("m/s^2")
-            self.velacc_ax_acc.grid(True, alpha=0.3)
-            self.velacc_canvas.draw_idle()
-            return
+    def _card(self, parent, title, number=None, note=None):
+        """A white panel with a heading; returns (outer frame, body frame)."""
+        outer = tk.Frame(parent, bg=CARD, highlightbackground=BORDER, highlightthickness=1)
+        head = tk.Frame(outer, bg=CARD)
+        head.pack(fill="x", padx=12, pady=(10, 2))
+        if number is not None:
+            tk.Label(head, text=str(number), bg=ACCENT, fg="white", font=self.f_bold, width=2).pack(
+                side="left", padx=(0, 8))
+        tk.Label(head, text=title, bg=CARD, fg=INK, font=self.f_head).pack(side="left")
+        if note:
+            self._autowrap(tk.Label(outer, text=note, bg=CARD, fg=MUTED, font=self.f_small, justify="left",
+                                    anchor="w", wraplength=330)).pack(fill="x", padx=12, pady=(0, 4))
+        body = tk.Frame(outer, bg=CARD)
+        body.pack(fill="both", expand=True, padx=12, pady=(4, 12))
+        return outer, body
 
-        if self.ee_kin_time_hist:
-            t = np.asarray(self.ee_kin_time_hist, dtype=float)
-            vx = np.asarray(self.ee_vx_hist, dtype=float)
-            vy = np.asarray(self.ee_vy_hist, dtype=float)
-            ax = np.asarray(self.ee_ax_hist, dtype=float)
-            ay = np.asarray(self.ee_ay_hist, dtype=float)
+    def _slider_row(self, parent, key, label, lo, hi, value, on_change, on_entry=None, unit=""):
+        """label | slider | value | entry, stored under slider_vars[key...]."""
+        row = tk.Frame(parent, bg=CARD)
+        row.pack(fill="x", pady=2)
+        row.columnconfigure(1, weight=1)
+        tk.Label(row, text=label, bg=CARD, fg=INK, font=self.f_body, width=15, anchor="w").grid(
+            row=0, column=0, sticky="w")
+        var = tk.DoubleVar(value=value)
+        self.slider_vars[key] = var
+        ttk.Scale(row, from_=lo, to=hi, variable=var, orient="horizontal", command=on_change).grid(
+            row=0, column=1, sticky="ew", padx=6)
+        val_label = tk.Label(row, text=f"{value:.2f}{unit}", bg=CARD, fg=MUTED, font=self.f_small, width=7,
+                             anchor="e")
+        val_label.grid(row=0, column=2, sticky="e")
+        self.slider_vars[f"{key}_label"] = val_label
+        if on_entry is not None:
+            entry_var = tk.StringVar(value=f"{value:.2f}")
+            self.slider_vars[f"{key}_entry"] = entry_var
+            entry = ttk.Entry(row, textvariable=entry_var, width=6)
+            entry.grid(row=0, column=3, sticky="e", padx=(4, 0))
+            entry.bind("<Return>", lambda _e: on_entry())
+            entry.bind("<FocusOut>", lambda _e: on_entry())
+        return row
 
-            self.velacc_ax_vel.plot(t, vx, linewidth=1.2, label="Vx")
-            self.velacc_ax_vel.plot(t, vy, linewidth=1.2, label="Vy")
-            self.velacc_ax_vel.legend(loc="upper right", fontsize=7)
-
-            self.velacc_ax_acc.plot(t, ax, linewidth=1.2, label="Ax")
-            self.velacc_ax_acc.plot(t, ay, linewidth=1.2, label="Ay")
-            self.velacc_ax_acc.legend(loc="upper right", fontsize=7)
-
-            if t[-1] > 20.0:
-                self.velacc_ax_vel.set_xlim(t[-1] - 20.0, t[-1])
-                self.velacc_ax_acc.set_xlim(t[-1] - 20.0, t[-1])
-
-        self.velacc_ax_vel.set_title("End-Effector Velocity")
-        self.velacc_ax_vel.set_ylabel("m/s")
-        self.velacc_ax_vel.grid(True, alpha=0.3)
-
-        self.velacc_ax_acc.set_title("End-Effector Acceleration")
-        self.velacc_ax_acc.set_xlabel("Time (s)")
-        self.velacc_ax_acc.set_ylabel("m/s^2")
-        self.velacc_ax_acc.grid(True, alpha=0.3)
-
-        self.velacc_canvas.draw_idle()
-
-    def _create_properties_frame(self, parent):
-        """Create left frame with property sliders"""
-        frame = ttk.LabelFrame(parent, text="ARM PROPERTIES", padding=10)
-
-        # Link length sliders
-        ttk.Label(frame, text="Link Lengths (m):", font=("Arial", 10, "bold")).pack(fill="x", pady=(0, 5))
-        for i in range(self.config.dof):
-            # Create a row for each link
-            row_frame = ttk.Frame(frame)
-            row_frame.pack(fill="x", pady=2)
-            row_frame.columnconfigure(1, weight=5)
-            row_frame.columnconfigure(3, weight=2)
-
-            ttk.Label(row_frame, text=f"Link {i+1}:", width=10).grid(row=0, column=0, sticky="w")
-            var = tk.DoubleVar(value=self.config.link_lengths[i])
-            self.slider_vars[f"link_len_{i}"] = var
-            slider = ttk.Scale(
-                row_frame,
-                from_=0.1,
-                to=2.0,
-                variable=var,
-                orient="horizontal",
-                command=lambda val, idx=i: self._on_link_length_change(idx, val)
-            )
-            slider.grid(row=0, column=1, sticky="ew", padx=5)
-
-            val_label = ttk.Label(row_frame, text=f"{var.get():.2f}", width=8)
-            val_label.grid(row=0, column=2, sticky="e")
-            self.slider_vars[f"link_len_{i}_label"] = val_label
-
-            entry_var = tk.StringVar(value=f"{var.get():.2f}")
-            self.slider_vars[f"link_len_{i}_entry"] = entry_var
-            entry = ttk.Entry(row_frame, textvariable=entry_var, width=8)
-            entry.grid(row=0, column=3, sticky="ew", padx=(4, 0))
-            entry.bind("<Return>", lambda _e, idx=i: self._on_link_length_entry(idx))
-            entry.bind("<FocusOut>", lambda _e, idx=i: self._on_link_length_entry(idx))
-
-        ttk.Separator(frame, orient="horizontal").pack(fill="x", pady=10)
-
-        # Mass sliders (first 3 for brevity)
-        ttk.Label(frame, text="Masses (kg) - First 3:", font=("Arial", 10, "bold")).pack(fill="x", pady=(0, 5))
-        for i in range(min(3, self.config.dof)):
-            row_frame = ttk.Frame(frame)
-            row_frame.pack(fill="x", pady=2)
-            row_frame.columnconfigure(1, weight=5)
-            row_frame.columnconfigure(3, weight=2)
-
-            ttk.Label(row_frame, text=f"Mass {i+1}:", width=10).grid(row=0, column=0, sticky="w")
-            var = tk.DoubleVar(value=self.config.masses[i])
-            self.slider_vars[f"mass_{i}"] = var
-            slider = ttk.Scale(
-                row_frame,
-                from_=0.1,
-                to=10.0,
-                variable=var,
-                orient="horizontal",
-                command=lambda val, idx=i: self._on_mass_change(idx, val)
-            )
-            slider.grid(row=0, column=1, sticky="ew", padx=5)
-
-            val_label = ttk.Label(row_frame, text=f"{var.get():.2f}", width=8)
-            val_label.grid(row=0, column=2, sticky="e")
-            self.slider_vars[f"mass_{i}_label"] = val_label
-
-            entry_var = tk.StringVar(value=f"{var.get():.2f}")
-            self.slider_vars[f"mass_{i}_entry"] = entry_var
-            entry = ttk.Entry(row_frame, textvariable=entry_var, width=8)
-            entry.grid(row=0, column=3, sticky="ew", padx=(4, 0))
-            entry.bind("<Return>", lambda _e, idx=i: self._on_mass_entry(idx))
-            entry.bind("<FocusOut>", lambda _e, idx=i: self._on_mass_entry(idx))
-
-        ttk.Separator(frame, orient="horizontal").pack(fill="x", pady=10)
-
-        # Damping slider
-        ttk.Label(frame, text="Damping:", font=("Arial", 10, "bold")).pack(fill="x", pady=(0, 5))
-        damping_row = ttk.Frame(frame)
-        damping_row.pack(fill="x", pady=2)
-
-        damping_var = tk.DoubleVar(value=self.config.damping)
-        self.slider_vars["damping"] = damping_var
-        slider = ttk.Scale(
-            damping_row,
-            from_=0.0,
-            to=1.0,
-            variable=damping_var,
-            orient="horizontal",
-            command=self._on_damping_change
-        )
-        slider.pack(side="left", fill="x", expand=True, padx=5)
-
-        damping_label = ttk.Label(damping_row, text=f"{damping_var.get():.2f}", width=8)
-        damping_label.pack(side="left")
-        self.slider_vars["damping_label"] = damping_label
-
-        ttk.Separator(frame, orient="horizontal").pack(fill="x", pady=10)
-
-        # Action buttons in one row, equal width.
-        button_row = ttk.Frame(frame)
-        button_row.pack(fill="x", pady=5)
-        for col in range(3):
-            button_row.columnconfigure(col, weight=1, uniform="props_btns")
-
-        ttk.Button(button_row, text="Reset", command=self._on_reset_defaults, width=10).grid(
-            row=0, column=0, sticky="ew", padx=2
-        )
-        ttk.Button(button_row, text="Save", command=self._on_save_config, width=10).grid(
-            row=0, column=1, sticky="ew", padx=2
-        )
-        ttk.Button(button_row, text="Load", command=self._on_load_config, width=10).grid(
-            row=0, column=2, sticky="ew", padx=2
-        )
-
-        return frame
-
-    def _create_control_frame(self, parent):
-        """Create joint control frame"""
-        frame = ttk.LabelFrame(parent, text="JOINT CONTROL", padding=10)
-
-        info_text = ttk.Label(
-            frame,
-            text="Use arrow keys or buttons to move joints\nUp/Down: change joint value\nLeft/Right: select joint",
-            justify="left",
-            font=("Arial", 9)
-        )
-        info_text.pack(fill="x", pady=(0, 10))
-
-        ttk.Separator(frame, orient="horizontal").pack(fill="x", pady=5)
-
-        # Joint controls
-        for i in range(self.config.dof):
-            joint_row = ttk.Frame(frame)
-            joint_row.pack(fill="x", pady=3)
-
-            ttk.Label(joint_row, text=f"J{i+1}:", font=("Arial", 10, "bold"), width=5).pack(side="left", padx=2)
-            ttk.Button(joint_row, text="-", width=3, command=lambda idx=i: self._increment_joint(idx, -0.05)).pack(side="left", padx=2)
-
-            angle_label = ttk.Label(joint_row, text=f"{self.controller.angles[i]:.2f}rad", width=12, font=("Courier", 10))
-            angle_label.pack(side="left", padx=5)
-            self.angle_labels[i] = angle_label
-
-            ttk.Button(joint_row, text="+", width=3, command=lambda idx=i: self._increment_joint(idx, +0.05)).pack(side="left", padx=2)
-
-        ttk.Separator(frame, orient="horizontal").pack(fill="x", pady=10)
-
-        # All action buttons in one row, equal width.
-        actions_row = ttk.Frame(frame)
-        actions_row.pack(fill="x", pady=5)
-        for col in range(6):
-            actions_row.columnconfigure(col, weight=1, uniform="joint_btns")
-
-        self.record_button = ttk.Button(actions_row, text="Record", command=self._on_record, width=9)
-        self.record_button.grid(row=0, column=0, sticky="ew", padx=1)
-        ttk.Button(actions_row, text="Clear", command=self._on_clear_recording, width=9).grid(
-            row=0, column=1, sticky="ew", padx=1
-        )
-        self.playback_button = ttk.Button(actions_row, text="Playback", command=self._on_playback, width=9)
-        self.playback_button.grid(row=0, column=2, sticky="ew", padx=1)
-        ttk.Button(actions_row, text="Save", command=self._on_save_motion, width=9).grid(
-            row=0, column=3, sticky="ew", padx=1
-        )
-        ttk.Button(actions_row, text="Load", command=self._on_load_motion, width=9).grid(
-            row=0, column=4, sticky="ew", padx=1
-        )
-        ttk.Button(actions_row, text="Reset", command=self._on_reset_arm, width=9).grid(
-            row=0, column=5, sticky="ew", padx=1
-        )
-
-        return frame
-
-    def _create_metrics_frame(self, parent):
-        """Create metrics display frame"""
-        frame = ttk.LabelFrame(parent, text="METRICS & STATUS", padding=10)
-
-        self.metrics_text = tk.Text(
-            frame,
-            height=20,
-            width=35,
-            font=("Courier", 9),
-            bg="black",
-            fg="white",
-            state="disabled"
-        )
-        self.metrics_text.pack(fill="both", expand=True)
-
-        return frame
+    # ======================================================= control column
 
     def _create_model_selection_frame(self, parent):
-        """Create arm-model selection frame."""
-        frame = ttk.LabelFrame(parent, text="ARM MODEL SELECTION", padding=5)
+        """Section 1: choose a trained model and run it."""
+        frame, body = self._card(parent, "Model", number=1)
 
-        control_row = ttk.Frame(frame)
-        control_row.pack(fill="x", pady=(0, 6))
-        ttk.Button(control_row, text="Load Model", command=self._on_select_model).pack(
-            side="left", padx=(0, 4), fill="x"
-        )
-        self.sim_toggle_button = ttk.Button(
-            control_row,
-            text="Run Simulation",
-            command=self._on_toggle_simulation,
-            state="disabled",
-        )
-        self.sim_toggle_button.pack(side="left", padx=(0, 4), fill="x")
+        # Quick pick of the trained packages in project_assets/outputs, plus Browse.
+        pick = tk.Frame(body, bg=CARD)
+        pick.pack(fill="x")
+        pick.columnconfigure(0, weight=1)
+        self._package_choices = self._discover_packages()
+        self._package_var = tk.StringVar(value="")
+        self._package_box = ttk.Combobox(pick, textvariable=self._package_var, state="readonly",
+                                         values=list(self._package_choices.keys()))
+        self._package_box.grid(row=0, column=0, sticky="ew")
+        self._package_box.bind("<<ComboboxSelected>>", lambda _e: self._on_pick_package())
+        ttk.Button(pick, text="Browse...", command=self._on_select_model).grid(row=0, column=1, padx=(6, 0))
 
-        self.sim_model_label = ttk.Label(
-            control_row,
-            text="Model: not selected",
-            font=("Courier", 8),
-            anchor="w",
-        )
-        self.sim_model_label.pack(side="left", fill="x", expand=True, padx=(6, 0))
+        self.sim_model_label = tk.Label(body, text="Model: not selected", bg=CARD, fg=INK, font=self.f_bold,
+                                        anchor="w", justify="left", wraplength=330)
+        self._autowrap(self.sim_model_label).pack(fill="x", pady=(8, 0))
+        self._model_kind_label = tk.Label(body, text="Pick a trained model above, or Browse for a .zip.",
+                                          bg=CARD, fg=MUTED, font=self.f_small, anchor="w", justify="left",
+                                          wraplength=330)
+        self._autowrap(self._model_kind_label).pack(fill="x")
 
-        # Simulation speed control
-        speed_row = ttk.Frame(frame)
-        speed_row.pack(fill="x", pady=(2, 4))
-        ttk.Label(speed_row, text="Sim Speed:", font=("Courier", 8)).pack(side="left", padx=(0, 4))
+        run_row = tk.Frame(body, bg=CARD)
+        run_row.pack(fill="x", pady=(10, 4))
+        run_row.columnconfigure(0, weight=1, uniform="run")
+        run_row.columnconfigure(1, weight=1, uniform="run")
+        self.sim_toggle_button = ttk.Button(run_row, text="▶  Run simulation", style="Accent.TButton",
+                                            command=self._on_toggle_simulation, state="disabled")
+        self.sim_toggle_button.grid(row=0, column=0, columnspan=2, sticky="ew")
+        self._pause_button = ttk.Button(run_row, text="Pause", command=self._on_pause, state="disabled")
+        self._pause_button.grid(row=1, column=0, sticky="ew", pady=(6, 0))
+        self._next_button = ttk.Button(run_row, text="New episode", command=self._on_next_episode,
+                                       state="disabled")
+        self._next_button.grid(row=1, column=1, sticky="ew", padx=(6, 0), pady=(6, 0))
+
+        # Simulation speed: slider 1..20, 5 = real time.
+        speed_row = tk.Frame(body, bg=CARD)
+        speed_row.pack(fill="x", pady=(6, 2))
+        speed_row.columnconfigure(1, weight=1)
+        tk.Label(speed_row, text="Speed", bg=CARD, fg=INK, font=self.f_body, width=8, anchor="w").grid(
+            row=0, column=0, sticky="w")
         self._sim_speed_var = tk.IntVar(value=5)
-        speed_slider = ttk.Scale(
-            speed_row, from_=1, to=20, orient="horizontal",
-            variable=self._sim_speed_var, length=160,
-        )
-        speed_slider.pack(side="left")
-        self._sim_speed_label = ttk.Label(speed_row, text="1.0x", font=("Courier", 8), width=6)
-        self._sim_speed_label.pack(side="left", padx=(4, 0))
+        self._sim_speed_label = tk.Label(speed_row, text="1.0x real time", bg=CARD, fg=MUTED,
+                                         font=self.f_small, width=13, anchor="e")
 
-        def _on_speed_change(event=None):
-            steps = int(self._sim_speed_var.get())
-            self.sim_speed_multiplier = steps / 5.0  # slider 5 = real time
-            self._sim_speed_label.config(text=f"{self.sim_speed_multiplier:.1f}x")
+        def _on_speed_change(_value=None):
+            steps = int(round(float(self._sim_speed_var.get())))
+            self.sim_speed_multiplier = max(1, steps) / 5.0  # slider 5 = real time
+            self._sim_speed_label.config(text=f"{self.sim_speed_multiplier:.1f}x real time")
 
-        speed_slider.bind("<Motion>", _on_speed_change)
-        speed_slider.bind("<ButtonRelease-1>", _on_speed_change)
+        ttk.Scale(speed_row, from_=1, to=20, orient="horizontal", variable=self._sim_speed_var,
+                  command=_on_speed_change).grid(row=0, column=1, sticky="ew", padx=6)
+        self._sim_speed_var.trace_add("write", lambda *_: _on_speed_change())
+        self._sim_speed_label.grid(row=0, column=2, sticky="e")
 
-        # Action smoothing control
-        smooth_row = ttk.Frame(frame)
-        smooth_row.pack(fill="x", pady=(2, 4))
+        opts = tk.Frame(body, bg=CARD)
+        opts.pack(fill="x", pady=(4, 0))
+        self._loop_var = tk.BooleanVar(value=self.sim_loop)
+        ttk.Checkbutton(opts, text="Loop episodes", variable=self._loop_var,
+                        command=lambda: setattr(self, "sim_loop", bool(self._loop_var.get()))).pack(
+            side="left")
         self._smooth_var = tk.BooleanVar(value=self.action_smoothing)
-        smooth_check = ttk.Checkbutton(
-            smooth_row, text="Smooth motion",
-            variable=self._smooth_var,
-            command=self._on_smooth_toggle,
-        )
-        smooth_check.pack(side="left", padx=(0, 8))
-        ttk.Label(smooth_row, text="α:", font=("Courier", 8)).pack(side="left")
-        self._smooth_alpha_var = tk.DoubleVar(value=self.action_smooth_alpha)
-        alpha_slider = ttk.Scale(
-            smooth_row, from_=0.1, to=0.9, orient="horizontal",
-            variable=self._smooth_alpha_var, length=100,
-        )
-        alpha_slider.pack(side="left")
-        self._smooth_alpha_label = ttk.Label(smooth_row, text="0.3", font=("Courier", 8), width=4)
-        self._smooth_alpha_label.pack(side="left", padx=(4, 0))
+        ttk.Checkbutton(opts, text="Smooth motion", variable=self._smooth_var,
+                        command=self._on_smooth_toggle).pack(side="left", padx=(14, 0))
 
-        def _on_alpha_change(event=None):
-            val = round(self._smooth_alpha_var.get(), 2)
+        alpha_row = tk.Frame(body, bg=CARD)
+        alpha_row.pack(fill="x", pady=(2, 0))
+        alpha_row.columnconfigure(1, weight=1)
+        tk.Label(alpha_row, text="Smoothing α", bg=CARD, fg=MUTED, font=self.f_small, width=11,
+                 anchor="w").grid(row=0, column=0, sticky="w")
+        self._smooth_alpha_var = tk.DoubleVar(value=self.action_smooth_alpha)
+        self._smooth_alpha_label = tk.Label(alpha_row, text=f"{self.action_smooth_alpha:.2f}", bg=CARD,
+                                            fg=MUTED, font=self.f_small, width=5, anchor="e")
+
+        def _on_alpha_change(_value=None):
+            val = round(float(self._smooth_alpha_var.get()), 2)
             self.action_smooth_alpha = val
             self._smooth_alpha_label.config(text=f"{val:.2f}")
 
-        alpha_slider.bind("<Motion>", _on_alpha_change)
-        alpha_slider.bind("<ButtonRelease-1>", _on_alpha_change)
+        ttk.Scale(alpha_row, from_=0.1, to=0.9, orient="horizontal", variable=self._smooth_alpha_var,
+                  command=_on_alpha_change).grid(row=0, column=1, sticky="ew", padx=6)
+        self._smooth_alpha_var.trace_add("write", lambda *_: _on_alpha_change())
+        self._smooth_alpha_label.grid(row=0, column=2, sticky="e")
+        return frame
 
-        # Waypoint demo controls
-        wp_row = ttk.Frame(frame)
-        wp_row.pack(fill="x", pady=(2, 4))
-        ttk.Label(wp_row, text="Waypoints:", font=("Courier", 8)).pack(side="left", padx=(0, 4))
+    def _create_targets_frame(self, parent):
+        """Section 2: which points the arm is asked to reach."""
+        frame, body = self._card(parent, "Target points", number=2)
+
         self._wp_choice_var = tk.StringVar(value=self.sim_waypoint_choice)
-        wp_box = ttk.Combobox(
-            wp_row, textvariable=self._wp_choice_var, state="readonly", width=13,
-            values=["from package", "1 waypoint", "2 waypoints", "3 waypoints", "spread", "custom"],
-        )
-        wp_box.pack(side="left")
-        wp_box.bind("<<ComboboxSelected>>", lambda e: setattr(self, "sim_waypoint_choice", self._wp_choice_var.get()))
-        self._wp_custom_var = tk.StringVar(value="")
-        custom_entry = ttk.Entry(wp_row, textvariable=self._wp_custom_var, width=22, font=("Courier", 8))
-        custom_entry.pack(side="left", padx=(4, 0))
-        custom_entry.bind("<KeyRelease>", lambda e: setattr(self, "sim_custom_waypoints", self._wp_custom_var.get()))
-        self._loop_var = tk.BooleanVar(value=self.sim_loop)
-        ttk.Checkbutton(wp_row, text="Loop", variable=self._loop_var,
-                        command=lambda: setattr(self, "sim_loop", bool(self._loop_var.get()))).pack(side="left", padx=(6, 0))
+        grid = tk.Frame(body, bg=CARD)
+        grid.pack(fill="x")
+        for i, (value, label) in enumerate(WAYPOINT_CHOICES):
+            ttk.Radiobutton(grid, text=label, value=value, variable=self._wp_choice_var,
+                            command=self._on_waypoint_choice).grid(row=i // 2, column=i % 2, sticky="w",
+                                                                   padx=(0, 12), pady=1)
 
-        place_row = ttk.Frame(frame)
-        place_row.pack(fill="x", pady=(2, 4))
+        tk.Label(body, text="My own points  (x, y in metres; one pair per point)", bg=CARD, fg=MUTED,
+                 font=self.f_small, anchor="w").pack(fill="x", pady=(8, 0))
+        self._wp_custom_var = tk.StringVar(value=self.sim_custom_waypoints)
+        custom_entry = ttk.Entry(body, textvariable=self._wp_custom_var, font=self.f_mono)
+        custom_entry.pack(fill="x")
+        custom_entry.bind("<KeyRelease>", lambda e: self._on_custom_typed())
+        custom_entry.bind("<Return>", lambda e: self._on_custom_committed())
+        custom_entry.bind("<FocusOut>", lambda e: self._on_custom_committed())
+
         self._place_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(place_row, text="Place waypoints by clicking the arm panel (green = feasible area)",
-                        variable=self._place_var, command=self._on_place_toggle).pack(side="left")
-        ttk.Button(place_row, text="Clear points", command=self._on_clear_points).pack(side="left", padx=(8, 0))
-        ttk.Button(place_row, text="Restart with points", command=self._on_restart_with_points).pack(side="left", padx=(4, 0))
+        self._place_button = ttk.Button(body, text="✚  Click the arm view to add points: OFF",
+                                        style="Toggle.TButton", command=self._on_place_button)
+        self._place_button.pack(fill="x", pady=(8, 4))
 
-        hold_row = ttk.Frame(frame)
-        hold_row.pack(fill="x", pady=(2, 4))
-        ttk.Label(hold_row, text="Hold:", font=("Courier", 8)).pack(side="left", padx=(0, 4))
-        self.sim_hold_bar = ttk.Progressbar(hold_row, orient="horizontal", length=160, mode="determinate", maximum=100)
-        self.sim_hold_bar.pack(side="left")
-        self.sim_progress_label = ttk.Label(hold_row, text="reached 0/0  |  episodes 0/0", font=("Courier", 8))
-        self.sim_progress_label.pack(side="left", padx=(8, 0))
+        edit_row = tk.Frame(body, bg=CARD)
+        edit_row.pack(fill="x")
+        edit_row.columnconfigure(0, weight=1)
+        edit_row.columnconfigure(1, weight=1)
+        ttk.Button(edit_row, text="Remove last point", command=self._on_remove_last_point).grid(
+            row=0, column=0, sticky="ew")
+        ttk.Button(edit_row, text="Clear all points", command=self._on_clear_points).grid(
+            row=0, column=1, sticky="ew", padx=(6, 0))
+        ttk.Button(body, text="▶  Run with these points", style="Accent.TButton",
+                   command=self._on_restart_with_points).pack(fill="x", pady=(6, 0))
 
-        details_frame = ttk.LabelFrame(frame, text="Model Details", padding=4)
-        details_frame.pack(fill="x", pady=(0, 6))
-        self.sim_model_details_text = tk.Text(
-            details_frame,
-            height=3,
-            font=("Courier", 8),
-            wrap="word",
-            state="disabled",
-        )
-        self.sim_model_details_text.pack(fill="x", expand=False)
-        self._set_model_details_text(
-            "Name: -\nAlgorithm: -\nPolicy: -\nPath: -\nStatus: Select a trained model to view details"
-        )
-
+        self._points_hint = tk.Label(body, text="", bg=CARD, fg=MUTED, font=self.f_small, anchor="w",
+                                     justify="left", wraplength=330)
+        self._autowrap(self._points_hint).pack(fill="x", pady=(6, 0))
+        self._refresh_points_hint()
         return frame
 
-    def _create_torque_frame(self, parent):
-        """Create left-side torque plotting frame."""
-        frame = ttk.LabelFrame(parent, text="TORQUE vs TIME", padding=5)
+    def _create_control_frame(self, parent):
+        """Section 3: move the joints by hand, record and play back."""
+        frame, body = self._card(parent, "Manual joint control", number=3,
+                                 note="Arrow keys: Up/Down move the selected joint, Left/Right select a joint, "
+                                      "T shows the hand's path. Buttons do the same.")
+        names = ["Shoulder", "Elbow", "Wrist"]
+        for i in range(self.config.dof):
+            row = tk.Frame(body, bg=CARD)
+            row.pack(fill="x", pady=2)
+            name = names[i] if i < len(names) else f"Joint {i + 1}"
+            tk.Label(row, text=f"J{i + 1}  {name}", bg=CARD, fg=INK, font=self.f_bold, width=12,
+                     anchor="w").pack(side="left")
+            ttk.Button(row, text="−", width=3, command=lambda idx=i: self._increment_joint(idx, -0.05)).pack(
+                side="left")
+            angle_label = tk.Label(row, text="", bg=CARD, fg=INK, font=self.f_mono, width=18)
+            angle_label.pack(side="left", padx=4)
+            self.angle_labels[i] = angle_label
+            ttk.Button(row, text="+", width=3, command=lambda idx=i: self._increment_joint(idx, +0.05)).pack(
+                side="left")
+        self._refresh_joint_labels()
 
-        self.torque_fig = Figure(figsize=(5.6, 2.8), dpi=100)
-        self.torque_ax = self.torque_fig.add_subplot(111)
-        # Reserve margin so axis labels remain readable in compact layouts.
-        self.torque_fig.subplots_adjust(left=0.16, right=0.97, bottom=0.22, top=0.88)
-        self.torque_ax.set_title("Shoulder/Elbow Torque")
-        self.torque_ax.set_xlabel("Time (s)")
-        self.torque_ax.set_ylabel("Torque (Nm)")
-        self.torque_ax.grid(True, alpha=0.3)
+        buttons = tk.Frame(body, bg=CARD)
+        buttons.pack(fill="x", pady=(8, 0))
+        for col in range(3):
+            buttons.columnconfigure(col, weight=1, uniform="joint_btns")
+        self.record_button = ttk.Button(buttons, text="Record", command=self._on_record)
+        self.record_button.grid(row=0, column=0, sticky="ew", padx=1, pady=1)
+        ttk.Button(buttons, text="Clear", command=self._on_clear_recording).grid(
+            row=0, column=1, sticky="ew", padx=1, pady=1)
+        self.playback_button = ttk.Button(buttons, text="Playback", command=self._on_playback)
+        self.playback_button.grid(row=0, column=2, sticky="ew", padx=1, pady=1)
+        ttk.Button(buttons, text="Save motion", command=self._on_save_motion).grid(
+            row=1, column=0, sticky="ew", padx=1, pady=1)
+        ttk.Button(buttons, text="Load motion", command=self._on_load_motion).grid(
+            row=1, column=1, sticky="ew", padx=1, pady=1)
+        ttk.Button(buttons, text="Reset arm", command=self._on_reset_arm).grid(
+            row=1, column=2, sticky="ew", padx=1, pady=1)
 
-        self.torque_canvas = FigureCanvasTkAgg(self.torque_fig, master=frame)
-        self.torque_canvas.draw()
-        self.torque_canvas.get_tk_widget().pack(fill="both", expand=True)
-
+        self._trail_var = tk.BooleanVar(value=self.show_trajectory)
+        ttk.Checkbutton(body, text="Show the hand's path (T)", variable=self._trail_var,
+                        command=self._on_trail_toggle).pack(anchor="w", pady=(8, 0))
         return frame
 
-    def _create_velocity_acceleration_frame(self, parent):
-        """Create right-side velocity/acceleration plotting frame."""
-        frame = ttk.LabelFrame(parent, text="VELOCITY & ACCELERATION PLOT", padding=5)
+    def _create_properties_frame(self, parent):
+        """Section 4: the arm's dimensions (manual mode)."""
+        frame, body = self._card(parent, "Arm properties", number=4,
+                                 note="These apply to manual control. A trained model always runs on the arm it "
+                                      "was trained on, and the sliders switch to that arm when it starts.")
+        names = ["Upper arm", "Forearm + hand", "Hand"]
+        tk.Label(body, text="Link lengths (m)", bg=CARD, fg=INK, font=self.f_bold, anchor="w").pack(fill="x")
+        for i in range(self.config.dof):
+            self._slider_row(body, f"link_len_{i}", names[i] if i < len(names) else f"Link {i + 1}", 0.1, 2.0,
+                             self.config.link_lengths[i],
+                             lambda val, idx=i: self._on_link_length_change(idx, val),
+                             lambda idx=i: self._on_link_length_entry(idx))
+        tk.Label(body, text="Segment masses (kg)", bg=CARD, fg=INK, font=self.f_bold, anchor="w").pack(
+            fill="x", pady=(8, 0))
+        for i in range(min(3, self.config.dof)):
+            self._slider_row(body, f"mass_{i}", names[i] if i < len(names) else f"Mass {i + 1}", 0.1, 10.0,
+                             self.config.masses[i],
+                             lambda val, idx=i: self._on_mass_change(idx, val),
+                             lambda idx=i: self._on_mass_entry(idx))
+        tk.Label(body, text="Joint damping (N·m·s/rad)", bg=CARD, fg=INK, font=self.f_bold, anchor="w").pack(
+            fill="x", pady=(8, 0))
+        self._slider_row(body, "damping", "Damping", 0.0, 1.0, self.config.damping, self._on_damping_change)
 
-        self.velacc_fig = Figure(figsize=(4.2, 3.0), dpi=100)
-        self.velacc_ax_vel = self.velacc_fig.add_subplot(211)
-        self.velacc_ax_acc = self.velacc_fig.add_subplot(212, sharex=self.velacc_ax_vel)
-        self.velacc_fig.subplots_adjust(left=0.16, right=0.97, bottom=0.14, top=0.92, hspace=0.38)
-
-        self.velacc_ax_vel.set_title("End-Effector Velocity")
-        self.velacc_ax_vel.set_ylabel("m/s")
-        self.velacc_ax_vel.grid(True, alpha=0.3)
-
-        self.velacc_ax_acc.set_title("End-Effector Acceleration")
-        self.velacc_ax_acc.set_xlabel("Time (s)")
-        self.velacc_ax_acc.set_ylabel("m/s^2")
-        self.velacc_ax_acc.grid(True, alpha=0.3)
-
-        self.velacc_canvas = FigureCanvasTkAgg(self.velacc_fig, master=frame)
-        self.velacc_canvas.draw()
-        self.velacc_canvas.get_tk_widget().pack(fill="both", expand=True)
-
+        buttons = tk.Frame(body, bg=CARD)
+        buttons.pack(fill="x", pady=(8, 0))
+        for col in range(3):
+            buttons.columnconfigure(col, weight=1, uniform="props_btns")
+        ttk.Button(buttons, text="Reset", command=self._on_reset_defaults).grid(row=0, column=0, sticky="ew",
+                                                                               padx=1)
+        ttk.Button(buttons, text="Save", command=self._on_save_config).grid(row=0, column=1, sticky="ew", padx=1)
+        ttk.Button(buttons, text="Load", command=self._on_load_config).grid(row=0, column=2, sticky="ew", padx=1)
         return frame
+
+    # ============================================================ centre
 
     def _create_visualization_frame(self, parent):
-        """Create matplotlib visualization frame"""
-        frame = ttk.LabelFrame(parent, text="ARM VISUALIZATION", padding=5)
+        """The arm view, with the run's progress strip under it."""
+        frame = tk.Frame(parent, bg=CARD, highlightbackground=BORDER, highlightthickness=1)
 
-        # Create matplotlib figure
-        self.fig = Figure(figsize=(7, 7), dpi=100)
+        self.fig = Figure(figsize=(7, 6), dpi=100, facecolor=CARD)
         self.ax = self.fig.add_subplot(111)
         self.ax.set_aspect("equal", adjustable="box")
+        self.fig.subplots_adjust(left=0.08, right=0.98, bottom=0.08, top=0.93)
+        strip = tk.Frame(frame, bg=CARD)
+        strip.pack(fill="x", side="bottom", padx=12, pady=(4, 10))
 
-        # Embed in Tkinter
         self.canvas_agg = FigureCanvasTkAgg(self.fig, master=frame)
         self.canvas_agg.mpl_connect("button_press_event", self._on_canvas_click)
+        self.canvas_agg.mpl_connect("draw_event", self._on_arm_draw)
+        self.canvas_agg.mpl_connect("resize_event", self._on_arm_resize)
+        self._build_arm_scene()
         self.canvas_agg.draw()
-        self.canvas_agg.get_tk_widget().pack(fill="both", expand=True)
+        self.canvas_agg.get_tk_widget().pack(fill="both", expand=True, padx=2, pady=(2, 0))
 
+        # Row 1: target, state, progress. Row 2: the hold bar across the full width.
+        strip.columnconfigure(2, weight=1)          # spacer: the only column that gives way
+        self._target_label = tk.Label(strip, text="No simulation running", bg=CARD, fg=INK, font=self.f_big,
+                                      anchor="w")
+        self._target_label.grid(row=0, column=0, sticky="w")
+        self._state_badge = tk.Label(strip, text="IDLE", bg=TRACK, fg=MUTED, font=self.f_bold, padx=10, pady=2)
+        self._state_badge.grid(row=0, column=1, sticky="w", padx=(10, 12))
+        self.sim_progress_label = tk.Label(strip, text="", bg=CARD, fg=MUTED, font=self.f_body, anchor="e")
+        self.sim_progress_label.grid(row=0, column=3, sticky="e")
+        hold_row = tk.Frame(strip, bg=CARD)
+        hold_row.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(6, 0))
+        hold_row.columnconfigure(1, weight=1)
+        tk.Label(hold_row, text="Hold", bg=CARD, fg=MUTED, font=self.f_small, width=5, anchor="w").grid(
+            row=0, column=0, sticky="w")
+        self.sim_hold_bar = ttk.Progressbar(hold_row, orient="horizontal", length=80, mode="determinate",
+                                            maximum=100, style="Hold.Horizontal.TProgressbar")
+        self.sim_hold_bar.grid(row=0, column=1, sticky="ew", padx=(0, 8))
+        self._hold_pct_label = tk.Label(hold_row, text="0%", bg=CARD, fg=INK, font=self.f_bold, width=5,
+                                        anchor="e")
+        self._hold_pct_label.grid(row=0, column=2, sticky="e")
         return frame
+
+    def _create_plots_frame(self, parent):
+        """Muscle torque, hand velocity and hand acceleration against time."""
+        frame = tk.Frame(parent, bg=CARD, highlightbackground=BORDER, highlightthickness=1)
+        fig = Figure(figsize=(9, 2.4), dpi=100, facecolor=CARD)
+        self.torque_ax, self.velacc_ax_vel, self.velacc_ax_acc = fig.subplots(1, 3)
+        fig.subplots_adjust(left=0.06, right=0.99, bottom=0.2, top=0.86, wspace=0.28)
+        self.torque_fig = self.velacc_fig = fig
+
+        ax = self.torque_ax
+        ax.set_title("Muscle torque (N·m)", fontsize=9, loc="left")
+        self._ln_tau = [ax.plot([], [], color=SHOULDER_C, lw=1.4, label="shoulder")[0],
+                        ax.plot([], [], color=ELBOW_C, lw=1.4, label="elbow")[0]]
+        self._ln_grav = [ax.plot([], [], color=SHOULDER_C, lw=0.9, ls="--", alpha=0.8)[0],
+                         ax.plot([], [], color=ELBOW_C, lw=0.9, ls="--", alpha=0.8)[0]]
+        ax.legend(handles=self._ln_tau + [Line2D([], [], color=MUTED, lw=0.9, ls="--",
+                                                 label="gravity load")], fontsize=7, loc="upper right")
+
+        ax = self.velacc_ax_vel
+        ax.set_title("Hand velocity (m/s)", fontsize=9, loc="left")
+        self._ln_vel = [ax.plot([], [], color=SHOULDER_C, lw=1.1, label="Vx")[0],
+                        ax.plot([], [], color=ELBOW_C, lw=1.1, label="Vy")[0],
+                        ax.plot([], [], color=INK, lw=1.4, label="speed")[0]]
+        ax.legend(fontsize=7, loc="upper right")
+
+        ax = self.velacc_ax_acc
+        ax.set_title("Hand acceleration (m/s²)", fontsize=9, loc="left")
+        self._ln_acc = [ax.plot([], [], color=SHOULDER_C, lw=1.1, label="Ax")[0],
+                        ax.plot([], [], color=ELBOW_C, lw=1.1, label="Ay")[0]]
+        ax.legend(fontsize=7, loc="upper right")
+
+        self._plot_empty_text = []
+        for ax in (self.torque_ax, self.velacc_ax_vel, self.velacc_ax_acc):
+            ax.set_xlabel("time (s)", fontsize=8)
+            ax.tick_params(labelsize=7)
+            ax.grid(True, alpha=0.3)
+            for side in ("top", "right"):
+                ax.spines[side].set_visible(False)
+            self._plot_empty_text.append(ax.text(0.5, 0.5, "Simulation not running", ha="center", va="center",
+                                                 transform=ax.transAxes, fontsize=8, color=MUTED))
+
+        self.torque_canvas = self.velacc_canvas = FigureCanvasTkAgg(fig, master=frame)
+        self.torque_canvas.draw()
+        self.torque_canvas.get_tk_widget().pack(fill="both", expand=True, padx=2, pady=2)
+        return frame
+
+    # ============================================================ readouts
+
+    def _create_status_frame(self, parent):
+        frame, body = self._card(parent, "Live status")
+        tiles = [("state", "State"), ("episode", "Episode"),
+                 ("time", "Episode time"), ("target", "Target"),
+                 ("reached", "Targets reached"), ("hold", "Hold progress"),
+                 ("distance", "Distance to target"), ("speed", "Hand speed"),
+                 ("reward", "Episode reward"), ("holds", "Holds completed")]
+        body.columnconfigure(0, weight=1, uniform="tiles")
+        body.columnconfigure(1, weight=1, uniform="tiles")
+        for i, (key, caption) in enumerate(tiles):
+            cell = tk.Frame(body, bg=CARD)
+            cell.grid(row=i // 2, column=i % 2, sticky="nsew", pady=3)
+            tk.Label(cell, text=caption, bg=CARD, fg=MUTED, font=self.f_small, anchor="w").pack(fill="x")
+            value = tk.Label(cell, text="–", bg=CARD, fg=INK, font=self.f_value, anchor="w")
+            value.pack(fill="x")
+            self._tiles[key] = value
+        return frame
+
+    def _create_muscles_frame(self, parent):
+        frame, body = self._card(parent, "Muscle activation")
+        body.columnconfigure(1, weight=1)
+        self._muscle_rows = []
+        for j, (name, detail, colour) in enumerate(MUSCLE_NAMES):
+            label = tk.Label(body, text=name, bg=CARD, fg=INK, font=self.f_body, anchor="w", width=17)
+            label.grid(row=j, column=0, sticky="w", pady=2)
+            canvas = tk.Canvas(body, height=14, bg=TRACK, highlightthickness=0, borderwidth=0)
+            canvas.grid(row=j, column=1, sticky="ew", pady=2)
+            rect = canvas.create_rectangle(0, 0, 0, 14, fill=colour, width=0)
+            pct = tk.Label(body, text="0%", bg=CARD, fg=MUTED, font=self.f_small, width=5, anchor="e")
+            pct.grid(row=j, column=2, sticky="e")
+            self._muscle_rows.append((canvas, rect, pct))
+        self._muscle_note = tk.Label(body, text="Squeezing opposing muscles together stiffens a joint; the arm "
+                                                "does this to hold still.", bg=CARD, fg=MUTED, font=self.f_small,
+                                     anchor="w", justify="left", wraplength=380)
+        self._autowrap(self._muscle_note).grid(row=len(MUSCLE_NAMES), column=0, columnspan=3, sticky="ew",
+                                               pady=(4, 0))
+        return frame
+
+    def _create_metrics_frame(self, parent):
+        """Every reading, as text."""
+        frame, body = self._card(parent, "All readings")
+        self.metrics_text = tk.Text(body, height=7, font=self.f_mono, bg="#f7f8fa", fg=INK, relief="flat",
+                                    wrap="none", state="disabled", highlightthickness=0, padx=6, pady=4)
+        bar = ttk.Scrollbar(body, orient="vertical", command=self.metrics_text.yview)
+        self.metrics_text.configure(yscrollcommand=bar.set)
+        bar.pack(side="right", fill="y")
+        self.metrics_text.pack(side="left", fill="both", expand=True)
+        return frame
+
+    def _create_details_frame(self, parent):
+        frame, body = self._card(parent, "Model details")
+        self.sim_model_details_text = tk.Text(body, height=6, font=self.f_mono, bg="#f7f8fa", fg=INK,
+                                              relief="flat", wrap="word", state="disabled",
+                                              highlightthickness=0, padx=6, pady=4)
+        bar = ttk.Scrollbar(body, orient="vertical", command=self.sim_model_details_text.yview)
+        self.sim_model_details_text.configure(yscrollcommand=bar.set)
+        bar.pack(side="right", fill="y")
+        self.sim_model_details_text.pack(side="left", fill="both", expand=True)
+        self._set_model_details_text(
+            "Name: -\nAlgorithm: -\nPolicy: -\nPath: -\nStatus: Select a trained model to view details")
+        return frame
+
+    # ============================================================== window
 
     def _sync_ui_to_config(self):
         """Synchronize UI sliders to current config after config change"""
-        # Update all link length sliders
         for i, val in enumerate(self.config.link_lengths):
+            if f"link_len_{i}" not in self.slider_vars:
+                continue
             self.slider_vars[f"link_len_{i}"].set(val)
             self.slider_vars[f"link_len_{i}_label"].config(text=f"{val:.2f}")
             self.slider_vars[f"link_len_{i}_entry"].set(f"{val:.2f}")
-
-        # Update all mass sliders (only first 3 are shown in GUI)
         for i in range(min(3, self.config.dof)):
+            if f"mass_{i}" not in self.slider_vars:
+                continue
             self.slider_vars[f"mass_{i}"].set(self.config.masses[i])
             self.slider_vars[f"mass_{i}_label"].config(text=f"{self.config.masses[i]:.2f}")
             self.slider_vars[f"mass_{i}_entry"].set(f"{self.config.masses[i]:.2f}")
-
-        # Update damping slider
-        self.slider_vars["damping"].set(self.config.damping)
-        self.slider_vars["damping_label"].config(text=f"{self.config.damping:.2f}")
+        if "damping" in self.slider_vars:
+            self.slider_vars["damping"].set(self.config.damping)
+            self.slider_vars["damping_label"].config(text=f"{self.config.damping:.2f}")
 
     def _compute_positions(self):
         """Recompute arm positions after config change"""
-        # When config changes (link lengths, etc.), recompute positions with current angles
         self.controller.positions = ArmKinematics.forward_kinematics(
             self.controller.angles, self.config
         )
@@ -742,123 +846,103 @@ class ArmControllerGUI:
 
     def create_window(self):
         """Create the main GUI window layout"""
-        # Create main container
-        main_frame = ttk.Frame(self.root)
-        main_frame.pack(fill="both", expand=True, padx=5, pady=5)
+        self._setup_style()
 
-        # Title
-        title_label = ttk.Label(main_frame, text="RL Arm Motion - Interactive Controller", font=("Arial", 16, "bold"))
-        title_label.pack(fill="x", pady=(0, 10))
+        # Header: title, what the window is doing, Exit.
+        header = tk.Frame(self.root, bg=CARD, highlightbackground=BORDER, highlightthickness=1)
+        header.pack(fill="x", side="top")
+        titles = tk.Frame(header, bg=CARD)
+        titles.pack(side="left", padx=16, pady=8)
+        tk.Label(titles, text="Human Arm - Reinforcement Learning Controller", bg=CARD, fg=INK,
+                 font=self.f_title).pack(anchor="w")
+        tk.Label(titles, text="Two-joint, muscle-driven right arm trained with Soft Actor-Critic",
+                 bg=CARD, fg=MUTED, font=self.f_small).pack(anchor="w")
+        ttk.Button(header, text="Exit", command=self.on_closing).pack(side="right", padx=16)
+        self._mode_pill = tk.Label(header, text="IDLE", bg=TRACK, fg=MUTED, font=self.f_bold, padx=12, pady=4)
+        self._mode_pill.pack(side="right", padx=(0, 10))
 
-        ttk.Separator(main_frame, orient="horizontal").pack(fill="x", pady=5)
+        # Status line along the bottom.
+        status = tk.Frame(self.root, bg=CARD, highlightbackground=BORDER, highlightthickness=1)
+        status.pack(fill="x", side="bottom")
+        self._status_label = tk.Label(status, text="Ready. Pick a model in section 1 and press Run simulation.",
+                                      bg=CARD, fg=INK, font=self.f_small, anchor="w")
+        self._status_label.pack(side="left", fill="x", expand=True, padx=12, pady=4)
+        self._fps_label = tk.Label(status, text="", bg=CARD, fg=MUTED, font=self.f_small)
+        self._fps_label.pack(side="right", padx=12)
 
-        # Content panes (left, center, right) - user resizable
-        content_pane = ttk.Panedwindow(main_frame, orient="horizontal")
-        content_pane.pack(fill="both", expand=True)
+        # Three resizable columns.
+        body = tk.PanedWindow(self.root, orient="horizontal", bg=BG, sashwidth=8, borderwidth=0,
+                              sashrelief="flat")
+        body.pack(fill="both", expand=True, padx=8, pady=8)
 
-        # Left pane: arm model properties + torque
-        left_frame = ttk.Frame(content_pane)
-        # Center pane: joint control + model selection + arm visualization
-        center_frame = ttk.Frame(content_pane)
-        # Right pane: metrics + velocity/acceleration plots
-        right_frame = ttk.Frame(content_pane)
-        left_frame.configure(width=400)
-        center_frame.configure(width=400)
-        right_frame.configure(width=400)
-        content_pane.add(left_frame, weight=1)
-        content_pane.add(center_frame, weight=1)
-        content_pane.add(right_frame, weight=1)
+        # Left: controls, scrollable so nothing is ever cut off.
+        left_outer, self._left_inner = self._scroll_column(body)
+        for build in (self._create_model_selection_frame, self._create_targets_frame,
+                      self._create_control_frame, self._create_properties_frame):
+            build(self._left_inner).pack(fill="x", pady=(0, 8), padx=(0, 4))
 
-        # Left pane internal layout: equal-height properties + torque
-        left_pane = ttk.Panedwindow(left_frame, orient="vertical")
-        left_pane.pack(fill="both", expand=True)
-        properties_host = ttk.Frame(left_pane)
-        torque_host = ttk.Frame(left_pane)
-        left_pane.add(properties_host, weight=1)
-        left_pane.add(torque_host, weight=1)
+        # Centre: arm view over the live plots.
+        centre = tk.PanedWindow(body, orient="vertical", bg=BG, sashwidth=8, borderwidth=0, sashrelief="flat")
+        centre.add(self._create_visualization_frame(centre), stretch="always", minsize=360)
+        centre.add(self._create_plots_frame(centre), stretch="never", minsize=170, height=250)
 
-        # Middle pane internal layout:
-        # top: joint control (0.3), middle: model selection (0.2), bottom: visualization (0.5)
-        middle_pane = ttk.Panedwindow(center_frame, orient="vertical")
-        middle_pane.pack(fill="both", expand=True)
-        controls_host = ttk.Frame(middle_pane)
-        model_select_host = ttk.Frame(middle_pane)
-        viz_host = ttk.Frame(middle_pane)
-        middle_pane.add(controls_host, weight=30)
-        middle_pane.add(model_select_host, weight=20)
-        middle_pane.add(viz_host, weight=50)
+        # Right: readouts; also scrollable, with "All readings" taking any spare height.
+        right_outer, right = self._scroll_column(body, fill_height=True)
+        self._create_status_frame(right).pack(fill="x", pady=(0, 8), padx=(0, 4))
+        self._create_muscles_frame(right).pack(fill="x", pady=(0, 8), padx=(0, 4))
+        self._create_details_frame(right).pack(fill="x", side="bottom", padx=(0, 4))
+        self._create_metrics_frame(right).pack(fill="both", expand=True, pady=(0, 8), padx=(0, 4))
 
-        # Left-top: fixed arm model properties (non-scrollable)
-        properties_frame = self._create_properties_frame(properties_host)
-        properties_frame.pack(fill="both", expand=True)
+        body.add(left_outer, stretch="never", minsize=330, width=400)
+        body.add(centre, stretch="always", minsize=520)
+        body.add(right_outer, stretch="never", minsize=340, width=440)
 
-        # Left-side torque plot
-        torque_frame = self._create_torque_frame(torque_host)
-        torque_frame.pack(fill="both", expand=True)
+        self.root.bind_all("<MouseWheel>", self._on_mousewheel, add="+")
+        self._update_plots()
 
-        # Middle-top: joint control
-        control_frame = self._create_control_frame(controls_host)
-        control_frame.pack(fill="both", expand=True)
+    def _scroll_column(self, parent, fill_height=False):
+        """A column that scrolls when its content is taller than the window.
 
-        # Middle-middle: arm model selection
-        model_frame = self._create_model_selection_frame(model_select_host)
-        model_frame.pack(fill="both", expand=True)
+        With fill_height, content that is shorter than the column is stretched
+        to fill it, so a widget packed with expand=True takes the spare room.
+        """
+        outer = tk.Frame(parent, bg=BG)
+        canvas = tk.Canvas(outer, bg=BG, highlightthickness=0, borderwidth=0)
+        bar = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        inner = tk.Frame(canvas, bg=BG)
+        win = canvas.create_window((0, 0), window=inner, anchor="nw")
+        canvas.configure(yscrollcommand=bar.set)
+        bar.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
 
-        # Middle-bottom: arm visualization
-        viz_frame = self._create_visualization_frame(viz_host)
-        viz_frame.pack(fill="both", expand=True)
+        def fit(_event=None):
+            width = canvas.winfo_width()
+            if fill_height:
+                height = max(canvas.winfo_height(), inner.winfo_reqheight())
+                canvas.itemconfigure(win, width=width, height=height)
+            else:
+                canvas.itemconfigure(win, width=width)
+            canvas.configure(scrollregion=canvas.bbox("all"))
 
-        # Right pane internal layout: metrics (top) / vel+acc plots (bottom), 0.5/0.5.
-        right_pane = ttk.Panedwindow(right_frame, orient="vertical")
-        right_pane.pack(fill="both", expand=True)
-        metrics_host = ttk.Frame(right_pane)
-        velacc_host = ttk.Frame(right_pane)
-        right_pane.add(metrics_host, weight=1)
-        right_pane.add(velacc_host, weight=1)
+        canvas.bind("<Configure>", lambda e: (fit(), canvas.after_idle(fit)))
+        inner.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
+        self._scroll_columns.append((canvas, inner))
+        return outer, inner
 
-        metrics_frame = self._create_metrics_frame(metrics_host)
-        metrics_frame.pack(fill="both", expand=True)
-
-        velacc_frame = self._create_velocity_acceleration_frame(velacc_host)
-        velacc_frame.pack(fill="both", expand=True)
-
-        # Bottom: Exit button
-        bottom_frame = ttk.Frame(main_frame)
-        bottom_frame.pack(fill="x", pady=(10, 0))
-        ttk.Separator(bottom_frame, orient="horizontal").pack(fill="x", pady=(0, 10))
-        ttk.Button(bottom_frame, text="Exit", command=self.on_closing, width=15).pack()
-
-        # Set useful initial divider positions while keeping panes user-resizable.
-        # Retry until geometry is fully realized so center/right panes never collapse.
-        def _set_initial_pane_widths(retries=10):
-            try:
-                width = int(content_pane.winfo_width())
-                if width < 900:
-                    if retries > 0:
-                        self.root.after(80, lambda: _set_initial_pane_widths(retries - 1))
+    def _on_mousewheel(self, event):
+        """Scroll a side column when the pointer is over it (text boxes scroll themselves)."""
+        widget = self.root.winfo_containing(event.x_root, event.y_root)
+        while widget is not None:
+            if isinstance(widget, tk.Text):
+                return
+            for canvas, inner in self._scroll_columns:
+                if widget is canvas:
+                    if inner.winfo_height() > canvas.winfo_height() + 1:
+                        canvas.yview_scroll(int(-event.delta / 120), "units")
                     return
-                # Main panes: equal width (1/3 each).
-                content_pane.sashpos(0, int(width * (1.0 / 3.0)))
-                content_pane.sashpos(1, int(width * (2.0 / 3.0)))
+            widget = getattr(widget, "master", None)
 
-                left_height = int(left_pane.winfo_height())
-                middle_height = int(middle_pane.winfo_height())
-                right_height = int(right_pane.winfo_height())
-                if left_height > 300 and middle_height > 300 and right_height > 300:
-                    # Left pane split: equal height (0.5 / 0.5).
-                    left_pane.sashpos(0, int(left_height * 0.50))
-                    # Middle pane split: top/middle/bottom = 0.3 / 0.2 / 0.5.
-                    middle_pane.sashpos(0, int(middle_height * 0.30))
-                    middle_pane.sashpos(1, int(middle_height * 0.50))
-                    # Right pane split: metrics/vel-acc = 0.5 / 0.5.
-                    right_pane.sashpos(0, int(right_height * 0.50))
-                elif retries > 0:
-                    self.root.after(80, lambda: _set_initial_pane_widths(retries - 1))
-            except Exception:
-                if retries > 0:
-                    self.root.after(80, lambda: _set_initial_pane_widths(retries - 1))
-
-        self.root.after(120, _set_initial_pane_widths)
+    # ============================================================ handlers
 
     def _on_link_length_change(self, index, value):
         """Handle link length slider change"""
@@ -891,6 +975,8 @@ class ArmControllerGUI:
         value = max(0.1, min(2.0, value))
         self.slider_vars[f"link_len_{index}"].set(value)
         self.slider_vars[key].set(f"{value:.2f}")
+        if abs(value - current) > 1e-12:
+            self._on_link_length_change(index, value)
 
     def _on_mass_entry(self, index):
         """Handle manual mass numeric input."""
@@ -905,6 +991,8 @@ class ArmControllerGUI:
         value = max(0.1, min(10.0, value))
         self.slider_vars[f"mass_{index}"].set(value)
         self.slider_vars[key].set(f"{value:.2f}")
+        if abs(value - current) > 1e-12:
+            self._on_mass_change(index, value)
 
     def _on_damping_change(self, value):
         """Handle damping slider change"""
@@ -919,7 +1007,11 @@ class ArmControllerGUI:
         if self.simulation_active:
             self._stop_simulation()
         self.controller.increment_joint(joint_id, delta)
-        self.angle_labels[joint_id].config(text=f"{self.controller.angles[joint_id]:.2f}rad")
+        self._refresh_joint_labels()
+
+    def _on_trail_toggle(self):
+        self.show_trajectory = bool(self._trail_var.get())
+        self._log(f"[OK] Hand path {'shown' if self.show_trajectory else 'hidden'}")
 
     def _on_record(self):
         """Handle record button"""
@@ -928,19 +1020,19 @@ class ArmControllerGUI:
         self.recording = not self.recording
         if self.recording:
             self.recorder.start_recording()
-            self.record_button.config(text="Stop Recording (REC)")
-            print("[OK] Recording started")
+            self.record_button.config(text="Stop recording")
+            self._log("[OK] Recording started")
         else:
             self.recorder.stop_recording()
             self.record_button.config(text="Record")
-            print(f"[OK] Recording stopped ({self.recorder.get_num_frames()} frames)")
+            self._log(f"[OK] Recording stopped ({self.recorder.get_num_frames()} frames)")
 
     def _on_clear_recording(self):
         """Clear recording"""
         if self.simulation_active:
             self._stop_simulation()
         self.recorder.clear_frames()
-        print("[OK] Recording cleared")
+        self._log("[OK] Recording cleared")
 
     def _on_save_motion(self):
         """Save motion recording"""
@@ -954,7 +1046,7 @@ class ArmControllerGUI:
             try:
                 self.recorder.save_to_json(filepath)
                 messagebox.showinfo("Success", f"Motion saved to {filepath}")
-                print(f"[OK] Motion saved to {filepath}")
+                self._log(f"[OK] Motion saved to {filepath}")
             except Exception as e:
                 messagebox.showerror("Error", f"Error saving motion: {e}")
 
@@ -969,7 +1061,7 @@ class ArmControllerGUI:
             try:
                 self.recorder = MotionRecorder.load_from_json(filepath)
                 messagebox.showinfo("Success", f"Loaded {self.recorder.get_num_frames()} frames")
-                print(f"[OK] Loaded {self.recorder.get_num_frames()} frames")
+                self._log(f"[OK] Loaded {self.recorder.get_num_frames()} frames")
             except Exception as e:
                 messagebox.showerror("Error", f"Error loading motion: {e}")
 
@@ -982,23 +1074,69 @@ class ArmControllerGUI:
             if self.playing_back:
                 self.playback_frames = self.recorder.get_frames()
                 self.playback_index = 0
-                self.playback_button.config(text="Stop Playback")
-                print("[OK] Playback started")
+                self.playback_button.config(text="Stop playback")
+                self._log("[OK] Playback started")
             else:
                 self.playback_button.config(text="Playback")
-                print("[OK] Playback stopped")
+                self._log("[OK] Playback stopped")
         else:
             messagebox.showwarning("Warning", "No frames recorded to playback")
+
+    # ------------------------------------------------------------ models
+
+    def _discover_packages(self):
+        """Trained packages under project_assets/outputs, best first: {label: model zip}."""
+        found = {}
+        if not OUTPUTS_DIR.is_dir():
+            return found
+        entries = []
+        for d in OUTPUTS_DIR.glob("CHAMPION_HUMAN_V*_*"):
+            if not (d / "run_manifest.json").exists():
+                continue
+            model = d / "sac_model_best.zip"
+            if not model.exists():
+                model = d / "sac_model.zip"
+            if not model.exists():
+                continue
+            stage = d.name.rsplit("_", 1)[-1]
+            rank = PACKAGE_ORDER.index(stage) if stage in PACKAGE_ORDER else len(PACKAGE_ORDER)
+            what = KNOWN_PACKAGES.get(stage) or self._describe_manifest(read_manifest(d / "run_manifest.json"))
+            entries.append((rank, stage, f"{stage}  -  {what}", model))
+        for _rank, _stage, label, model in sorted(entries):
+            found[label] = model
+        return found
+
+    @staticmethod
+    def _describe_manifest(manifest):
+        env = (manifest or {}).get("env", {})
+        n = env.get("random_waypoints")
+        if env.get("free_order"):
+            return f"{n} points, picks its own order"
+        if n:
+            return f"reaches any {n} points"
+        wps = env.get("waypoints") or []
+        return f"{len(wps)} fixed points only" if wps else "trained model"
+
+    def _on_pick_package(self):
+        model = self._package_choices.get(self._package_var.get())
+        if model is not None:
+            self._load_model(str(model))
 
     def _on_select_model(self):
         """Load a trained model for policy simulation."""
         filepath = filedialog.askopenfilename(
             title="Select trained model (.zip)",
+            initialdir=str(OUTPUTS_DIR) if OUTPUTS_DIR.is_dir() else None,
             filetypes=[("Model files", "*.zip"), ("All files", "*.*")],
         )
         if not filepath:
             return
+        self._load_model(filepath)
 
+    def _load_model(self, filepath):
+        """Select a model (package zip or bare zip) for the next run."""
+        if self.simulation_active:
+            self._stop_simulation()
         model_base = self._normalize_model_base(filepath)
         algorithm = self._get_algorithm_from_metadata(model_base)
         manifest_path = find_manifest(filepath)
@@ -1032,8 +1170,29 @@ class ArmControllerGUI:
             timestamp = metadata.get("timestamp", "-")
             policy_name = str(metadata.get("policy", "MlpPolicy"))
 
-        self.sim_model_label.config(text=f"Model: {Path(model_base).name} ({algorithm})")
-        self.sim_toggle_button.config(state="normal", text="Run Simulation")
+        package_name = Path(self.sim_package_dir).name if self.sim_package_dir else Path(model_base).name
+        self.sim_model_label.config(text=f"{package_name}  ({algorithm})")
+        env_desc = (self.sim_manifest or {}).get("env", {})
+        if self.sim_manifest is None:
+            kind = "No package manifest: runs on the default arm and the demo points."
+        elif env_desc.get("free_order"):
+            kind = (f"Free order: sees all {env_desc.get('random_waypoints')} points at once and picks its own "
+                    f"route. Place exactly {env_desc.get('random_waypoints')} points.")
+        elif env_desc.get("random_waypoints"):
+            kind = (f"Trained on random points: reaches any {env_desc.get('random_waypoints')} points you "
+                    f"choose, in order, and holds the last one.")
+        else:
+            kind = ("Trained on fixed points only: it will not reach other points. Use R3 for points "
+                    "you choose.")
+        self._model_kind_label.config(text=kind)
+        self.sim_toggle_button.config(state="normal", text="▶  Run simulation", style="Accent.TButton")
+        for label, path in self._package_choices.items():
+            if Path(path).with_suffix("") == Path(model_base):
+                self._package_var.set(label)
+                break
+        else:
+            self._package_var.set("")
+
         details_text = (
             f"Name: {Path(model_base).name}\n"
             f"Algorithm: {algorithm}\n"
@@ -1044,23 +1203,38 @@ class ArmControllerGUI:
             f"Saved: {timestamp}"
         )
         if self.sim_manifest is not None:
-            env_desc = self.sim_manifest.get("env", {})
             details_text += (
                 f"\nPackage: {self.sim_package_dir}"
                 f"\nPreset: {env_desc.get('preset')}  obs v{env_desc.get('obs_version')}  "
-                f"{env_desc.get('actuation_mode')}  waypoints {env_desc.get('waypoints')}"
-                f"\nSeed {self.sim_manifest.get('seed')}  best score {self.sim_manifest.get('best_score')}"
+                f"{env_desc.get('actuation_mode')}  waypoints "
+                f"{env_desc.get('waypoints') if not env_desc.get('random_waypoints') else 'random'}"
+                f"\nSeed {self.sim_manifest.get('seed')}  trained {self.sim_manifest.get('final_timesteps')} steps"
+                f"\nBest score {self.sim_manifest.get('best_score')}"
             )
+            summary = self._package_eval_summary(self.sim_package_dir)
+            if summary:
+                details_text += f"\n{summary}"
         self._set_model_details_text(details_text)
-        print(f"[OK] Loaded model: {model_base} ({algorithm})")
+        self._refresh_points_hint()
+        self._log(f"[OK] Loaded model: {package_name} ({algorithm}). Press Run simulation.")
+
+    @staticmethod
+    def _package_eval_summary(package_dir):
+        """One line from the package's final evaluation, if it has one."""
+        path = Path(package_dir) / "final_eval.json"
+        try:
+            s = json.loads(path.read_text()).get("summary", {})
+            return (f"Final evaluation: {s['successes']}/{s['n_episodes']} fresh episodes held the last point "
+                    f"({100 * s['success_rate']:.0f}%)")
+        except Exception:
+            return ""
 
     def _on_smooth_toggle(self):
         """Toggle action smoothing on/off."""
         self.action_smoothing = self._smooth_var.get()
         state = "ON" if self.action_smoothing else "OFF"
-        print(f"[OK] Action smoothing {state} (alpha={self.action_smooth_alpha:.2f})")
-        if self.simulation_active:
-            print("  (restart simulation to apply)")
+        extra = " - restart the simulation to apply" if self.simulation_active else ""
+        self._log(f"[OK] Action smoothing {state} (alpha={self.action_smooth_alpha:.2f}){extra}")
 
     def _on_toggle_simulation(self):
         """Start/stop policy simulation."""
@@ -1069,9 +1243,95 @@ class ArmControllerGUI:
             return
         self._start_simulation()
 
+    def _on_pause(self):
+        if not self.simulation_active:
+            return
+        self.sim_paused = not self.sim_paused
+        self._pause_button.config(text="Resume" if self.sim_paused else "Pause")
+        self._last_slow_update = 0.0
+        self._log(f"[OK] Simulation {'paused' if self.sim_paused else 'resumed'}")
+
+    def _on_next_episode(self):
+        """Start the next episode now (new random targets for a random-point model)."""
+        if not self.simulation_active or self.sim_env is None:
+            return
+        self._begin_next_episode()
+        self._log(f"[OK] Episode {self.sim_episode_count} started")
+
+    # ------------------------------------------------------------ targets
+
+    def _on_waypoint_choice(self):
+        self.sim_waypoint_choice = self._wp_choice_var.get()
+        if self.sim_waypoint_choice == "custom" and not self._place_mode:
+            self._set_place_mode(True)
+        elif self.sim_waypoint_choice != "custom" and self._place_mode:
+            self._set_place_mode(False)
+        self._refresh_points_hint()
+
+    def _on_place_button(self):
+        self._set_place_mode(not self._place_mode)
+
     def _on_place_toggle(self):
         self._place_mode = bool(self._place_var.get())
-        print(f"[OK] Waypoint placement {'ON: click the arm panel to add points' if self._place_mode else 'OFF'}")
+        self._log(f"[OK] Waypoint placement {'ON: click the arm panel to add points' if self._place_mode else 'OFF'}")
+
+    def _set_place_mode(self, on):
+        self._place_var.set(bool(on))
+        self._on_place_toggle()
+        if on:
+            self.sim_waypoint_choice = "custom"
+            self._wp_choice_var.set("custom")
+        self._place_button.config(
+            text=f"✚  Click the arm view to add points: {'ON' if on else 'OFF'}",
+            style="On.Toggle.TButton" if on else "Toggle.TButton")
+        try:
+            self.canvas_agg.get_tk_widget().config(cursor="crosshair" if on else "")
+        except Exception:
+            pass
+        self._refresh_points_hint()
+
+    def _sync_custom_text(self):
+        self.sim_custom_waypoints = ";".join(f"{x:.3f},{y:.3f}" for x, y in self.clicked_waypoints)
+        if hasattr(self, "_wp_custom_var"):
+            self._wp_custom_var.set(self.sim_custom_waypoints)
+
+    def _on_custom_typed(self):
+        self.sim_custom_waypoints = self._wp_custom_var.get()
+        if self.sim_custom_waypoints.strip() and self.sim_waypoint_choice != "custom":
+            self.sim_waypoint_choice = "custom"
+            self._wp_choice_var.set("custom")
+
+    def _on_custom_committed(self):
+        """Typed coordinates become placed points (so they are drawn)."""
+        text = self._wp_custom_var.get().strip()
+        current = ";".join(f"{x:.3f},{y:.3f}" for x, y in self.clicked_waypoints)
+        if text == current:
+            return
+        if not text:
+            self.clicked_waypoints, self.clicked_requests = [], []
+            self._refresh_points_hint()
+            return
+        try:
+            pts = resolve_waypoints(text)
+        except ValueError:
+            self._log("[WARN] Could not read those points. Write them as x,y; x,y  (e.g. 1.40,0.15; 1.20,0.40)")
+            return
+        self.clicked_waypoints = [[float(p[0]), float(p[1])] for p in pts]
+        self.clicked_requests = [(list(p), list(p)) for p in self.clicked_waypoints]
+        self.sim_custom_waypoints = text
+        self._log(f"[OK] {len(self.clicked_waypoints)} typed point(s) set; press 'Run with these points'")
+        self._refresh_points_hint()
+
+    def _on_remove_last_point(self):
+        if not self.clicked_waypoints:
+            self._log("[WARN] There are no placed points to remove")
+            return
+        removed = self.clicked_waypoints.pop()
+        if self.clicked_requests:
+            self.clicked_requests.pop()
+        self._sync_custom_text()
+        self._log(f"[OK] Removed point {len(self.clicked_waypoints) + 1} at ({removed[0]:.2f}, {removed[1]:.2f})")
+        self._refresh_points_hint()
 
     def _on_clear_points(self):
         self.clicked_waypoints = []
@@ -1079,15 +1339,45 @@ class ArmControllerGUI:
         self.sim_custom_waypoints = ""
         if hasattr(self, "_wp_custom_var"):
             self._wp_custom_var.set("")
-        print("[OK] Placed waypoints cleared")
+        self._log("[OK] Placed waypoints cleared")
+        self._refresh_points_hint()
 
     def _on_restart_with_points(self):
         if not self.clicked_waypoints:
-            messagebox.showwarning("Waypoints", "Place at least one point first (tick 'Place waypoints by clicking').")
+            messagebox.showwarning("Waypoints", "Place at least one point first: turn on 'Click the arm view to "
+                                                "add points' and click inside the green area.")
             return
+        if not self.sim_model_path:
+            messagebox.showwarning("Warning", "Please select a trained model first (section 1)")
+            return
+        self.sim_waypoint_choice = "custom"
+        self._wp_choice_var.set("custom")
         if self.simulation_active:
             self._stop_simulation()
         self._start_simulation()
+
+    def _refresh_points_hint(self):
+        hint = getattr(self, "_points_hint", None)
+        if hint is None:
+            return
+        n = len(self.clicked_waypoints)
+        env_desc = (self.sim_manifest or {}).get("env", {})
+        if self._place_mode:
+            text = (f"{n} point(s) placed. Click inside the green area of the arm view to add one; a click the "
+                    f"arm cannot hold is moved to the nearest point it can. Right-click a point to remove it.")
+        elif self.sim_waypoint_choice == "custom":
+            text = (f"{n} point(s) placed. Turn on 'Click the arm view' to add more, or type them above."
+                    if n else "No points yet: turn on 'Click the arm view' and click inside the green area.")
+        elif self.sim_waypoint_choice == "from package":
+            text = "The model's own points: random each episode for R-models, fixed for A/B models."
+        else:
+            text = "A fixed demonstration set that every model can be shown on."
+        if self.sim_manifest is not None and self.sim_waypoint_choice == "custom":
+            if env_desc.get("free_order"):
+                text += f"  This model needs exactly {env_desc.get('random_waypoints')} points."
+            elif not env_desc.get("random_waypoints"):
+                text += "  Note: the loaded model was trained on fixed points only."
+        hint.config(text=text)
 
     def _feasibility_env(self):
         base = getattr(self.sim_env, "unwrapped", None) if self.sim_env is not None else None
@@ -1121,12 +1411,31 @@ class ArmControllerGUI:
         trade a silent refusal for a visible failure); what was wrong was
         discarding the user's intent instead of honouring it as closely as the
         arm allows.
+
+        Right-click removes the placed point nearest the click.
         """
-        if not self._place_mode or event.inaxes is not self.ax or event.xdata is None:
+        if event.inaxes is not self.ax or event.xdata is None:
             return
         env = self._feasibility_env()
         shoulder = np.asarray(env.shoulder_base_position, dtype=float)
         wp = [float(event.xdata) + shoulder[0], float(event.ydata) + shoulder[1]]
+        if getattr(event, "button", 1) == 3:
+            if self.clicked_waypoints:
+                d = [np.linalg.norm(np.asarray(p) - np.asarray(wp)) for p in self.clicked_waypoints]
+                i = int(np.argmin(d))
+                if d[i] < 0.10:
+                    self.clicked_waypoints.pop(i)
+                    if i < len(self.clicked_requests):
+                        self.clicked_requests.pop(i)
+                    self._sync_custom_text()
+                    self._log(f"[OK] Removed point {i + 1}")
+                    self._refresh_points_hint()
+            return
+        if not self._place_mode:
+            if not self.simulation_active:
+                self._log("[OK] To add a point, choose 'My own points' or turn on 'Click the arm view to add "
+                          "points' (section 2)")
+            return
         f = env.waypoint_feasibility(wp, env.max_curriculum_tolerance)
         placeable = f.get("feasible", False)
         if placeable:
@@ -1138,26 +1447,24 @@ class ArmControllerGUI:
         if not placeable:
             snapped, moved = self._nearest_placeable(env, wp, self.clicked_waypoints)
             if snapped is None:
-                print(f"[WARN] no point near ({wp[0]:.2f}, {wp[1]:.2f}) can be held and kept "
-                      f"{2 * env.max_curriculum_tolerance:.2f} m clear of the others; "
-                      f"try somewhere else in the shaded region")
+                self._log(f"[WARN] no point near ({wp[0]:.2f}, {wp[1]:.2f}) can be held and kept "
+                          f"{2 * env.max_curriculum_tolerance:.2f} m clear of the others; "
+                          f"try somewhere else in the shaded region")
                 return
-            print(f"[OK] ({wp[0]:.2f}, {wp[1]:.2f}) moved {moved * 100:.0f} cm to "
-                  f"({snapped[0]:.2f}, {snapped[1]:.2f}), the nearest point the arm can reach and hold")
+            self._log(f"[OK] ({wp[0]:.2f}, {wp[1]:.2f}) moved {moved * 100:.0f} cm to "
+                      f"({snapped[0]:.2f}, {snapped[1]:.2f}), the nearest point the arm can reach and hold")
             self.clicked_requests.append((list(wp), list(snapped)))
             wp = snapped
         else:
             self.clicked_requests.append((list(wp), list(wp)))
-        trial = self.clicked_waypoints + [wp]
-        self.clicked_waypoints = trial
-        self.sim_custom_waypoints = ";".join(f"{x:.3f},{y:.3f}" for x, y in self.clicked_waypoints)
+            self._log(f"[OK] waypoint {len(self.clicked_waypoints) + 1} placed at ({wp[0]:.3f}, {wp[1]:.3f}); "
+                      f"press 'Run with these points' to run")
+        self.clicked_waypoints = self.clicked_waypoints + [wp]
         self.sim_waypoint_choice = "custom"
-        if hasattr(self, "_wp_custom_var"):
-            self._wp_custom_var.set(self.sim_custom_waypoints)
+        self._sync_custom_text()
         if hasattr(self, "_wp_choice_var"):
             self._wp_choice_var.set("custom")
-        print(f"[OK] waypoint {len(self.clicked_waypoints)} placed at ({wp[0]:.3f}, {wp[1]:.3f}); "
-              f"press 'Restart with points' to run")
+        self._refresh_points_hint()
 
     def _feasible_cloud_points(self):
         """Shoulder-local scatter of feasible waypoint positions (cached per config)."""
@@ -1181,6 +1488,8 @@ class ArmControllerGUI:
         if choice == "custom":
             return resolve_waypoints(self.sim_custom_waypoints) if self.sim_custom_waypoints.strip() else None
         return None
+
+    # ---------------------------------------------------------- simulation
 
     def _start_simulation(self):
         """Initialize simulation environment and model from a package (or bare zip)."""
@@ -1227,17 +1536,14 @@ class ArmControllerGUI:
 
             if self.action_smoothing and raw_env.actuation_mode == "muscle" and not raw_env.use_activation_dynamics:
                 self.sim_env = ActionSmoother(raw_env, alpha=self.action_smooth_alpha)
-                print(f"[OK] Action smoothing ON (alpha={self.action_smooth_alpha})")
+                self._log(f"[OK] Action smoothing ON (alpha={self.action_smooth_alpha})")
             else:
                 if self.action_smoothing and raw_env.use_activation_dynamics:
-                    print("[OK] Action smoothing skipped: this model has muscle activation dynamics "
-                          "(an extra smoother puts it out of distribution)")
+                    self._log("[OK] Action smoothing skipped: this model has muscle activation dynamics "
+                              "(an extra smoother puts it out of distribution)")
                 self.sim_env = raw_env
             self._feasible_cloud_key = None
             self.sim_model = model
-            print(f"[OK] {raw_env.actuation_mode}-mode model in {raw_env.preset_name}: "
-                  f"{raw_env.num_waypoints} waypoints, tolerance {raw_env.goal_tolerance} m, "
-                  f"hold {raw_env.hold_steps_required} steps")
             trained_random = bool((self.sim_manifest or {}).get("env", {}).get("random_waypoints"))
             free_order = bool(getattr(raw_env, "free_order", False))
             if free_order:
@@ -1250,17 +1556,25 @@ class ArmControllerGUI:
                 raise ValueError(
                     f"this free-order model reads exactly {raw_env.free_order_slots} points at once; "
                     f"{len(wps)} were placed. Place {raw_env.free_order_slots} and restart.")
+            n_points = "random" if (trained_random and wps is None) else str(len(wps) if wps else
+                                                                               raw_env.num_waypoints)
+            message = (f"[OK] {raw_env.actuation_mode}-mode model in {raw_env.preset_name}: "
+                       f"{n_points} waypoints, tolerance {raw_env.goal_tolerance} m, "
+                       f"hold {raw_env.hold_steps_required} steps")
+            if trained_random and wps is None:
+                message += " (new random points every episode)"
             if free_order:
-                print(f"[OK] Free-order model: it sees all {raw_env.free_order_slots} points every step "
-                      f"and chooses the order itself; the panel draws no route.")
+                message += (f". Free-order model: it sees all {raw_env.free_order_slots} points every step "
+                            f"and chooses the order itself.")
             if wps is not None and not trained_random:
                 trained_wps = (self.sim_manifest or {}).get("env", {}).get("waypoints")
-                print(f"[WARN] This is a FIXED-waypoint model (trained only on {trained_wps}); "
-                      f"it is not expected to reach other points. Use a random-waypoint (Stage R3) package "
-                      f"for arbitrary targets.")
+                message = (f"[WARN] This is a FIXED-waypoint model (trained only on {trained_wps}); "
+                           f"it is not expected to reach other points. Use a random-waypoint (R3) package "
+                           f"for arbitrary targets.")
                 if self.sim_model_label is not None:
                     self.sim_model_label.config(
-                        text=f"Model: {Path(self.sim_model_path).name}  [FIXED-waypoint model: custom points unsupported]")
+                        text=f"{Path(self.sim_package_dir or self.sim_model_path).name}  "
+                             f"[FIXED-waypoint model: custom points unsupported]")
 
             self.sim_episode_seed = 0
             self.sim_obs, info = self.sim_env.reset(seed=self.sim_episode_seed)
@@ -1268,6 +1582,7 @@ class ArmControllerGUI:
             self._set_controller_state_from_arrays(info["joint_angles"], info["joint_velocities"])
 
             self.simulation_active = True
+            self.sim_paused = False
             self.sim_step_count = 0
             self.sim_episode_count = 1
             self.sim_successes = 0
@@ -1276,13 +1591,16 @@ class ArmControllerGUI:
             self.sim_step_accumulator = 0.0
             self.sim_success_banner_until = 0.0
             self.prev_sim_velocities = np.array(info["joint_velocities"], dtype=float)
-            self.torque_time_hist.clear()
-            self.shoulder_torque_hist.clear()
-            self.elbow_torque_hist.clear()
-            self.latest_shoulder_torque = 0.0
-            self.latest_elbow_torque = 0.0
+            self._clear_torque_history()
             self._reset_ee_kinematics()
-            self.sim_toggle_button.config(text="Stop Simulation")
+            self._hand_trail.clear()
+            self.sim_toggle_button.config(text="■  Stop simulation", style="Stop.TButton")
+            self._pause_button.config(state="normal", text="Pause")
+            self._next_button.config(state="normal")
+            if self._place_mode:
+                self._set_place_mode(False)
+            self._last_slow_update = 0.0     # refresh the readouts on the next frame
+            self._log(message)
             print("[OK] Policy simulation started")
         except Exception as e:
             self.simulation_active = False
@@ -1290,8 +1608,9 @@ class ArmControllerGUI:
             messagebox.showerror("Simulation Error", f"Failed to start simulation:\n{e}")
 
     def _stop_simulation(self):
-        """Stop policy simulation and cleanup."""
+        """Stop policy simulation and cleanup. The plots keep the last run's trace."""
         self.simulation_active = False
+        self.sim_paused = False
         self.sim_obs = None
         self.sim_model = None
         if self.sim_env is not None:
@@ -1301,12 +1620,25 @@ class ArmControllerGUI:
                 pass
             self.sim_env = None
         if self.sim_toggle_button is not None:
-            self.sim_toggle_button.config(text="Run Simulation")
-        self.sim_time = 0.0
+            self.sim_toggle_button.config(text="▶  Run simulation", style="Accent.TButton")
+        if getattr(self, "_pause_button", None) is not None:
+            self._pause_button.config(state="disabled", text="Pause")
+            self._next_button.config(state="disabled")
         self.prev_sim_velocities = np.zeros(self.config.dof, dtype=float)
-        self._reset_ee_kinematics()
-        self._update_vel_acc_plot()
-        print("[OK] Policy simulation stopped")
+        self._last_slow_update = 0.0         # refresh the readouts on the next frame
+        self._log("[OK] Policy simulation stopped")
+
+    def _begin_next_episode(self):
+        self.sim_episode_count += 1
+        self.sim_episode_seed += 1
+        self.sim_episode_reward = 0.0
+        self.sim_success_banner_until = 0.0
+        self.sim_obs, info = self.sim_env.reset(seed=self.sim_episode_seed)
+        self.sim_last_info = info
+        self.prev_sim_velocities = np.array(info["joint_velocities"], dtype=float)
+        self._ee_prev_vel_xy = None
+        self._hand_trail.clear()
+        self._set_controller_state_from_arrays(info["joint_angles"], info["joint_velocities"])
 
     def _simulation_step(self):
         """Run a single simulation step if active."""
@@ -1325,30 +1657,33 @@ class ArmControllerGUI:
         angles = np.asarray(info["joint_angles"], dtype=float)
         velocities_arr = np.asarray(info["joint_velocities"], dtype=float)
         dt = float(base_env.dt)
-        accelerations = (velocities_arr - self.prev_sim_velocities) / max(dt, 1e-8)
-        shoulder_tau, elbow_tau = self._estimate_joint_torques(angles, velocities_arr, accelerations)
         self.sim_time += dt
-        self._append_torque_sample(shoulder_tau, elbow_tau, self.sim_time)
+        tau = info.get("actuator_torque")
+        if tau is not None:
+            tau = np.asarray(tau, dtype=float)
+            grav = np.asarray(info.get("gravity_torque", np.full(2, np.nan)), dtype=float)
+            self._append_torque_sample(tau[0], tau[1] if tau.shape[0] > 1 else 0.0, self.sim_time,
+                                       grav[0], grav[1] if grav.shape[0] > 1 else np.nan)
+        else:
+            accelerations = (velocities_arr - self.prev_sim_velocities) / max(dt, 1e-8)
+            shoulder_tau, elbow_tau = self._estimate_joint_torques(angles, velocities_arr, accelerations)
+            self._append_torque_sample(shoulder_tau, elbow_tau, self.sim_time)
+        self._append_hand_sample(info, dt)
         self.prev_sim_velocities = velocities_arr.copy()
         self._set_controller_state_from_arrays(angles, velocities_arr)
+        self._hand_trail.append(np.asarray(self.controller.positions[-1][:2], dtype=float))
 
         if info.get("success") and info.get("success_step") == info.get("step"):
             self.sim_successes += 1
             self.sim_success_banner_until = time() + 1.0
-            print(f"[OK] HOLD COMPLETE at step {info['step']} "
-                  f"({info['waypoints_reached']}/{info['num_waypoints']} waypoints)")
+            self._log(f"[OK] HOLD COMPLETE at step {info['step']} "
+                      f"({info['waypoints_reached']}/{info['num_waypoints']} waypoints)")
 
         if terminated or truncated:
             if not self.sim_loop:
                 self._stop_simulation()
                 return
-            self.sim_episode_count += 1
-            self.sim_episode_seed += 1
-            self.sim_episode_reward = 0.0
-            self.sim_obs, info = self.sim_env.reset(seed=self.sim_episode_seed)
-            self.sim_last_info = info
-            self.prev_sim_velocities = np.array(info["joint_velocities"], dtype=float)
-            self._set_controller_state_from_arrays(info["joint_angles"], info["joint_velocities"])
+            self._begin_next_episode()
 
     def _on_reset_arm(self):
         """Reset arm to home position"""
@@ -1356,10 +1691,9 @@ class ArmControllerGUI:
             self._stop_simulation()
         self.controller.set_home_position()
         self.trajectory_points = []
-        self._reset_ee_kinematics()
-        for i in range(self.config.dof):
-            self.angle_labels[i].config(text=f"{self.controller.angles[i]:.2f}rad")
-        print("[OK] Arm reset to home position")
+        self._hand_trail.clear()
+        self._refresh_joint_labels()
+        self._log("[OK] Arm reset to home position")
 
     def _on_reset_defaults(self):
         """Reset to default configuration"""
@@ -1370,8 +1704,8 @@ class ArmControllerGUI:
         self.visualizer = ArmVisualizer(dof=self.config.dof, link_lengths=self.config.link_lengths)
         self._sync_ui_to_config()  # Update all UI sliders
         self._compute_positions()  # Recompute positions
-        self._reset_ee_kinematics()
-        print("[OK] Reset to default configuration")
+        self._refresh_joint_labels()
+        self._log("[OK] Reset to default configuration")
         messagebox.showinfo("Success", "Reset to default configuration")
 
     def _on_save_config(self):
@@ -1386,7 +1720,7 @@ class ArmControllerGUI:
             try:
                 self.config.to_json(filepath)
                 messagebox.showinfo("Success", f"Configuration saved to {filepath}")
-                print(f"[OK] Configuration saved to {filepath}")
+                self._log(f"[OK] Configuration saved to {filepath}")
             except Exception as e:
                 messagebox.showerror("Error", f"Error saving config: {e}")
 
@@ -1403,50 +1737,113 @@ class ArmControllerGUI:
                 self.controller = ArmController(self.config)
                 self._sync_ui_to_config()  # Update all UI sliders to loaded config
                 self._compute_positions()  # Recompute positions
-                self._reset_ee_kinematics()
+                self._refresh_joint_labels()
                 messagebox.showinfo("Success", f"Loaded configuration: {self.config.name}")
-                print(f"[OK] Loaded configuration: {self.config.name}")
+                self._log(f"[OK] Loaded configuration: {self.config.name}")
             except Exception as e:
                 messagebox.showerror("Error", f"Error loading config: {e}")
 
-    def _update_visualization(self):
-        """Update the arm visualization"""
-        self.ax.clear()
+    # ============================================================ drawing
+    #
+    # The arm view is drawn in two layers. The background - silhouette, grid,
+    # the green reachable area, targets and placed points, legend - changes only
+    # when a target is reached, a point is placed or the arm is resized, and is
+    # rendered in full then. The moving parts - the arm, the hand, its path and
+    # the title - are drawn over a cached copy of that background every frame.
+    # Rebuilding and re-rendering the whole view each frame cost ~50 ms, which
+    # held the window to ~7 frames a second.
 
-        # Get current positions
-        positions = self.controller.positions
-
-        # Plot links
-        self.ax.plot(positions[:, 0], positions[:, 1], "b-o", linewidth=2, markersize=6)
-
-        # Mark base
-        self.ax.plot(positions[0, 0], positions[0, 1], "go", markersize=12, label="Base")
-
-        # Mark end-effector
-        self.ax.plot(positions[-1, 0], positions[-1, 1], "r*", markersize=20, label="End-effector")
-
-        # Plot trajectory if enabled
-        if self.show_trajectory and self.trajectory_points:
-            traj_array = np.array(self.trajectory_points)
-            self.ax.plot(traj_array[:, 0], traj_array[:, 1], "g--", alpha=0.5, linewidth=1, label="Trajectory")
-
-        # Torso / head silhouette (side view, +x in front of the body).
+    def _build_arm_scene(self):
+        """Static parts of the arm view; rebuilt only when the arm's size changes."""
+        ax = self.ax
+        ax.clear()
         reach = float(sum(self.config.link_lengths))
+        # Torso / head silhouette (side view, +x in front of the body) and full reach.
         torso_w, torso_h = 0.22 * reach, 0.9 * reach
-        self.ax.add_patch(plt.Rectangle((-torso_w, -torso_h), torso_w, torso_h, color="#00000012", zorder=0))
-        self.ax.add_patch(plt.Circle((-0.5 * torso_w, 0.32 * reach), 0.17 * reach, color="#00000012", zorder=0))
-        self.ax.add_patch(plt.Circle((0.0, 0.0), reach, color="#00000022", fill=False, linestyle="--", linewidth=0.8))
+        ax.add_patch(plt.Rectangle((-torso_w, -torso_h), torso_w, torso_h, color="#00000012", zorder=0))
+        ax.add_patch(plt.Circle((-0.5 * torso_w, 0.32 * reach), 0.17 * reach, color="#00000012", zorder=0))
+        ax.add_patch(plt.Circle((0.0, 0.0), reach, color="#00000030", fill=False, linestyle="--", linewidth=0.8))
+        ax.set_xlabel("X (m)  [+x = in front of the body]", fontsize=9)
+        ax.set_ylabel("Y (m)", fontsize=9)
+        ax.tick_params(labelsize=8)
+        ax.grid(True, alpha=0.3)
+        lo, hi = self._calculate_axis_limits()
+        ax.set_xlim(lo, hi)
+        ax.set_ylim(lo, hi)
+        ax.set_aspect("equal", adjustable="box")
 
-        title = f"Arm Configuration - FPS: {self.fps_counter:.0f}"
-        info = self.sim_last_info if self.simulation_active else None
-        if self._place_mode or (self.clicked_waypoints and not self.simulation_active):
+        self._a_cloud = None
+        self._a_cloud_key = None
+        self._a_title = getattr(self, "_a_title", None)
+        self._a_trail, = ax.plot([], [], "--", color=GOOD, alpha=0.6, linewidth=1.2, label="Hand path", zorder=5)
+        self._a_arm, = ax.plot([], [], "-", color=ARM_C, linewidth=6, solid_capstyle="round", zorder=6)
+        self._a_joints, = ax.plot([], [], "o", linestyle="none", markersize=8, markerfacecolor="white",
+                                  markeredgecolor=ARM_C, markeredgewidth=2, zorder=7)
+        self._a_shoulder, = ax.plot([], [], "o", color=GOOD, markersize=12, markeredgecolor="white",
+                                    markeredgewidth=1.5, label="Shoulder (base)", zorder=8)
+        self._a_hand, = ax.plot([], [], "*", color=BAD, markersize=20, markeredgecolor="white",
+                                markeredgewidth=0.8, label="Hand (end-effector)", zorder=9)
+        if getattr(self, "_a_title", None) is None:
+            self._a_title = self.fig.text(0.012, 0.985, "", ha="left", va="top", fontsize=11,
+                                          fontweight="bold", color=INK)
+        self._dynamic_artists = [self._a_trail, self._a_arm, self._a_joints, self._a_shoulder, self._a_hand,
+                                 self._a_title]
+        for artist in self._dynamic_artists:
+            artist.set_animated(True)
+        self._targets_artists = []
+        self._placed_artists = []
+        self._static_key = None
+        self._dynamic_key = None
+        self._arm_bg = None
+        self._arm_scene_key = tuple(self.config.link_lengths)
+
+    def _on_arm_resize(self, _event=None):
+        """Fixed pixel margins, so tick labels and the axis label fit at any window size."""
+        w, h = float(self.fig.bbox.width), float(self.fig.bbox.height)
+        if w < 120 or h < 120:
+            return
+        self.fig.subplots_adjust(left=min(0.4, 62.0 / w), right=1.0 - 14.0 / w,
+                                 bottom=min(0.4, 50.0 / h), top=1.0 - 36.0 / h)
+        self._arm_bg = None
+
+    def _on_arm_draw(self, _event=None):
+        """After every full render: keep the background, then draw the moving parts on it."""
+        if not getattr(self, "_dynamic_artists", None):
+            return
+        self._arm_bg = self.canvas_agg.copy_from_bbox(self.fig.bbox)
+        self._arm_bg_bounds = tuple(self.fig.bbox.bounds)
+        for artist in self._dynamic_artists:
+            self.fig.draw_artist(artist)
+
+    def _rebuild_static_layers(self, show_cloud, info, placed_visible, pending):
+        """Green area, placed points, targets and legend."""
+        ax = self.ax
+        for artist in self._targets_artists + self._placed_artists:
+            try:
+                artist.remove()
+            except (ValueError, NotImplementedError):
+                pass
+        self._targets_artists, self._placed_artists = [], []
+
+        if show_cloud:
             try:
                 cloud = self._feasible_cloud_points()
-                self.ax.scatter(cloud[:, 0], cloud[:, 1], s=6, c="#2ecc71", alpha=0.25, zorder=1, linewidths=0)
+                if self._a_cloud is None or self._a_cloud_key != self._feasible_cloud_key:
+                    if self._a_cloud is not None:
+                        self._a_cloud.remove()
+                    self._a_cloud = ax.scatter(cloud[:, 0], cloud[:, 1], s=6, c="#2ecc71", alpha=0.25, zorder=1,
+                                               linewidths=0, label="Reachable & holdable")
+                    self._a_cloud_key = self._feasible_cloud_key
+                self._a_cloud.set_visible(True)
             except Exception:
                 pass
-        if self.clicked_waypoints and not self.simulation_active:
+        elif self._a_cloud is not None:
+            self._a_cloud.set_visible(False)
+
+        # Points the user has placed (drawn until a run uses them).
+        if placed_visible:
             shoulder = np.asarray(self._feasibility_env().shoulder_base_position, dtype=float)
+            colour = "#8e44ad" if pending else "red"
             for i, wp in enumerate(self.clicked_waypoints):
                 p = np.asarray(wp, dtype=float) - shoulder
                 # If the click was moved to somewhere holdable, show where it
@@ -1455,33 +1852,34 @@ class ArmControllerGUI:
                     asked, used = (np.asarray(v, dtype=float) for v in self.clicked_requests[i])
                     if float(np.linalg.norm(asked - used)) > 1e-6:
                         a = asked - shoulder
-                        self.ax.plot([a[0], p[0]], [a[1], p[1]], color="#888888", linestyle=":",
-                                     linewidth=1.0, zorder=3)
-                        self.ax.scatter(a[0], a[1], s=60, facecolors="none", edgecolors="#888888",
-                                        linewidths=1.2, zorder=3)
-                self.ax.add_patch(plt.Circle((p[0], p[1]), 0.05, color="red", fill=False, linewidth=1.2, zorder=4))
-                self.ax.scatter(p[0], p[1], c="red", s=160, marker="X", edgecolors="black", linewidths=1.5, zorder=10)
-                self.ax.annotate(f"{i + 1}", (p[0], p[1]), textcoords="offset points", xytext=(8, 8),
-                                 fontsize=10, fontweight="bold")
-            title = f"{len(self.clicked_waypoints)} waypoint(s) placed - press 'Restart with points'"
+                        self._placed_artists += ax.plot([a[0], p[0]], [a[1], p[1]], color="#888888",
+                                                        linestyle=":", linewidth=1.0, zorder=3)
+                        self._placed_artists.append(ax.scatter(a[0], a[1], s=60, facecolors="none",
+                                                               edgecolors="#888888", linewidths=1.2, zorder=3))
+                self._placed_artists.append(ax.add_patch(plt.Circle((p[0], p[1]), 0.05, color=colour, fill=False,
+                                                                    linewidth=1.2, zorder=4)))
+                self._placed_artists.append(ax.scatter(p[0], p[1], c="white" if pending else colour, s=160,
+                                                       marker="X", edgecolors=colour if pending else "black",
+                                                       linewidths=1.5, zorder=10))
+                self._placed_artists.append(ax.annotate(f"{i + 1}", (p[0], p[1]), textcoords="offset points",
+                                                        xytext=(8, 8), fontsize=10, fontweight="bold",
+                                                        color=colour if pending else INK))
+
         if info is not None:
             # Waypoints are in the workspace frame; the plot is shoulder-local.
             shoulder = np.asarray(info.get("shoulder_position", [0.0, 0.0]), dtype=float)
             wps = info.get("waypoints") or [info.get("goal_position")]
             k = int(info.get("current_waypoint_index", 0))
             tol = float(info.get("goal_tolerance", 0.05))
-            n_wp = len(wps)
             # A free-order policy picks its own route, so the panel must not
-            # draw one: no line through the points in list order and no numbers
-            # implying a sequence. Points are grey until the arm has visited
-            # them, green afterwards.
+            # draw one: no numbers implying a sequence. Points are grey until
+            # the arm has visited them, green afterwards.
             free_order = bool(info.get("free_order"))
             visited = list(info.get("visited") or [])
-            # No line is drawn between the waypoints. It was only ever
-            # decoration joining them in list order, but it reads as a track the
-            # arm is being steered along, which is the opposite of what happens:
-            # the policy is given a target position and works out the movement
-            # itself, and the path it actually takes is the trail it leaves.
+            # No line is drawn between the waypoints. It would read as a track
+            # the arm is being steered along, which is the opposite of what
+            # happens: the policy is given a target position and works out the
+            # movement itself, and the path it takes is the trail it leaves.
             for i, wp in enumerate(wps):
                 p = np.asarray(wp, dtype=float) - shoulder
                 if free_order:
@@ -1489,113 +1887,317 @@ class ArmControllerGUI:
                     colour = "green" if done else "lightgray"
                 else:
                     colour = "green" if i < k or info.get("success") else ("red" if i == k else "lightgray")
-                self.ax.add_patch(plt.Circle((p[0], p[1]), tol, color=colour, alpha=0.15, zorder=4))
-                self.ax.add_patch(plt.Circle((p[0], p[1]), tol, color=colour, fill=False, linewidth=1.2, zorder=4))
-                self.ax.scatter(p[0], p[1], c=colour, s=160, marker="X", edgecolors="black", linewidths=1.5, zorder=10)
+                self._targets_artists.append(ax.add_patch(plt.Circle((p[0], p[1]), tol, color=colour, alpha=0.15,
+                                                                     zorder=4)))
+                self._targets_artists.append(ax.add_patch(plt.Circle((p[0], p[1]), tol, color=colour, fill=False,
+                                                                     linewidth=1.2, zorder=4)))
+                self._targets_artists.append(ax.scatter(p[0], p[1], c=colour, s=160, marker="X", edgecolors="black",
+                                                        linewidths=1.5, zorder=10))
                 if not free_order:
-                    self.ax.annotate(f"{i + 1}", (p[0], p[1]), textcoords="offset points", xytext=(8, 8),
-                                     fontsize=10, fontweight="bold")
+                    self._targets_artists.append(ax.annotate(f"{i + 1}", (p[0], p[1]), textcoords="offset points",
+                                                             xytext=(8, 8), fontsize=10, fontweight="bold"))
+
+        handles = [h for h in (self._a_cloud, self._a_trail, self._a_shoulder, self._a_hand)
+                   if h is not None and h.get_visible()]
+        ax.legend(handles=handles, loc="upper right", fontsize=8, framealpha=0.9)
+
+    def _update_visualization(self):
+        """Update the arm visualization"""
+        if getattr(self, "_arm_scene_key", None) != tuple(self.config.link_lengths):
+            self._build_arm_scene()
+        positions = np.asarray(self.controller.positions, dtype=float)
+        info = self.sim_last_info if self.simulation_active else None
+
+        # Moving parts.
+        self._a_arm.set_data(positions[:, 0], positions[:, 1])
+        self._a_joints.set_data(positions[1:-1, 0], positions[1:-1, 1])
+        self._a_shoulder.set_data([positions[0, 0]], [positions[0, 1]])
+        self._a_hand.set_data([positions[-1, 0]], [positions[-1, 1]])
+        # The hand's path: the run's recent trail, or the recorded trajectory.
+        trail = None
+        if self.show_trajectory:
+            if self.simulation_active and len(self._hand_trail) > 1:
+                trail = np.asarray(self._hand_trail)
+            elif self.trajectory_points:
+                trail = np.asarray(self.trajectory_points)[:, :2]
+        if trail is not None:
+            self._a_trail.set_data(trail[:, 0], trail[:, 1])
+        self._a_trail.set_visible(trail is not None)
+
+        # Background layers, rebuilt only when what they show changes.
+        show_cloud = bool(self._place_mode or (self.clicked_waypoints and not self.simulation_active))
+        placed_visible = bool(self.clicked_waypoints and (not self.simulation_active or self._place_mode))
+        pending = bool(self.simulation_active)
+        placed_key = (tuple(tuple(w) for w in self.clicked_waypoints),
+                      tuple((tuple(a), tuple(u)) for a, u in self.clicked_requests), placed_visible, pending)
+        targets_key = None
+        if info is not None:
+            wps = info.get("waypoints") or [info.get("goal_position")]
+            targets_key = (tuple(tuple(np.round(np.asarray(w, dtype=float), 6)) for w in wps),
+                           int(info.get("current_waypoint_index", 0)), bool(info.get("success")),
+                           float(info.get("goal_tolerance", 0.05)), bool(info.get("free_order")),
+                           tuple(bool(v) for v in (info.get("visited") or [])))
+        static_key = (show_cloud, self._feasible_cloud_key if show_cloud else None, placed_key, targets_key,
+                      trail is not None)
+        full = static_key != self._static_key
+        if full:
+            self._rebuild_static_layers(show_cloud, info, placed_visible, pending)
+            self._static_key = static_key
+
+        title = "Arm configuration"
+        if placed_visible and not self.simulation_active:
+            title = f"{len(self.clicked_waypoints)} point(s) placed - press 'Run with these points'"
+        elif self._place_mode and not self.simulation_active:
+            title = "Click inside the green area to place a point"
+        if info is not None:
+            wps = info.get("waypoints") or [info.get("goal_position")]
+            n_wp = len(wps)
+            k = int(info.get("current_waypoint_index", 0))
             hold_pct = int(round(100.0 * float(info.get("hold_progress", 0.0))))
             reached = int(info.get("waypoints_reached", 0))
             state = "HOLD COMPLETE" if info.get("success") else ("settling" if info.get("in_goal_region") else "moving")
-            if free_order:
+            if info.get("free_order"):
                 title = f"{reached}/{n_wp} visited (arm's own order) | hold {hold_pct}% | {state}"
             else:
                 title = f"WP {min(k + 1, n_wp)}/{n_wp} | hold {hold_pct}% | {state} | {reached}/{n_wp} reached"
-            if self.sim_hold_bar is not None:
-                self.sim_hold_bar["value"] = hold_pct
-            if self.sim_progress_label is not None:
+            if self.sim_paused:
+                title += "  (paused)"
+        self._a_title.set_text(title)
+
+        dynamic_key = (positions.tobytes(), title, None if trail is None else (len(trail), trail[-1].tobytes()))
+        stale = self._arm_bg is None or getattr(self, "_arm_bg_bounds", None) != tuple(self.fig.bbox.bounds)
+        if full or stale:
+            self.canvas_agg.draw()
+        elif dynamic_key != self._dynamic_key:
+            self.canvas_agg.restore_region(self._arm_bg)
+            for artist in self._dynamic_artists:
+                self.fig.draw_artist(artist)
+            self.canvas_agg.blit(self.fig.bbox)
+        self._dynamic_key = dynamic_key
+
+    def _update_progress_strip(self):
+        info = self.sim_last_info if self.simulation_active else None
+        if info is None:
+            self._target_label.config(text="No simulation running")
+            self._state_badge.config(text="IDLE", bg=TRACK, fg=MUTED)
+            self.sim_hold_bar["value"] = 0
+            self._hold_pct_label.config(text="0%")
+            last = self.sim_last_info
+            if last is not None and self.sim_episode_count:
+                n_wp = len(last.get("waypoints") or [last.get("goal_position")])
                 self.sim_progress_label.config(
-                    text=f"reached {reached}/{n_wp}  |  episodes {self.sim_successes}/{max(self.sim_episode_count, 1)}")
+                    text=f"last run: reached {int(last.get('waypoints_reached', 0))}/{n_wp}  |  "
+                         f"holds {self.sim_successes}/{max(self.sim_episode_count, 1)}")
+            else:
+                self.sim_progress_label.config(text="")
+            return
+        wps = info.get("waypoints") or [info.get("goal_position")]
+        n_wp = len(wps)
+        k = int(info.get("current_waypoint_index", 0))
+        reached = int(info.get("waypoints_reached", 0))
+        hold_pct = int(round(100.0 * float(info.get("hold_progress", 0.0))))
+        if info.get("free_order"):
+            self._target_label.config(text=f"{reached} of {n_wp} visited")
+        else:
+            self._target_label.config(text=f"Target {min(k + 1, n_wp)} of {n_wp}")
+        if info.get("success"):
+            self._state_badge.config(text="HOLD COMPLETE ✓", bg="#e2f4ea", fg=GOOD)
+        elif info.get("in_goal_region"):
+            self._state_badge.config(text="SETTLING", bg="#fdf0db", fg=WARN)
+        else:
+            self._state_badge.config(text="MOVING", bg="#e3eefb", fg=ACCENT)
+        self.sim_hold_bar["value"] = hold_pct
+        self._hold_pct_label.config(text=f"{hold_pct}%")
+        self.sim_progress_label.config(
+            text=f"reached {reached}/{n_wp}  |  episodes {self.sim_successes}/{max(self.sim_episode_count, 1)}")
 
-        self.ax.set_xlabel("X (m)  [+x = in front of the body]")
-        self.ax.set_ylabel("Y (m)")
-        self.ax.set_title(title, fontsize=9 if info is not None else 10)
-        self.ax.grid(True, alpha=0.3)
-        self.ax.legend(loc="upper right")
+    def _update_plots(self):
+        """Refresh the three live plots from the history buffers."""
+        if self.torque_canvas is None:
+            return
+        have_torque = len(self.torque_time_hist) > 0
+        have_hand = len(self.ee_kin_time_hist) > 0
+        t = np.asarray(self.torque_time_hist, dtype=float)
+        for line, data in zip(self._ln_tau, (self.shoulder_torque_hist, self.elbow_torque_hist)):
+            line.set_data(t, np.asarray(data, dtype=float))
+        for line, data in zip(self._ln_grav, (self.shoulder_gravity_hist, self.elbow_gravity_hist)):
+            line.set_data(t, np.asarray(data, dtype=float))
+        th = np.asarray(self.ee_kin_time_hist, dtype=float)
+        for line, data in zip(self._ln_vel, (self.ee_vx_hist, self.ee_vy_hist, self.ee_speed_hist)):
+            line.set_data(th, np.asarray(data, dtype=float))
+        for line, data in zip(self._ln_acc, (self.ee_ax_hist, self.ee_ay_hist)):
+            line.set_data(th, np.asarray(data, dtype=float))
+        for ax, has, times, text in zip((self.torque_ax, self.velacc_ax_vel, self.velacc_ax_acc),
+                                        (have_torque, have_hand, have_hand), (t, th, th), self._plot_empty_text):
+            text.set_visible(not has)
+            if not has:
+                ax.set_xlim(0.0, 10.0)
+                ax.set_ylim(-1.0, 1.0)
+                continue
+            ax.relim()
+            ax.autoscale_view(scalex=False)
+            # Keep the recent window readable for long runs.
+            end = float(times[-1])
+            ax.set_xlim(max(0.0, end - 20.0), max(end, 1.0))
+        self.torque_canvas.draw_idle()
 
-        # Use dynamic axis limits based on arm reach
-        xlim_min, xlim_max = self._calculate_axis_limits()
-        self.ax.set_xlim(xlim_min, xlim_max)
-        self.ax.set_ylim(xlim_min, xlim_max)
+    def _update_vel_acc_plot(self):
+        """Kept for callers of the old two-panel layout: all plots share one canvas."""
+        self._update_plots()
 
-        self.canvas_agg.draw_idle()
+    def _update_torque_plot(self):
+        """Kept for callers of the old two-panel layout: all plots share one canvas."""
+        self._update_plots()
+
+    def _update_readouts(self):
+        """Live-status tiles, muscle bars and the header pill."""
+        info = self.sim_last_info if self.simulation_active else None
+        if self.simulation_active:
+            mode, bg, fg = ("PAUSED", "#fdf0db", WARN) if self.sim_paused else ("RUNNING MODEL", "#e2f4ea", GOOD)
+        elif self.recording:
+            mode, bg, fg = "RECORDING", "#fbe3e3", BAD
+        elif self.playing_back:
+            mode, bg, fg = "PLAYBACK", "#fdf0db", WARN
+        else:
+            mode, bg, fg = "IDLE", TRACK, MUTED
+        self._mode_pill.config(text=mode, bg=bg, fg=fg)
+        self._fps_label.config(text=f"{self.fps_counter:.0f} fps")
+
+        tiles = self._tiles
+        if info is None:
+            tiles["state"].config(text="Idle" if not self.simulation_active else "Paused", fg=MUTED)
+            for key in ("episode", "time", "target", "reached", "hold", "distance", "speed", "reward"):
+                tiles[key].config(text="–", fg=INK)
+            tiles["holds"].config(text=f"{self.sim_successes}" if self.sim_episode_count else "–", fg=INK)
+        else:
+            wps = info.get("waypoints") or [info.get("goal_position")]
+            n_wp = len(wps)
+            k = int(info.get("current_waypoint_index", 0))
+            dt = float(getattr(getattr(self.sim_env, "unwrapped", self.sim_env), "dt", 0.02) or 0.02)
+            if info.get("success"):
+                tiles["state"].config(text="Hold complete", fg=GOOD)
+            elif info.get("in_goal_region"):
+                tiles["state"].config(text="Settling", fg=WARN)
+            else:
+                tiles["state"].config(text="Moving", fg=ACCENT)
+            tiles["episode"].config(text=f"{self.sim_episode_count}", fg=INK)
+            tiles["time"].config(text=f"{int(info.get('step', 0)) * dt:.2f} s", fg=INK)
+            tiles["target"].config(text="own order" if info.get("free_order") else f"{min(k + 1, n_wp)} of {n_wp}",
+                                   fg=INK)
+            tiles["reached"].config(text=f"{int(info.get('waypoints_reached', 0))} of {n_wp}", fg=INK)
+            tiles["hold"].config(text=f"{100 * float(info.get('hold_progress', 0.0)):.0f}%", fg=INK)
+            tiles["distance"].config(text=f"{100 * float(info.get('goal_distance', 0.0)):.1f} cm", fg=INK)
+            tiles["speed"].config(text=f"{float(info.get('ee_speed', 0.0)):.2f} m/s", fg=INK)
+            tiles["reward"].config(text=f"{self.sim_episode_reward:+.1f}", fg=INK)
+            tiles["holds"].config(text=f"{self.sim_successes} of {max(self.sim_episode_count, 1)}", fg=INK)
+
+        acts = None
+        if info is not None and info.get("muscle_activations") is not None:
+            acts = np.asarray(info["muscle_activations"], dtype=float)
+        for j, (canvas, rect, pct) in enumerate(self._muscle_rows):
+            a = float(acts[j]) if acts is not None and j < acts.shape[0] else 0.0
+            width = max(1, canvas.winfo_width())
+            canvas.coords(rect, 0, 0, width * min(max(a, 0.0), 1.0), 14)
+            pct.config(text=f"{100 * a:.0f}%" if acts is not None else "–")
 
     def _update_metrics_display(self):
-        """Update metrics display"""
+        """Update the 'All readings' text."""
         pos = self.controller.get_end_effector_position()
+        info = self.sim_last_info
+        angles = self.controller.angles
+        wp_line = (f"{(int(info.get('current_waypoint_index', 0)) + 1)}/{int(info.get('num_waypoints', 0))}"
+                   if info else "-/-")
+        tau_note = "muscle torque" if len(self.torque_time_hist) and not np.isnan(
+            self.shoulder_gravity_hist[-1]) else "inverse-dynamics estimate"
 
-        metrics_text = f"""
-CURRENT STATE:
-{'═' * 32}
-Position: ({pos[0]:.3f}, {pos[1]:.3f}, {pos[2]:.3f})
+        metrics_text = f"""CURRENT STATE
+{'─' * 34}
+Hand position (m, from shoulder):
+  ({pos[0]:.3f}, {pos[1]:.3f}, {pos[2]:.3f})
+Joint angles (rad):  {', '.join(f'{a:.3f}' for a in angles)}
+Joint angles (deg):  {', '.join(f'{np.degrees(a):.1f}' for a in angles)}
+Joint velocities (rad/s):
+  {', '.join(f'{v:.3f}' for v in self.controller.velocities)}
 
-Joint Angles (rad):
-{', '.join(f'{a:.3f}' for a in self.controller.angles)}
-
-Joint Velocities (rad/s):
-{', '.join(f'{v:.3f}' for v in self.controller.velocities)}
-
-RECORDING:
-{'═' * 32}
+RECORDING
+{'─' * 34}
 Status: {'REC' if self.recording else 'STOPPED'}
 Frames: {self.recorder.get_num_frames()}
 Config: {self.config.name}
 
-PLAYBACK:
-{'═' * 32}
+PLAYBACK
+{'─' * 34}
 Status: {'PLAYING' if self.playing_back else 'IDLE'}
 Progress: {self.playback_index}/{len(self.playback_frames)}
 
-SIMULATION:
-{'═' * 32}
-Status: {'RUNNING' if self.simulation_active else 'IDLE'}
+SIMULATION
+{'─' * 34}
+Status: {'PAUSED' if self.sim_paused else ('RUNNING' if self.simulation_active else 'IDLE')}
 Model: {Path(self.sim_model_path).name if self.sim_model_path else 'None'}
+Kind: {self.sim_model_kind}
 Algo: {self.sim_algorithm if self.sim_algorithm else '-'}
 Episode: {self.sim_episode_count}
 Steps: {self.sim_step_count}
+Sim time: {self.sim_time:.2f} s
 Ep Reward: {self.sim_episode_reward:.3f}
-Shoulder τ: {self.latest_shoulder_torque:.3f} Nm
+Shoulder τ: {self.latest_shoulder_torque:.3f} Nm ({tau_note})
 Elbow τ: {self.latest_elbow_torque:.3f} Nm
-Waypoint: {(int(self.sim_last_info.get('current_waypoint_index', 0)) + 1) if self.sim_last_info else '-'}/{int(self.sim_last_info.get('num_waypoints', 0)) if self.sim_last_info else '-'}
-Hold: {int(round(100 * float(self.sim_last_info.get('hold_progress', 0.0)))) if self.sim_last_info else 0}%  Success: {bool(self.sim_last_info.get('success')) if self.sim_last_info else False}
+Hand speed: {float(info.get('ee_speed', 0.0)) if info else 0.0:.3f} m/s
+Distance to target: {float(info.get('goal_distance', 0.0)) if info else 0.0:.3f} m
+Waypoint: {wp_line}
+Hold: {int(round(100 * float(info.get('hold_progress', 0.0)))) if info else 0}%  Success: {bool(info.get('success')) if info else False}
 Holds completed: {self.sim_successes}
 
-PERFORMANCE:
-{'═' * 32}
+PERFORMANCE
+{'─' * 34}
 FPS: {self.fps_counter:.1f}
+Speed: {self.sim_speed_multiplier:.1f}x real time
 Trajectory Pts: {len(self.trajectory_points)}
 
-TRAJECTORY:
-{'═' * 32}
+TRAJECTORY
+{'─' * 34}
 Show: {'ON' if self.show_trajectory else 'OFF'}
 Points: {len(self.trajectory_points)}
-        """
-
-        # Update text widget
+"""
+        first = self.metrics_text.yview()[0]
         self.metrics_text.config(state="normal")
         self.metrics_text.delete(1.0, tk.END)
         self.metrics_text.insert(1.0, metrics_text)
         self.metrics_text.config(state="disabled")
+        self.metrics_text.yview_moveto(first)
+
+    # ============================================================== loop
 
     def _handle_keyboard(self, event):
-        """Handle keyboard events"""
+        """Handle keyboard events (ignored while typing in a text box)."""
+        focus = self.root.focus_get()
+        if isinstance(focus, (tk.Entry, ttk.Entry, ttk.Combobox, tk.Text, tk.Spinbox)):
+            return
         # Joint selection with Left/Right
         if event.keysym == "Left":
             self.selected_joint = max(0, self.selected_joint - 1)
-            print(f"[OK] Selected joint {self.selected_joint}")
+            self._log(f"[OK] Selected joint J{self.selected_joint + 1}")
         elif event.keysym == "Right":
             self.selected_joint = min(self.config.dof - 1, self.selected_joint + 1)
-            print(f"[OK] Selected joint {self.selected_joint}")
+            self._log(f"[OK] Selected joint J{self.selected_joint + 1}")
         # Joint control with Up/Down on selected joint
         elif event.keysym == "Up":
             self._increment_joint(self.selected_joint, 0.05)
         elif event.keysym == "Down":
             self._increment_joint(self.selected_joint, -0.05)
-        elif event.char == 't':
+        elif event.char in ("t", "T"):
             # Toggle trajectory
             self.show_trajectory = not self.show_trajectory
-            print(f"[OK] Trajectory {'ON' if self.show_trajectory else 'OFF'}")
+            if hasattr(self, "_trail_var"):
+                self._trail_var.set(self.show_trajectory)
+            self._log(f"[OK] Trajectory {'ON' if self.show_trajectory else 'OFF'}")
+
+    def _default_model(self):
+        """The deployed model (R3), if it is on disk."""
+        for label, model in self._package_choices.items():
+            if label.startswith("R3"):
+                return model
+        return next(iter(self._package_choices.values()), None)
 
     def run(self):
         """Run the GUI event loop"""
@@ -1607,41 +2209,61 @@ Points: {len(self.trajectory_points)}
         self.root.bind("<Left>", self._handle_keyboard)
         self.root.bind("<Right>", self._handle_keyboard)
         self.root.bind("<t>", self._handle_keyboard)
+        self.root.bind("<T>", self._handle_keyboard)
 
-        if getattr(self, "sim_model_path", "") and getattr(self, "_pending_autostart", False):
-            if self.sim_model_label is not None:
-                self.sim_model_label.config(text=f"Model: {Path(self.sim_model_path).name} (SAC)")
-            if self.sim_toggle_button is not None:
-                self.sim_toggle_button.config(state="normal")
-            if hasattr(self, "_wp_choice_var"):
-                self._wp_choice_var.set(self.sim_waypoint_choice)
-            if hasattr(self, "_loop_var"):
-                self._loop_var.set(self.sim_loop)
+        # Model given on the command line, else preselect the deployed one.
+        initial = self._initial_model or (None if self.sim_model_path else self._default_model())
+        if initial is not None:
+            self._load_model(str(initial))
+        elif self.sim_model_path:
+            self._load_model(self.sim_model_path + ".zip")
+        if self.sim_waypoint_choice == "custom" and self.sim_custom_waypoints:
+            self._wp_custom_var.set(self.sim_custom_waypoints)
+            self._on_custom_committed()
+        self._wp_choice_var.set(self.sim_waypoint_choice)
+        self._loop_var.set(self.sim_loop)
+        self._refresh_points_hint()
+        if self.sim_model_path and self._pending_autostart:
             self.root.after(300, self._start_simulation)
+
+        self._last_step_wall = None
+        self._last_slow_update = 0.0
 
         def update_loop():
             """Main update loop"""
             if not self.running:
                 return
+            tick_start = time()
 
-            # Handle playback
-            if self.simulation_active:
-                self.sim_step_accumulator += self.sim_steps_per_frame * self.sim_speed_multiplier
+            # Advance the simulation by the real time that has passed, so
+            # "1.0x real time" is true whatever the frame rate. (Stepping a
+            # fixed count per frame tied the arm's speed to the frame rate -
+            # 0.3x at 7 frames a second - and rounded 2.5 steps a frame to 2.)
+            if self.simulation_active and not self.sim_paused:
+                base = getattr(self.sim_env, "unwrapped", self.sim_env)
+                dt = float(getattr(base, "dt", 0.02) or 0.02)
+                if self._last_step_wall is not None:
+                    elapsed = min(tick_start - self._last_step_wall, 0.25)
+                    self.sim_step_accumulator += elapsed * self.sim_speed_multiplier / dt
+                self._last_step_wall = tick_start
                 n_steps = int(self.sim_step_accumulator)
                 self.sim_step_accumulator -= n_steps
-                for _ in range(n_steps):
+                for _ in range(min(n_steps, 60)):
                     self._simulation_step()
                     if not self.simulation_active:
                         break
-            elif self.playing_back and self.playback_frames:
+            else:
+                self._last_step_wall = None
+            if self.playing_back and self.playback_frames and not self.simulation_active:
                 if self.playback_index < len(self.playback_frames):
                     frame_state = self.playback_frames[self.playback_index]
                     self.controller.apply_state(frame_state)
+                    self._refresh_joint_labels()
                     self.playback_index += 1
                 else:
                     self.playing_back = False
                     self.playback_button.config(text="Playback")
-                    print("[OK] Playback finished")
+                    self._log("[OK] Playback finished")
 
             # Record current frame if recording
             if self.recording:
@@ -1654,30 +2276,21 @@ Points: {len(self.trajectory_points)}
 
             # Update visualizations.
             #
-            # Redrawing all four matplotlib canvases every tick costs a whole
-            # core and starves the Tk event loop, so the window stops answering
-            # clicks and Windows marks it "not responding" - even when the arm
-            # is standing still and there is nothing new to draw. Only the arm
-            # panel needs to keep up with motion; the supporting plots are
-            # readable at 5 Hz, and when nothing is moving nothing needs
-            # redrawing at all beyond an occasional refresh.
-            self._frame_tick = getattr(self, "_frame_tick", 0) + 1
+            # Redrawing every matplotlib canvas every tick costs a whole core
+            # and starves the Tk event loop, so the window stops answering
+            # clicks and Windows marks it "not responding". The arm view only
+            # repaints what moved (see _update_visualization), so it keeps up
+            # with motion every frame; the three plots and the readouts are
+            # readable at 4 Hz, and when nothing is moving a 1 Hz refresh keeps
+            # them current (including the final trace after a run ends).
             moving = bool(self.simulation_active or self.playing_back or self.recording)
-            slow_tick = self._frame_tick % 4 == 0
-            if moving or slow_tick:
-                self._update_visualization()
-            if moving and slow_tick:
+            self._update_visualization()
+            self._update_progress_strip()
+            if tick_start - self._last_slow_update >= (0.25 if moving else 1.0):
+                self._last_slow_update = tick_start
+                self._update_readouts()
                 self._update_metrics_display()
-                self._update_torque_plot()
-                self._update_vel_acc_plot()
-            elif not moving and self._frame_tick % 20 == 0:
-                # Idle: a 1 Hz refresh keeps the panels current (including the
-                # final trace after a run ends) for almost no cost.
-                self._update_metrics_display()
-                self._update_torque_plot()
-                self._update_vel_acc_plot()
-            if self.simulation_active:
-                self._append_ee_kinematics_sample(time())
+                self._update_plots()
 
             # Update FPS counter
             current_time = time()
@@ -1688,8 +2301,9 @@ Points: {len(self.trajectory_points)}
             else:
                 self.frame_count += 1
 
-            # Schedule next update (50ms = ~20 FPS base, matplotlib will render at higher FPS)
-            self.root.after(50, update_loop)
+            # Next frame: aim for 25 frames a second.
+            spent_ms = 1000.0 * (time() - tick_start)
+            self.root.after(max(5, int(40 - spent_ms)), update_loop)
 
         # Start update loop
         update_loop()
@@ -1728,11 +2342,7 @@ def main(argv=None):
         model_zip = pkg if pkg.is_file() else pkg / f"sac_model_{args.which}.zip"
         if not model_zip.exists():
             model_zip = pkg / "sac_model.zip"
-        gui.sim_model_path = gui._normalize_model_base(str(model_zip))
-        gui.sim_algorithm = "SAC"
-        mp = find_manifest(str(model_zip))
-        gui.sim_package_dir = str(mp.parent) if mp else None
-        gui.sim_manifest = read_manifest(mp) if mp else None
+        gui._initial_model = model_zip
         if args.waypoints:
             w = args.waypoints.strip().lower()
             gui.sim_waypoint_choice = {"1": "1 waypoint", "2": "2 waypoints", "3": "3 waypoints", "spread": "spread"}.get(w, "custom")
