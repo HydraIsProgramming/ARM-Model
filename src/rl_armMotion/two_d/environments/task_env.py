@@ -262,6 +262,8 @@ class ArmTaskEnv(gym.Env):
         random_waypoints: Optional[int] = None,
         waypoint_region: Optional[Sequence[float]] = None,
         waypoint_grid: float = 0.02,
+        reach_margin: Optional[float] = None,
+        joint_margin_deg: Optional[float] = None,
         free_order: bool = False,
         free_order_slots: Optional[int] = None,
         render_mode: Optional[str] = None,
@@ -414,6 +416,11 @@ class ArmTaskEnv(gym.Env):
         self.waypoint_region: Optional[List[float]] = (
             [float(v) for v in waypoint_region] if waypoint_region is not None else None)
         self.waypoint_grid = float(waypoint_grid)
+        # Which targets count as holdable (see waypoint_feasibility). None keeps
+        # the rules every model up to R6 was trained with; a model trained on
+        # the full human workspace records its own values in describe().
+        self.reach_margin: Optional[float] = None if reach_margin is None else float(reach_margin)
+        self.joint_margin_deg: Optional[float] = None if joint_margin_deg is None else float(joint_margin_deg)
         self._feasible_points: Optional[np.ndarray] = None
         self._configure_goal(goal_direction)
         if self.random_waypoints is not None:
@@ -779,9 +786,28 @@ class ArmTaskEnv(gym.Env):
         q = self.solve_ik(position)
         return None if q is None else self._compute_orientation(q)
 
+    @property
+    def human_limits_workspace(self) -> bool:
+        """True when targets are limited only by the human joint ranges (plus a
+        small clearance from each hard stop) and strength, not by the legacy
+        reach-margin ring."""
+        return self.joint_margin_deg is not None
+
     def waypoint_feasibility(self, position: Optional[Sequence[float]] = None,
                              tolerance: Optional[float] = None) -> Dict[str, Any]:
-        """Geometric + static feasibility of holding the hand at ``position``."""
+        """Geometric + static feasibility of holding the hand at ``position``.
+
+        Two rule sets. The legacy one (every model up to R6) keeps targets at
+        least (coarsest tolerance + 3 cm) = 18 cm inside full reach and clear of
+        each joint's 10-degree passive end-range zone. It excluded 62% of the
+        arm's reachable workspace - the whole outer ring, where the elbow is
+        less than ~88 degrees bent - so the arm was never asked to reach far out.
+        The human-limits set (joint_margin_deg given) keeps only what a human arm
+        cannot do: a target must be reachable within the joint ranges with every
+        joint at least joint_margin_deg inside its hard stop (no target is held
+        by jamming a joint against its stop), and holdable with at most 80% of
+        each joint's torque.
+        """
         pos = np.asarray(self.goal_position if position is None else position, dtype=float).reshape(2)
         tol = float(self.goal_tolerance if tolerance is None else tolerance)
         p = self._local(pos)
@@ -789,14 +815,20 @@ class ArmTaskEnv(gym.Env):
         L = np.asarray(self.config.link_lengths, dtype=float)
         out: Dict[str, Any] = {"position": pos.tolist(), "tolerance": tol, "radius_from_shoulder": r}
         r_min = abs(L[0] - L[1]) if self.num_dof == 2 else 0.0
-        # A goal closer to the reach circle than the coarsest curriculum
-        # tolerance can be "reached" by a straight arm resting on the elbow's
-        # end-range spring -- a degenerate hold that policies learn at the
-        # coarse rungs and cannot unlearn (Stage B, v1 waypoints).
-        reach_margin = max(tol, float(self.max_curriculum_tolerance)) + 0.03
+        if self.human_limits_workspace:
+            reach_margin = float(self.reach_margin or 0.0)
+            r_inner = r_min
+        else:
+            # A goal closer to the reach circle than the coarsest curriculum
+            # tolerance can be "reached" by a straight arm resting on the elbow's
+            # end-range spring -- a degenerate hold that policies learn at the
+            # coarse rungs and cannot unlearn (Stage B, v1 waypoints).
+            reach_margin = (max(tol, float(self.max_curriculum_tolerance)) + 0.03 if self.reach_margin is None
+                            else float(self.reach_margin))
+            r_inner = r_min + tol
         out["reach_margin_required"] = reach_margin
         out["reach_margin"] = float(np.sum(L)) - r
-        if not (r_min + tol < r < float(np.sum(L)) - reach_margin):
+        if not (r_inner < r < float(np.sum(L)) - reach_margin):
             out.update(reachable=r < float(np.sum(L)), within_rom=False, feasible=False,
                        reason=(f"radius {r:.3f} m is within {reach_margin:.3f} m of the reach circle "
                                f"({np.sum(L):.3f} m): a straight-arm rest would count as in-goal at the "
@@ -820,8 +852,11 @@ class ArmTaskEnv(gym.Env):
         # the same MDP penalises. This is the joint-space twin of the reach
         # margin above: both exclude targets that can only be held degenerately.
         # A joint with no passive margin (legacy gravity-free presets) is exempt.
-        m_min = np.asarray(self.config.passive_limit_margins_min, dtype=float)
-        m_max = np.asarray(self.config.passive_limit_margins_max, dtype=float)
+        if self.human_limits_workspace:
+            m_min = m_max = np.full(q.shape, np.radians(self.joint_margin_deg))
+        else:
+            m_min = np.asarray(self.config.passive_limit_margins_min, dtype=float)
+            m_max = np.asarray(self.config.passive_limit_margins_max, dtype=float)
         clear_lo = (q - qmin) - np.where(m_min > 0, m_min, 0.0)
         clear_hi = (qmax - q) - np.where(m_max > 0, m_max, 0.0)
         end_range_clearance = float(min(np.min(clear_lo), np.min(clear_hi)))
@@ -836,10 +871,14 @@ class ArmTaskEnv(gym.Env):
         )
         if end_range_clearance < 0.0:
             joint = int(np.argmin(np.minimum(clear_lo, clear_hi)))
-            out.update(feasible=False,
-                       reason=(f"holding here puts joint {joint} "
-                               f"{np.degrees(-end_range_clearance):.1f} deg inside its passive end-range "
-                               f"zone, which the spring resists and the joint-limit penalty charges for"))
+            if self.human_limits_workspace:
+                reason = (f"holding here puts joint {joint} within {self.joint_margin_deg:.0f} deg of its hard "
+                          f"stop (beyond the human range of motion)")
+            else:
+                reason = (f"holding here puts joint {joint} {np.degrees(-end_range_clearance):.1f} deg inside its "
+                          f"passive end-range zone, which the spring resists and the joint-limit penalty "
+                          f"charges for")
+            out.update(feasible=False, reason=reason)
             return out
         if np.any(ratio > 0.8):
             out.update(feasible=False, reason="holding here needs more than 80% of a torque limit")
@@ -1378,6 +1417,8 @@ class ArmTaskEnv(gym.Env):
             "free_order_slots": self.free_order_slots,
             "waypoint_region": self.waypoint_region,
             "waypoint_grid": self.waypoint_grid,
+            "reach_margin": self.reach_margin,
+            "joint_margin_deg": self.joint_margin_deg,
         }
 
     # What an absent reward key means: the term did not exist when that model
@@ -1444,6 +1485,9 @@ class ArmTaskEnv(gym.Env):
             free_order_slots=desc.get("free_order_slots"),
             waypoint_region=desc.get("waypoint_region"),
             waypoint_grid=desc.get("waypoint_grid", 0.02),
+            # Absent from every manifest before R7: those models keep the legacy rules.
+            reach_margin=desc.get("reach_margin"),
+            joint_margin_deg=desc.get("joint_margin_deg"),
         )
         if "waypoints" in overrides:
             # Explicit waypoints pin the task (e.g. GUI-placed points on a

@@ -134,3 +134,55 @@ def test_legacy_preset_without_springs_is_unaffected():
     q = np.array([np.radians(-30.0), qmax[1] - np.radians(3.0)])
     f = legacy.waypoint_feasibility(legacy._end_effector_from_angles(q), EVAL_STANDARD.tolerance)
     assert f["feasible"], f
+
+
+# ---------------------------------------------------------------------------
+# Full human workspace (Stage R7 on): only the joint ranges and strength limit
+# where a target may be.
+
+def _human():
+    return ArmTaskEnv(random_waypoints=3, joint_margin_deg=5.0, reach_margin=0.0)
+
+
+def test_human_limits_workspace_is_far_larger_than_the_legacy_one():
+    legacy, human = ArmTaskEnv(random_waypoints=3), _human()
+    n_legacy, n_human = len(legacy.feasible_points()), len(human.feasible_points())
+    assert n_human > 2 * n_legacy                        # 1850 vs 744 grid points
+    S = np.asarray(human.shoulder_base_position)
+    r = np.hypot(*(human.feasible_points() - S).T)
+    # Out to (almost) full reach, which the legacy 18 cm ring forbade ...
+    assert r.max() > human.reach - 0.01
+    assert np.hypot(*(legacy.feasible_points() - S).T).max() < human.reach - 0.17
+    # ... and in to what the elbow's range allows (140 deg -> 0.23 m).
+    assert r.min() < 0.24
+    # Behind the body: the shoulder's 55 deg of usable extension.
+    assert (human.feasible_points() - S)[:, 0].min() < -0.40
+
+
+def test_human_limits_rule_keeps_every_joint_clear_of_its_hard_stop():
+    env = _human()
+    qmin = np.degrees(env.config.joint_limits_min)
+    qmax = np.degrees(env.config.joint_limits_max)
+    for p in env.feasible_points()[::25]:
+        f = env.waypoint_feasibility(p, env.max_curriculum_tolerance)
+        q = np.asarray(f["joint_angles_deg"])
+        assert np.all(q - qmin >= 5.0 - 1e-6) and np.all(qmax - q >= 5.0 - 1e-6)
+        assert max(f["torque_ratio"]) <= 0.8
+    # A straight arm (elbow on its stop) is outside the human range, so full reach itself is not a target.
+    S = np.asarray(env.shoulder_base_position)
+    f = env.waypoint_feasibility((S + [env.reach - 1e-4, 0.0]).tolist(), env.max_curriculum_tolerance)
+    assert not f["feasible"]
+
+
+def test_human_limits_rules_round_trip_and_old_manifests_keep_theirs():
+    env = _human()
+    rebuilt = ArmTaskEnv.from_description(env.describe())
+    assert (rebuilt.joint_margin_deg, rebuilt.reach_margin) == (5.0, 0.0)
+    assert len(rebuilt.feasible_points()) == len(env.feasible_points())
+    # A manifest written before the keys existed (every model up to R6) rebuilds with the legacy rules.
+    old = ArmTaskEnv(random_waypoints=3).describe()
+    old.pop("joint_margin_deg")
+    old.pop("reach_margin")
+    legacy = ArmTaskEnv.from_description(old)
+    assert legacy.joint_margin_deg is None and legacy.reach_margin is None
+    assert len(legacy.feasible_points()) == len(ArmTaskEnv(random_waypoints=3).feasible_points())

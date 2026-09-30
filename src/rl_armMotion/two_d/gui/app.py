@@ -41,7 +41,7 @@ from time import time
 from rl_armMotion.two_d.config import ArmConfiguration
 from rl_armMotion.two_d.environments.task_env import ArmTaskEnv, ActionSmoother, DEFAULT_PRESET, OBS_VERSION
 from rl_armMotion.two_d.evaluation import (
-    CANONICAL_WAYPOINTS, EVAL_STANDARD, WAYPOINTS_SPREAD, detect_actuation_mode, find_manifest,
+    CANONICAL_WAYPOINTS, EVAL_STANDARD, WAYPOINTS_SPREAD, detect_actuation_mode, env_from_manifest, find_manifest,
     load_package, make_env, read_manifest, resolve_waypoints,
 )
 from rl_armMotion.two_d.models.trainers import RLTrainer
@@ -1155,6 +1155,8 @@ class ArmControllerGUI:
         self.sim_model_path = model_base
         self.sim_algorithm = algorithm
         self.sim_model = None
+        self._manifest_env = None          # rebuilt from the new manifest on demand
+        self._feasible_cloud_key = None
         metadata = self._read_model_metadata(model_base)
         episodes = 0
         best_reward = "-"
@@ -1380,10 +1382,30 @@ class ArmControllerGUI:
         hint.config(text=text)
 
     def _feasibility_env(self):
-        base = getattr(self.sim_env, "unwrapped", None) if self.sim_env is not None else None
-        if base is None:
-            base = ArmTaskEnv(actuation_mode="torque", config=self.config)
-        return base
+        """The env whose rules decide where points can go (and what is shaded green).
+
+        The running simulation's env if there is one; otherwise the loaded
+        model's, rebuilt from its manifest - so the green area is that model's
+        own training region before a run starts, not some default; otherwise the
+        default arm's. Models trained on the full human workspace (R7 on) and
+        older ones (the 18 cm reach-margin rules) shade different regions.
+        """
+        base = getattr(self.sim_env, "unwrapped", None) if getattr(self, "sim_env", None) is not None else None
+        if base is not None:
+            return base
+        if getattr(self, "sim_manifest", None) is not None:
+            if getattr(self, "_manifest_env", None) is None:
+                try:
+                    self._manifest_env = env_from_manifest(self.sim_manifest)
+                except Exception:
+                    self._manifest_env = None
+            if self._manifest_env is not None:
+                return self._manifest_env
+        key = (self.config.name, tuple(self.config.link_lengths))
+        if getattr(self, "_default_env_key", None) != key:
+            self._default_env = ArmTaskEnv(actuation_mode="torque", config=self.config)
+            self._default_env_key = key
+        return self._default_env
 
     def _nearest_placeable(self, env, wp, existing):
         """Nearest point the arm can actually hold that also clears the spacing
@@ -1467,10 +1489,11 @@ class ArmControllerGUI:
         self._refresh_points_hint()
 
     def _feasible_cloud_points(self):
-        """Shoulder-local scatter of feasible waypoint positions (cached per config)."""
-        key = (self.config.name, tuple(self.config.link_lengths))
+        """Shoulder-local scatter of feasible waypoint positions (cached per arm and rule set)."""
+        env = self._feasibility_env()
+        key = (self.config.name, tuple(self.config.link_lengths), getattr(env, "reach_margin", None),
+               getattr(env, "joint_margin_deg", None))
         if self._feasible_cloud_key != key:
-            env = self._feasibility_env()
             pts = env.feasible_points() - np.asarray(env.shoulder_base_position, dtype=float)
             self._feasible_cloud = pts
             self._feasible_cloud_key = key

@@ -159,3 +159,21 @@ def test_arm_properties_rebuild_the_drawn_arm(gui):
     from rl_armMotion.two_d.environments.task_env import DEFAULT_PRESET
     gui.config = ArmConfiguration.get_preset(DEFAULT_PRESET)
     gui._sync_ui_to_config()
+
+
+def test_green_area_is_the_loaded_models_own_region(gui, tmp_path):
+    """Before a run starts, the shaded region comes from the loaded model's
+    manifest, not from a default env with the legacy rules."""
+    from rl_armMotion.two_d.environments.task_env import ArmTaskEnv
+    import json
+    human = ArmTaskEnv(random_waypoints=3, joint_margin_deg=5.0, reach_margin=0.0,
+                       activation_time_constants=(0.04, 0.06))
+    (tmp_path / "run_manifest.json").write_text(json.dumps({"algorithm": "SAC", "env": human.describe()}))
+    (tmp_path / "sac_model_best.zip").write_bytes(b"")
+    gui._load_model(str(tmp_path / "sac_model_best.zip"))
+    assert gui._feasibility_env().joint_margin_deg == 5.0
+    assert len(gui._feasible_cloud_points()) == len(human.feasible_points())
+    if R3.exists():
+        gui._load_model(str(R3))
+        assert gui._feasibility_env().joint_margin_deg is None
+        assert len(gui._feasible_cloud_points()) == 744

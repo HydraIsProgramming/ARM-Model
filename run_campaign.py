@@ -62,6 +62,15 @@ STAGES = {
                             "penalty gains a linear term so it has a real slope at the cap"),
                extra=["--random-waypoints", "3", "--activation-dynamics", "0.04,0.06",
                       "--reward-weight", "W_ACCEL=0.02"]),
+    "R7": dict(waypoints="none", timesteps=1_000_000,
+               description=("THREE RANDOM waypoints over the FULL HUMAN WORKSPACE: targets limited only by the "
+                            "joint ranges (5 deg clear of each hard stop) and strength, not the 18 cm reach-margin "
+                            "ring; otherwise R3's exact config and reward"),
+               extra=["--random-waypoints", "3", "--joint-margin-deg", "5", "--reach-margin", "0",
+                      "--activation-dynamics", "0.04,0.06",
+                      "--reward-weight", "W_ACCEL=0.02", "--reward-weight", "EE_SPEED_CAP=1.5",
+                      "--reward-weight", "W_SPEED_EXCESS=0.5", "--reward-weight", "W_SPEED_LINEAR=0",
+                      "--reward-weight", "SPEED_PENALTY_CAP=inf"]),
     "F2": dict(waypoints="none", timesteps=500_000,
                description=("PILOT: TWO random waypoints, FREE ORDER - isolates chaining, which is where the "
                             "three-point free-order runs stalled (they reached one point and stopped)"),

@@ -53,6 +53,12 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--free-order", action="store_true",
                    help="Show the policy every waypoint at once and let it choose the route "
                         "(no active-goal channel, no ordering signal). Needs --random-waypoints N.")
+    p.add_argument("--joint-margin-deg", type=float, default=None,
+                   help="Full human workspace: targets need only be reachable with every joint this many degrees "
+                        "inside its hard stop (and holdable at <=80%% torque). Default: the legacy rules "
+                        "(18 cm reach-margin ring + 10 deg passive end-range zone).")
+    p.add_argument("--reach-margin", type=float, default=None,
+                   help="Metres a target must stay inside full reach (with --joint-margin-deg; default 0).")
     p.add_argument("--waypoint-region", type=str, default=None,
                    help='Clip the random-waypoint region: "xmin,xmax,ymin,ymax" in the workspace frame.')
     p.add_argument("--hold-decrement", type=int, default=None, help="Default: evaluation standard (5).")
@@ -160,6 +166,8 @@ def main(argv=None) -> int:
         random_waypoints=args.random_waypoints,
         free_order=args.free_order,
         waypoint_region=_parse_floats(args.waypoint_region) if args.waypoint_region else None,
+        reach_margin=args.reach_margin,
+        joint_margin_deg=args.joint_margin_deg,
     )
     if args.random_waypoints:
         waypoints = None
