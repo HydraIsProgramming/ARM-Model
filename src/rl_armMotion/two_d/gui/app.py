@@ -68,6 +68,7 @@ ARM_C = "#262a31"
 # What each trained package is, for the quick-pick list. Anything not listed
 # is described from its own manifest.
 KNOWN_PACKAGES = {
+    "R7": "any 3 points, full human range",
     "R3": "reaches any 3 points (deployed)",
     "R4": "any 3 points, end-range rule",
     "R5": "any 3 points, human speed cost",
@@ -77,7 +78,7 @@ KNOWN_PACKAGES = {
     "B": "3 fixed points only (v1)",
     "A": "2 fixed points only",
 }
-PACKAGE_ORDER = ["R3", "R4", "R5", "R6", "F2", "B3", "B", "A"]
+PACKAGE_ORDER = ["R7", "R3", "R4", "R5", "R6", "F2", "B3", "B", "A"]
 
 WAYPOINT_CHOICES = [                 # (internal value, label on screen)
     ("from package", "Model's own points"),
