@@ -20,6 +20,13 @@ import argparse
 import json
 import os
 import sys
+
+# numpy's OpenBLAS starts its own thread pool (up to one thread per core) next to
+# torch's. The env only does 2x2 linear algebra, so those threads buy nothing,
+# and with five training processes the two pools oversubscribe the CPU. Two of
+# ten R7 runs died with access violations inside numpy/native code; capping
+# OpenBLAS is the standard mitigation (it must be set before numpy loads).
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 import time
 from datetime import datetime
 from pathlib import Path

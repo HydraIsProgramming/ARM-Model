@@ -208,6 +208,19 @@ Before R7, the deployed R3 on 200 three-target episodes from the full workspace
 (`scripts/eval_workspace_regions.py`): 10 % episode success — 100 % of targets in its own area and close in, but
 17 % in the outer ring, 12 % overhead, 15 % hanging low and 57 % behind the body.
 
+**Stage R7 result** (R3's config on the full workspace). At 1M steps it failed the stage criterion (mean 0.53,
+0/5 seeds ≥ 80 %) but was still rising, so the same five runs were continued to 2M steps: mean **0.81 ± 0.13,
+4/5 seeds ≥ 80 % (PASS)**; champion seed 2 (best checkpoint at 1.8M, 19/20). On the same 200 full-workspace
+episodes it completes all three targets in **82 %** (R3: 10 %): old area 97 %, outer ring 93 %, overhead 89 %,
+behind the body 80 %, hanging low 87 %, close in 90 %. Human-limits audit: every hard limit respected; 5 of 6
+human-likeness measures in band, peak hand speed 2.07 m/s outside it (as R3's 2.14); co-contraction 0.47 holding
+vs 0.22 moving. On freely clicked points it reaches all three in 79 % of 80 trials, provided a click it cannot
+hold is snapped 3 cm *inside* the area's edge (on the edge itself: 51 %; points on the edge 69 % vs 91 % inside).
+R3 scores 100 % on the same clicks only because it moves 82 % of them into its smaller area (median 25 cm,
+p90 57 cm away). R7 is the deployed model from here on. Two of the ten 1M-step continuations died with access
+violations in native code (numpy, unknown module); both resumed from their last save, and training now caps
+OpenBLAS at one thread.
+
 ### 2.1b Random waypoints (the generalising task, Stages R3 and R4)
 
 `ArmTaskEnv(random_waypoints=N)` draws a fresh ordered set of N targets at every `reset()`

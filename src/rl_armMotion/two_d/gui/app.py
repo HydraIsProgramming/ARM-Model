@@ -68,8 +68,8 @@ ARM_C = "#262a31"
 # What each trained package is, for the quick-pick list. Anything not listed
 # is described from its own manifest.
 KNOWN_PACKAGES = {
-    "R7": "any 3 points, full human range",
-    "R3": "reaches any 3 points (deployed)",
+    "R7": "any 3 points, full human range (deployed)",
+    "R3": "any 3 points, original smaller area",
     "R4": "any 3 points, end-range rule",
     "R5": "any 3 points, human speed cost",
     "R6": "any 3 points, binding speed cap",
@@ -79,6 +79,15 @@ KNOWN_PACKAGES = {
     "A": "2 fixed points only",
 }
 PACKAGE_ORDER = ["R7", "R3", "R4", "R5", "R6", "F2", "B3", "B", "A"]
+
+# A click the arm cannot hold is moved this far INSIDE the edge of the green
+# area, not onto the edge itself. Most random clicks land outside the area and
+# so get moved; right on the edge every joint is near its limit, and there the
+# full-range model (R7) completed 69% of points against 91% for points clicked
+# inside. Snapping 3 cm in raised moved points to 92% and three-point success
+# on random clicks from 51% to 79% (5 cm in: 66%). Clicks that are already
+# allowed are never moved.
+SNAP_INSET_M = 0.03
 
 WAYPOINT_CHOICES = [                 # (internal value, label on screen)
     ("from package", "Model's own points"),
@@ -1367,7 +1376,8 @@ class ArmControllerGUI:
         env_desc = (self.sim_manifest or {}).get("env", {})
         if self._place_mode:
             text = (f"{n} point(s) placed. Click inside the green area of the arm view to add one; a click the "
-                    f"arm cannot hold is moved to the nearest point it can. Right-click a point to remove it.")
+                    f"arm cannot hold is moved to the nearest point it can, a little inside the edge. Right-click a "
+                    f"point to remove it.")
         elif self.sim_waypoint_choice == "custom":
             text = (f"{n} point(s) placed. Turn on 'Click the arm view' to add more, or type them above."
                     if n else "No points yet: turn on 'Click the arm view' and click inside the green area.")
@@ -1408,18 +1418,59 @@ class ArmControllerGUI:
             self._default_env_key = key
         return self._default_env
 
-    def _nearest_placeable(self, env, wp, existing):
-        """Nearest point the arm can actually hold that also clears the spacing
-        rules, or None if nothing within reach of the click qualifies."""
+    @staticmethod
+    def _spacing_ok(env, points):
+        try:
+            env._validate_waypoint_spacing([np.asarray(w, dtype=float) for w in points])
+            return True
+        except ValueError:
+            return False
+
+    def _edge_distance(self, env):
+        """For each of env.feasible_points(): distance to the nearest grid cell
+        outside the allowed area (one grid step = on the edge). Cached per env."""
         pts = env.feasible_points()
+        cache = getattr(self, "_edge_cache", None)
+        if cache is not None and cache[0] is env and cache[1] == len(pts):
+            return cache[2]
+        g = float(env.waypoint_grid)
+        lo = pts.min(axis=0) - 2 * g
+        hi = pts.max(axis=0) + 2 * g
+        ix = np.round((pts - lo) / g).astype(int)
+        shape = tuple(np.round((hi - lo) / g).astype(int) + 1)
+        inside = np.zeros(shape, dtype=bool)
+        inside[ix[:, 0], ix[:, 1]] = True
+        out_cells = np.argwhere(~inside)
+        dist = np.empty(len(pts))
+        for start in range(0, len(pts), 256):
+            block = ix[start:start + 256]
+            d = np.linalg.norm(block[:, None, :] - out_cells[None, :, :], axis=2).min(axis=1)
+            dist[start:start + 256] = d * g
+        self._edge_cache = (env, len(pts), dist)
+        return dist
+
+    def _nearest_placeable(self, env, wp, existing, inset=None):
+        """Where a click should go: unchanged if the arm can hold it there and it
+        clears the spacing rules, otherwise the nearest point that does, chosen
+        at least `inset` (SNAP_INSET_M) inside the edge of the allowed area when
+        there is one, else anywhere in it. (None, 0) if nothing qualifies."""
         target = np.asarray(wp, dtype=float)
-        for idx in np.argsort(np.linalg.norm(pts - target, axis=1))[:400]:
-            cand = [float(v) for v in pts[idx]]
-            try:
-                env._validate_waypoint_spacing([np.asarray(w, dtype=float) for w in existing + [cand]])
-            except ValueError:
-                continue
-            return cand, float(np.linalg.norm(np.asarray(cand) - target))
+        if (env.waypoint_feasibility(target.tolist(), env.max_curriculum_tolerance).get("feasible", False)
+                and self._spacing_ok(env, list(existing) + [target.tolist()])):
+            return [float(v) for v in target], 0.0
+        inset = SNAP_INSET_M if inset is None else float(inset)
+        pts = env.feasible_points()
+        order = np.argsort(np.linalg.norm(pts - target, axis=1))
+        if inset > 0:
+            deep = self._edge_distance(env)[order] >= inset + float(env.waypoint_grid) - 1e-9
+            passes = (order[deep][:400], order[:400])
+        else:
+            passes = (order[:400],)
+        for candidates in passes:
+            for idx in candidates:
+                cand = [float(v) for v in pts[idx]]
+                if self._spacing_ok(env, list(existing) + [cand]):
+                    return cand, float(np.linalg.norm(np.asarray(cand) - target))
         return None, 0.0
 
     def _on_canvas_click(self, event):
@@ -2229,10 +2280,11 @@ Points: {len(self.trajectory_points)}
             self._log(f"[OK] Trajectory {'ON' if self.show_trajectory else 'OFF'}")
 
     def _default_model(self):
-        """The deployed model (R3), if it is on disk."""
-        for label, model in self._package_choices.items():
-            if label.startswith("R3"):
-                return model
+        """The deployed model - R7 (full human range), else R3 - if it is on disk."""
+        for stage in ("R7", "R3"):
+            for label, model in self._package_choices.items():
+                if label.startswith(stage + " "):
+                    return model
         return next(iter(self._package_choices.values()), None)
 
     def run(self):

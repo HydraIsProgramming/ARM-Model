@@ -313,3 +313,25 @@ def test_snapping_respects_the_spacing_rule():
     snapped, _ = gui._nearest_placeable(env, first, [first])
     assert snapped is not None
     assert np.linalg.norm(np.asarray(snapped) - np.asarray(first)) > 2 * env.max_curriculum_tolerance
+
+
+def test_a_click_outside_the_area_lands_a_little_inside_its_edge():
+    """Points right on the edge of the full-range area are the hardest to hold
+    (69% vs 91% inside for R7), so a moved click goes 3 cm inside the edge; a
+    click that is already allowed is never moved."""
+    import numpy as np
+    from rl_armMotion.two_d.gui.app import ArmControllerGUI, SNAP_INSET_M
+    from rl_armMotion.two_d.environments.task_env import ArmTaskEnv
+
+    gui = ArmControllerGUI.__new__(ArmControllerGUI)
+    env = ArmTaskEnv(random_waypoints=3, joint_margin_deg=5.0, reach_margin=0.0)
+    S = np.asarray(env.shoulder_base_position)
+    edge = gui._edge_distance(env)
+    assert edge.min() == pytest.approx(env.waypoint_grid)           # edge points are one grid step from outside
+    far = (S + [0.649, 0.30]).tolist()                              # outside reach: must be moved
+    snapped, moved = gui._nearest_placeable(env, far, [])
+    i = int(np.argmin(np.linalg.norm(env.feasible_points() - np.asarray(snapped), axis=1)))
+    assert moved > 0 and edge[i] >= SNAP_INSET_M + env.waypoint_grid - 1e-9
+    on_edge = [float(v) for v in env.feasible_points()[int(np.argmin(edge))]]
+    same, moved0 = gui._nearest_placeable(env, on_edge, [])         # allowed already: stays put
+    assert moved0 == 0.0 and same == pytest.approx(on_edge)
