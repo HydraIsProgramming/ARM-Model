@@ -53,7 +53,7 @@ STAGES = [
     ("B_warm", ["stageB"], "_warm", "3 fixed waypoints, warm-started from Stage A", True),
     ("B2", ["stageB2"], "", "3 fixed waypoints (v1), activation dynamics + accel. penalty; stopped", True),
     ("B3", ["stageB3"], "", "3 fixed waypoints (v2 set), clean config", False),
-    ("R3", ["stageR3", "stageR3_cont"], "", "3 RANDOM waypoints per episode (the deployed model)", False),
+    ("R3", ["stageR3", "stageR3_cont"], "", "3 RANDOM waypoints per episode (deployed until R7)", False),
     ("R4", ["stageR4"], "", "3 random waypoints + end-range feasibility rule", False),
     ("R5", ["stageR5"], "", "R4 + human hand-speed cost (quadratic, cap 1.2, weight 10)", False),
     ("R6", ["stageR6"], "", "R4 + binding speed cost (linear 3 + quadratic 5, cap 1.2)", False),
@@ -61,6 +61,18 @@ STAGES = [
      "3 random points, FREE ORDER; dense term keyed to the nearest point (reward cliff)", True),
     ("F3", ["stageF3"], "", "3 random points, FREE ORDER, dense term = remaining tour; crashed at ~400K", True),
     ("F2", ["stageF2"], "", "2 random points, FREE ORDER pilot", False),
+    ("R7", ["stageR7", "stageR7_cont", "stageR7_cont2"], "",
+     "3 random waypoints over the FULL HUMAN WORKSPACE (R3's reward); 2M steps (paused at 100K, extended past 1M)",
+     False),
+    # R8 family: torque actuators instead of muscles (present once trained; missing folders are skipped)
+    ("R8", ["stageR8"], "", "R7's task and reward with joint-torque ACTUATORS (no muscles)", False),
+    ("R8E", ["stageR8E"], "", "R8 + 250-step training episodes (screening, stopped 200K after T80)", False),
+    ("R8N", ["stageR8N"], "", "R8 + 3-step returns (screening)", False),
+    ("R8U", ["stageR8U"], "", "R8 + 2 gradient updates per step (screening)", False),
+    ("R8T", ["stageR8T"], "", "R8 trained with TQC (screening)", False),
+    ("R8F", ["stageR8F"], "", "R8 fast recipe", False),
+    ("R8FA", ["stageR8FA"], "", "R8 fast recipe + acceleration penalty max at 10 m/s^2", False),
+    ("R8FP", ["stageR8FP"], "", "R8 fast recipe + torque-rate penalty", False),
 ]
 
 SAC_FIELDS = ["ep_len_mean", "ep_rew_mean", "episodes", "fps", "time_elapsed", "total_timesteps",

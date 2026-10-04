@@ -19,6 +19,7 @@ should not be confused when judging whether the model "works".
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -40,6 +41,7 @@ def parse_args():
     p.add_argument("--anywhere", action="store_true",
                    help="click uniformly in the reach disc instead of on feasible points "
                         "(measures what the GUI rejects, as a real user would experience)")
+    p.add_argument("--json", default=None, help="also write the numbers here")
     return p.parse_args()
 
 
@@ -150,6 +152,15 @@ def main():
               f"({len(snapped) / max(total_points, 1):.0%}), median {np.median(snapped) * 100:.0f} cm, "
               f"p90 {np.percentile(snapped, 90) * 100:.0f} cm")
         print("  (the panel draws the point you asked for and a dotted line to the one used)")
+    if args.json:
+        Path(args.json).write_text(json.dumps({
+            "package": str(args.package), "trials": n_done, "points": args.points, "anywhere": bool(args.anywhere),
+            "all_reached": ok, "success_rate": ok / max(n_done, 1), "wilson95": [lo, hi],
+            "points_reached_fraction": float(np.mean(reached_frac)) if reached_frac else 0.0,
+            "median_time_s": float(np.median(times)) if times else None,
+            "median_worst_miss_m": float(np.median(misses)) if misses else None,
+            "clicks_moved_fraction": len(snapped) / max(total_points, 1),
+            "median_move_m": float(np.median(snapped)) if snapped else 0.0}, indent=2))
     return 0
 
 

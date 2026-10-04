@@ -237,12 +237,27 @@ def main():
         print(f"   - {key} {med:.2f} vs {lo:.2f}-{hi:.2f} ({note})")
 
     if args.json:
+        extra = {
+            "actuation": base.actuation_mode,
+            "peak_hand_speed": float(sp.max()), "steps_above_speed_cap": over,
+            "peak_torque_pct": (100 * np.max(np.abs(tau), axis=0) / tau_max).tolist(),
+            "steps_in_end_range": float(np.mean(np.any(er > 0, axis=1))),
+            "steps_on_hard_stop": float(np.mean(np.any(at, axis=1))),
+            "hold_drift_mm": float(np.median(drift) * 1000) if drift else None,
+            "waypoints_visited": float(reached),
+        }
+        if not muscles:
+            extra["rms_torque_rate"] = np.sqrt(np.mean(rate ** 2, axis=0)).tolist()
+        elif act.shape[1] >= 4:
+            extra["cocontraction_hold"] = float(cocon[holding].mean()) if holding.any() else None
+            extra["cocontraction_move"] = float(cocon[moving].mean()) if moving.any() else None
         payload = {
             "package": str(args.package), "episodes": len(eps),
             "hard_limits": {name: bool(ok) for name, ok, _ in checks},
             "human_likeness": {k: float(np.median(v)) for k, v in mets.items()},
             "flagged": [k for k, *_ in flagged],
             "success_rate": succ / len(eps),
+            **extra,
         }
         Path(args.json).write_text(json.dumps(payload, indent=2), encoding="utf-8")
         print(f"\nreport -> {args.json}")
