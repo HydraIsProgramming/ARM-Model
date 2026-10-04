@@ -82,7 +82,7 @@ def test_visited_flag_is_the_only_thing_that_changes_per_waypoint():
 
 
 def test_observation_bounds_hold_over_random_rollouts():
-    env = make(activation_time_constants=(0.04, 0.06))
+    env = make(actuation_mode="muscle", activation_time_constants=(0.04, 0.06))   # muscle-only feature
     for seed in range(3):
         obs, _ = env.reset(seed=seed)
         for _ in range(300):
@@ -219,7 +219,7 @@ def test_potential_rises_as_waypoints_are_completed():
 # --------------------------------------------------------------------------- #
 
 def test_describe_roundtrip_keeps_free_order():
-    env = make(activation_time_constants=(0.04, 0.06))
+    env = make(actuation_mode="muscle", activation_time_constants=(0.04, 0.06))   # muscle-only feature
     desc = env.describe()
     assert desc["free_order"] and desc["free_order_slots"] == 3
     assert desc["obs_version"] == OBS_VERSION_FREE_ORDER

@@ -76,6 +76,10 @@ class EvalCheckpointCurriculumCallback(BaseCallback):
         save_replay_buffer: bool = True,
         resume_state: Optional[Dict[str, Any]] = None,
         model_stem: str = "sac_model",
+        probe_episodes: int = 10,
+        t80_threshold: float = 0.8,
+        t80_window: int = 3,
+        stop_after_t80: Optional[int] = None,
         verbose: int = 1,
     ):
         super().__init__(verbose=verbose)
@@ -100,6 +104,17 @@ class EvalCheckpointCurriculumCallback(BaseCallback):
         self.checkpoint_every = int(checkpoint_every)
         self.save_replay_buffer = bool(save_replay_buffer)
         self.model_stem = model_stem
+        # "Steps needed" (T80): every round also runs a PROBE at the production standard on
+        # episodes that change every round (the production eval replays the same 10, so the
+        # best checkpoint is partly fitted to them). T80 is the first round at which the mean
+        # of the last `t80_window` probes reaches `t80_threshold`. With stop_after_t80 the run
+        # ends that many steps after T80 (enough to see whether success holds).
+        self.probe_episodes = max(0, int(probe_episodes))
+        self.t80_threshold = float(t80_threshold)
+        self.t80_window = max(1, int(t80_window))
+        self.stop_after_t80 = None if stop_after_t80 is None else int(stop_after_t80)
+        self.t80_step: Optional[int] = None
+        self._stop = False
 
         self.tolerance_idx = 0
         self.hold_idx = 0
@@ -146,7 +161,13 @@ class EvalCheckpointCurriculumCallback(BaseCallback):
         if self.checkpoint_every > 0 and self.num_timesteps - self._last_checkpoint_step >= self.checkpoint_every:
             self._last_checkpoint_step = self.num_timesteps
             self._save_checkpoint()
-        return True
+        if (self.stop_after_t80 is not None and self.t80_step is not None
+                and self.num_timesteps >= self.t80_step + self.stop_after_t80):
+            if not self._stop and self.verbose:
+                print(f"[Curriculum] stopping at {self.num_timesteps:,}: T80 was {self.t80_step:,}, "
+                      f"+{self.stop_after_t80:,} steps confirmed", flush=True)
+            self._stop = True
+        return not self._stop
 
     def _on_training_end(self) -> None:
         self._save_last(with_buffer=True)
@@ -156,6 +177,11 @@ class EvalCheckpointCurriculumCallback(BaseCallback):
     def _get_eval_env(self):
         if self._eval_env is None:
             self._eval_env = self.eval_env_fn()
+            # The eval env is rebuilt from the TRAINING env, so a run that trains on short
+            # episodes would otherwise also be evaluated on them. Evaluations always use the
+            # production episode length.
+            base = getattr(self._eval_env, "unwrapped", self._eval_env)
+            base.max_episode_steps = int(self.standard.max_steps)
         return self._eval_env
 
     def _run_round(self) -> None:
@@ -181,6 +207,20 @@ class EvalCheckpointCurriculumCallback(BaseCallback):
                                    seed=self.standard.seed, max_steps=self.standard.max_steps)
         self._last_prod_success = prod_res.success_rate
         score = list(prod_res.score())
+
+        # 2b. probe: production standard on fresh episodes every round (for T80)
+        probe_rate = None
+        if self.probe_episodes > 0:
+            probe_res = evaluate_policy(self.model, env, n_episodes=self.probe_episodes,
+                                        seed=int(self.standard.seed) + 500_000 + 100 * self.rounds,
+                                        max_steps=self.standard.max_steps, human_likeness=False)
+            probe_rate = float(probe_res.success_rate)
+            recent = [h["probe_success_rate"] for h in self.history if h.get("probe_success_rate") is not None]
+            recent = (recent + [probe_rate])[-self.t80_window:]
+            if (self.t80_step is None and len(recent) == self.t80_window
+                    and sum(recent) / len(recent) >= self.t80_threshold):
+                self.t80_step = int(self.num_timesteps)
+                self.model.save(str(self.run_dir / self.model_stem) + "_t80")
 
         improved = self.best_score is None or score > list(self.best_score)
         if improved:
@@ -222,6 +262,8 @@ class EvalCheckpointCurriculumCallback(BaseCallback):
             "prod_mean_max_hold": prod_res.mean_max_hold,
             "prod_mean_final_distance": prod_res.mean_final_distance,
             "prod_score": score,
+            "probe_success_rate": probe_rate,
+            "t80_step": self.t80_step,
             "improved": bool(improved),
             "advanced": advanced,
         }
@@ -231,7 +273,8 @@ class EvalCheckpointCurriculumCallback(BaseCallback):
             print(f"[Curriculum] step {self.num_timesteps:,}: train(tol {entry['train_tolerance']:.3f}, "
                   f"hold {entry['train_hold_steps']}) {train_res.summary_line()} | "
                   f"production {prod_res.summary_line()}"
-                  + (" | NEW BEST" if improved else "")
+                  + (f" | probe {probe_rate:.0%}" if probe_rate is not None else "")
+            + (" | NEW BEST" if improved else "")
                   + (f" | {advanced}" if advanced else ""), flush=True)
 
     # ------------------------------------------------------------------ #
@@ -266,6 +309,9 @@ class EvalCheckpointCurriculumCallback(BaseCallback):
             "streak": self._streak,
             "advance_consecutive": self.advance_consecutive,
             "cooldown_rounds": self.cooldown_rounds,
+            "t80_step": self.t80_step,
+            "t80_rule": {"threshold": self.t80_threshold, "window": self.t80_window,
+                         "probe_episodes": self.probe_episodes, "stop_after_t80": self.stop_after_t80},
             "history": self.history,
         }
 
@@ -283,6 +329,7 @@ class EvalCheckpointCurriculumCallback(BaseCallback):
         self._cooldown = int(st.get("cooldown", 0))
         self._streak = int(st.get("streak", 0))
         self.history = list(st.get("history", []))
+        self.t80_step = st.get("t80_step")
         self.tolerance_idx = min(self.tolerance_idx, len(self.tolerance_ladder) - 1)
         self.hold_idx = min(self.hold_idx, len(self.hold_ladder) - 1)
 

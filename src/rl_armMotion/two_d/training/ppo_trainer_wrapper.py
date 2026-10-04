@@ -36,7 +36,9 @@ class RLTrainerWithMetrics:
     """Wrapper around RLTrainer that streams metrics for GUI visualisation,
     attaches the evaluation-driven curriculum for SAC and writes packages."""
 
-    SUPPORTED_ALGORITHMS = ("PPO", "SAC", "A2C")
+    SUPPORTED_ALGORITHMS = ("PPO", "SAC", "A2C", "TQC")
+    # Off-policy algorithms share SAC's replay buffer, curriculum callback and package layout.
+    OFF_POLICY = ("SAC", "TQC")
 
     def __init__(
         self,
@@ -125,7 +127,7 @@ class RLTrainerWithMetrics:
                 return ArmTaskEnv.from_description(desc)
 
             training_env = make_vec_env(_factory, n_envs=self.n_envs, seed=seed, vec_env_cls=DummyVecEnv)
-            if self.algorithm == "SAC":
+            if self.algorithm in self.OFF_POLICY:
                 # Keep the update-to-data ratio at 1 gradient step per env step.
                 hyperparams.setdefault("train_freq", 1)
                 hyperparams.setdefault("gradient_steps", self.n_envs)
@@ -174,7 +176,7 @@ class RLTrainerWithMetrics:
         self.stop_requested = False
 
         if use_curriculum is None:
-            self.use_curriculum = self.algorithm == "SAC"
+            self.use_curriculum = self.algorithm in self.OFF_POLICY
         else:
             self.use_curriculum = bool(use_curriculum)
         self.curriculum_kwargs = dict(curriculum_kwargs) if curriculum_kwargs else {}
@@ -275,7 +277,7 @@ class RLTrainerWithMetrics:
             cli_args=self.cli_args,
             eval_standard=self.standard.to_dict(),
             curriculum={
-                "enabled": self.use_curriculum and self.algorithm == "SAC",
+                "enabled": self.use_curriculum and self.algorithm in self.OFF_POLICY,
                 "tolerance_ladder": self.tolerance_ladder,
                 "hold_ladder": self.hold_ladder,
                 "eval_freq": self.eval_freq,
@@ -299,7 +301,7 @@ class RLTrainerWithMetrics:
 
         gui_callback = TrainingGUICallback(trainer=self, check_freq=self.check_freq)
         callbacks: List[Any] = [gui_callback]
-        if self.use_curriculum and self.algorithm == "SAC" and self.run_dir is not None:
+        if self.use_curriculum and self.algorithm in self.OFF_POLICY and self.run_dir is not None:
             self.run_dir.mkdir(parents=True, exist_ok=True)
             self.eval_checkpoint_callback = EvalCheckpointCurriculumCallback(
                 run_dir=str(self.run_dir),
@@ -312,7 +314,11 @@ class RLTrainerWithMetrics:
                 cooldown_rounds=self.cooldown_rounds,
                 checkpoint_every=self.checkpoint_every,
                 resume_state=self.resume_state,
-                model_stem=f"{self.algorithm.lower()}_model",
+                # Package files keep the standard names (sac_model_best.zip ...) whatever the
+                # algorithm; the manifest records which algorithm they hold.
+                model_stem="sac_model",
+                probe_episodes=int(self.curriculum_kwargs.get("probe_episodes", 10)),
+                stop_after_t80=self.curriculum_kwargs.get("stop_after_t80"),
                 verbose=1,
             )
             callbacks.append(self.eval_checkpoint_callback)
@@ -483,7 +489,8 @@ class RLTrainerWithMetrics:
         if self.run_dir is None:
             self.run_dir = save_path.resolve()
 
-        model_path = os.path.join(save_dir, f"{self.algorithm.lower()}_model")
+        model_path = os.path.join(save_dir, "sac_model" if self.algorithm in self.OFF_POLICY
+                                  else f"{self.algorithm.lower()}_model")
         self.trainer.save(model_path)
         if hasattr(self.trainer.model, "save_replay_buffer"):
             try:

@@ -69,6 +69,14 @@ ARM_C = "#262a31"
 # is described from its own manifest.
 KNOWN_PACKAGES = {
     "R7": "any 3 points, full human range (deployed)",
+    "R8": "any 3 points, full human range",
+    "R8F": "any 3 points, full range, fast training recipe",
+    "R8E": "R8 trained on 5 s episodes",
+    "R8N": "R8 trained with 3-step returns",
+    "R8U": "R8 trained with 2 updates per step",
+    "R8T": "R8 trained with TQC",
+    "R8A": "R8, acceleration penalty maxes at 10 m/s²",
+    "R8P": "R8 + torque-rate penalty",
     "R3": "any 3 points, original smaller area",
     "R4": "any 3 points, end-range rule",
     "R5": "any 3 points, human speed cost",
@@ -78,7 +86,8 @@ KNOWN_PACKAGES = {
     "B": "3 fixed points only (v1)",
     "A": "2 fixed points only",
 }
-PACKAGE_ORDER = ["R7", "R3", "R4", "R5", "R6", "F2", "B3", "B", "A"]
+PACKAGE_ORDER = ["R7", "R8", "R8F", "R8A", "R8P", "R8E", "R8N", "R8U", "R8T",
+                 "R3", "R4", "R5", "R6", "F2", "B3", "B", "A"]
 
 # A click the arm cannot hold is moved this far INSIDE the edge of the green
 # area, not onto the edge itself. Most random clicks land outside the area and
@@ -779,8 +788,11 @@ class ArmControllerGUI:
 
     def _create_muscles_frame(self, parent):
         frame, body = self._card(parent, "Muscle activation")
+        self._muscle_card_title = [w for w in frame.winfo_children()[0].winfo_children()
+                                   if isinstance(w, tk.Label)][-1]
         body.columnconfigure(1, weight=1)
         self._muscle_rows = []
+        self._muscle_labels = []
         for j, (name, detail, colour) in enumerate(MUSCLE_NAMES):
             label = tk.Label(body, text=name, bg=CARD, fg=INK, font=self.f_body, anchor="w", width=17)
             label.grid(row=j, column=0, sticky="w", pady=2)
@@ -790,12 +802,42 @@ class ArmControllerGUI:
             pct = tk.Label(body, text="0%", bg=CARD, fg=MUTED, font=self.f_small, width=5, anchor="e")
             pct.grid(row=j, column=2, sticky="e")
             self._muscle_rows.append((canvas, rect, pct))
+            self._muscle_labels.append(label)
         self._muscle_note = tk.Label(body, text="Squeezing opposing muscles together stiffens a joint; the arm "
                                                 "does this to hold still.", bg=CARD, fg=MUTED, font=self.f_small,
                                      anchor="w", justify="left", wraplength=380)
         self._autowrap(self._muscle_note).grid(row=len(MUSCLE_NAMES), column=0, columnspan=3, sticky="ew",
                                                pady=(4, 0))
         return frame
+
+    def _set_actuation_view(self, torque):
+        """Muscle models show 4 activation bars; actuator models show 2 signed torque bars."""
+        self._torque_model = bool(torque)
+        if not getattr(self, "_muscle_rows", None):
+            return
+        self._muscle_card_title.config(text="Actuator torque" if torque else "Muscle activation")
+        names = (["Shoulder actuator", "Elbow actuator"] if torque else [m[0] for m in MUSCLE_NAMES])
+        for j, (label, (canvas, rect, pct)) in enumerate(zip(self._muscle_labels, self._muscle_rows)):
+            visible = j < len(names)
+            for w in (label, canvas, pct):
+                if visible:
+                    w.grid()
+                else:
+                    w.grid_remove()
+            if visible:
+                label.config(text=names[j])
+        self._muscle_note.config(
+            text=("Bar length = torque as a share of the joint's limit (25 / 12 N·m); orange = flexing "
+                  "(positive), blue = extending (negative)." if torque else
+                  "Squeezing opposing muscles together stiffens a joint; the arm does this to hold still."))
+        if getattr(self, "torque_ax", None) is not None:
+            self.torque_ax.set_title("Joint torque (N·m)" if torque else "Muscle torque (N·m)",
+                                     fontsize=9, loc="left")
+        if getattr(self, "_subtitle", None) is not None:
+            self._subtitle.config(text=("Two-joint human right arm driven by joint-torque actuators, trained with "
+                                        "reinforcement learning" if torque else
+                                        "Two-joint human right arm driven by four muscles, trained with "
+                                        "reinforcement learning"))
 
     def _create_metrics_frame(self, parent):
         """Every reading, as text."""
@@ -865,8 +907,9 @@ class ArmControllerGUI:
         titles.pack(side="left", padx=16, pady=8)
         tk.Label(titles, text="Human Arm - Reinforcement Learning Controller", bg=CARD, fg=INK,
                  font=self.f_title).pack(anchor="w")
-        tk.Label(titles, text="Two-joint, muscle-driven right arm trained with Soft Actor-Critic",
-                 bg=CARD, fg=MUTED, font=self.f_small).pack(anchor="w")
+        self._subtitle = tk.Label(titles, text="Two-joint human right arm trained with reinforcement learning",
+                                  bg=CARD, fg=MUTED, font=self.f_small)
+        self._subtitle.pack(anchor="w")
         ttk.Button(header, text="Exit", command=self.on_closing).pack(side="right", padx=16)
         self._mode_pill = tk.Label(header, text="IDLE", bg=TRACK, fg=MUTED, font=self.f_bold, padx=12, pady=4)
         self._mode_pill.pack(side="right", padx=(0, 10))
@@ -1110,8 +1153,12 @@ class ArmControllerGUI:
                 continue
             stage = d.name.rsplit("_", 1)[-1]
             rank = PACKAGE_ORDER.index(stage) if stage in PACKAGE_ORDER else len(PACKAGE_ORDER)
-            what = KNOWN_PACKAGES.get(stage) or self._describe_manifest(read_manifest(d / "run_manifest.json"))
-            entries.append((rank, stage, f"{stage}  -  {what}", model))
+            manifest = read_manifest(d / "run_manifest.json")
+            what = KNOWN_PACKAGES.get(stage) or self._describe_manifest(manifest)
+            drive = "actuators" if manifest.get("env", {}).get("actuation_mode") == "torque" else "muscles"
+            algo = str(manifest.get("algorithm", "SAC")).upper()
+            tags = drive + ("" if algo == "SAC" else f", {algo}")
+            entries.append((rank, stage, f"{stage}  -  {what}  [{tags}]", model))
         for _rank, _stage, label, model in sorted(entries):
             found[label] = model
         return found
@@ -1148,12 +1195,13 @@ class ArmControllerGUI:
         if self.simulation_active:
             self._stop_simulation()
         model_base = self._normalize_model_base(filepath)
-        algorithm = self._get_algorithm_from_metadata(model_base)
         manifest_path = find_manifest(filepath)
         self.sim_package_dir = str(manifest_path.parent) if manifest_path else None
         self.sim_manifest = read_manifest(manifest_path) if manifest_path else None
-        if algorithm is None and self.sim_manifest is not None:
-            algorithm = str(self.sim_manifest.get("algorithm", "SAC")).upper()
+        # A package's manifest names its algorithm (TQC packages keep the standard sac_* file
+        # names); only a bare zip falls back to its metadata or file name.
+        algorithm = (str(self.sim_manifest.get("algorithm", "SAC")).upper() if self.sim_manifest is not None
+                     else self._get_algorithm_from_metadata(model_base))
         if algorithm is None:
             messagebox.showerror(
                 "Unsupported Model",
@@ -1196,7 +1244,11 @@ class ArmControllerGUI:
         else:
             kind = ("Trained on fixed points only: it will not reach other points. Use R3 for points "
                     "you choose.")
+        torque = env_desc.get("actuation_mode") == "torque"
+        kind += (" Driven by joint-torque actuators (no muscles)." if torque
+                 else " Driven by four muscles.")
         self._model_kind_label.config(text=kind)
+        self._set_actuation_view(torque)
         self.sim_toggle_button.config(state="normal", text="▶  Run simulation", style="Accent.TButton")
         for label, path in self._package_choices.items():
             if Path(path).with_suffix("") == Path(model_base):
@@ -1414,7 +1466,7 @@ class ArmControllerGUI:
                 return self._manifest_env
         key = (self.config.name, tuple(self.config.link_lengths))
         if getattr(self, "_default_env_key", None) != key:
-            self._default_env = ArmTaskEnv(actuation_mode="torque", config=self.config)
+            self._default_env = ArmTaskEnv(config=self.config)   # rules only; any actuation works
             self._default_env_key = key
         return self._default_env
 
@@ -1588,7 +1640,11 @@ class ArmControllerGUI:
                 model, raw_env, _manifest = load_package(model_zip, **overrides)
             else:
                 from stable_baselines3 import SAC, PPO, A2C
-                alg_class = {"SAC": SAC, "PPO": PPO, "A2C": A2C}.get(self.sim_algorithm, SAC)
+                classes = {"SAC": SAC, "PPO": PPO, "A2C": A2C}
+                if self.sim_algorithm == "TQC":
+                    from sb3_contrib import TQC
+                    classes["TQC"] = TQC
+                alg_class = classes.get(self.sim_algorithm, SAC)
                 model = alg_class.load(self.sim_model_path, device="cpu")
                 raw_env = make_env(actuation_mode=detect_actuation_mode(model),
                                    waypoints=wps if wps is not None else 2, terminate_on_success=False)
@@ -2178,6 +2234,16 @@ class ArmControllerGUI:
             tiles["reward"].config(text=f"{self.sim_episode_reward:+.1f}", fg=INK)
             tiles["holds"].config(text=f"{self.sim_successes} of {max(self.sim_episode_count, 1)}", fg=INK)
 
+        if getattr(self, "_torque_model", False):
+            tau = None if info is None else info.get("actuator_torque")
+            limits = np.asarray(getattr(self.config, "torque_limits", None) or [25.0, 12.0], dtype=float)
+            for j, (canvas, rect, pct) in enumerate(self._muscle_rows[:2]):
+                share = 0.0 if tau is None else float(tau[j]) / float(limits[j])
+                width = max(1, canvas.winfo_width())
+                canvas.coords(rect, 0, 0, width * min(abs(share), 1.0), 14)
+                canvas.itemconfigure(rect, fill=ELBOW_C if share >= 0 else SHOULDER_C)
+                pct.config(text=f"{100 * share:+.0f}%" if tau is not None else "–")
+            return
         acts = None
         if info is not None and info.get("muscle_activations") is not None:
             acts = np.asarray(info["muscle_activations"], dtype=float)
@@ -2194,7 +2260,8 @@ class ArmControllerGUI:
         angles = self.controller.angles
         wp_line = (f"{(int(info.get('current_waypoint_index', 0)) + 1)}/{int(info.get('num_waypoints', 0))}"
                    if info else "-/-")
-        tau_note = "muscle torque" if len(self.torque_time_hist) and not np.isnan(
+        tau_note = ("actuator torque" if getattr(self, "_torque_model", False) else "muscle torque") \
+            if len(self.torque_time_hist) and not np.isnan(
             self.shoulder_gravity_hist[-1]) else "inverse-dynamics estimate"
 
         metrics_text = f"""CURRENT STATE

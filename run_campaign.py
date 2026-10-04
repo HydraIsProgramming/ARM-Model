@@ -29,6 +29,18 @@ ROOT = Path(__file__).resolve().parent
 SCRIPT = ROOT / "scripts" / "train_fischer_session.py"
 PY = sys.executable
 
+# R7's arguments with the muscles replaced by joint-torque actuators (see "R8" below). The
+# observation also carries the previous torque command (--prev-action-obs): muscles expose their
+# activation state, actuators have none, and the action-rate penalty variant needs it to be Markov.
+R8_EXTRA = ["--actuation-mode", "torque", "--prev-action-obs",
+            "--random-waypoints", "3", "--joint-margin-deg", "5", "--reach-margin", "0",
+            "--reward-weight", "W_ACCEL=0.02", "--reward-weight", "EE_SPEED_CAP=1.5",
+            "--reward-weight", "W_SPEED_EXCESS=0.5", "--reward-weight", "W_SPEED_LINEAR=0",
+            "--reward-weight", "SPEED_PENALTY_CAP=inf"]
+# Screening runs stop 200K steps after T80 (first round where the mean of the last 3 fresh
+# 10-episode probes is >= 80%) - long enough to see whether success holds.
+SCREEN = ["--stop-after-t80", "200000"]
+
 STAGES = {
     "A": dict(waypoints="2v1", timesteps=300_000, description="two waypoints (v1 set), hold at the second"),
     "B": dict(waypoints="3v1", timesteps=600_000, description="three waypoints (v1 set), hold at the third"),
@@ -71,6 +83,30 @@ STAGES = {
                       "--reward-weight", "W_ACCEL=0.02", "--reward-weight", "EE_SPEED_CAP=1.5",
                       "--reward-weight", "W_SPEED_EXCESS=0.5", "--reward-weight", "W_SPEED_LINEAR=0",
                       "--reward-weight", "SPEED_PENALTY_CAP=inf"]),
+    # --- R8: the same task and reward as R7, but the arm is driven by direct joint-torque
+    # actuators (shoulder, elbow; action in [-1, 1] x 25 / 12 N.m) instead of muscles. No
+    # --activation-dynamics: that is a muscle property, and in torque mode it would only add
+    # four always-zero observation inputs. "--actuation-mode torque" sits inside `extra` so a
+    # resumed run (scripts/resume_stage.py rebuilds from `extra`) stays a torque run.
+    "R8": dict(waypoints="none", timesteps=1_000_000,
+               description=("THREE RANDOM waypoints over the FULL HUMAN WORKSPACE with TORQUE ACTUATORS at the "
+                            "shoulder and elbow (no muscles); otherwise R7's exact config and reward"),
+               extra=R8_EXTRA),
+    # Step-reduction variants of R8: one change each, seeds 1-3 (paired with R8's), capped at 1M and
+    # stopped 200K after T80. Compared on T80 and on held-out success.
+    "R8E": dict(waypoints="none", timesteps=1_000_000,
+                description=("R8 with 250-step TRAINING episodes (5 s; evaluation stays 10 s): a successful "
+                             "episode is ~70% holding, so this doubles the fresh targets per million steps"),
+                extra=R8_EXTRA + ["--train-max-steps", "250"] + SCREEN),
+    "R8N": dict(waypoints="none", timesteps=1_000_000,
+                description="R8 with 3-step returns (SB3 n_steps=3): rewards reach earlier actions faster",
+                extra=R8_EXTRA + ["--n-steps", "3"] + SCREEN),
+    "R8U": dict(waypoints="none", timesteps=1_000_000,
+                description="R8 with 2 gradient updates per environment step (--utd 2; ~2x compute per step)",
+                extra=R8_EXTRA + ["--utd", "2"] + SCREEN),
+    "R8T": dict(waypoints="none", timesteps=1_000_000,
+                description="R8 trained with TQC (sb3-contrib) instead of SAC",
+                extra=R8_EXTRA + ["--algorithm", "TQC"] + SCREEN),
     "F2": dict(waypoints="none", timesteps=500_000,
                description=("PILOT: TWO random waypoints, FREE ORDER - isolates chaining, which is where the "
                             "three-point free-order runs stalled (they reached one point and stopped)"),
@@ -94,6 +130,8 @@ def parse_args():
     p.add_argument("--actuation-mode", default="muscle", choices=["muscle", "torque"])
     p.add_argument("--report", action="store_true", help="only re-evaluate/report existing packages")
     p.add_argument("--promote", action="store_true", help="copy the champion package into project_assets/outputs")
+    p.add_argument("--no-promote", action="store_true",
+                   help="never copy into project_assets/outputs (screening runs stay in the runs folder)")
     p.add_argument("--force", action="store_true")
     p.add_argument("--pass-success", type=float, default=0.8)
     p.add_argument("--pass-seeds", type=int, default=3)
@@ -185,14 +223,24 @@ def report(out: Path, seeds, args):
 
 
 def promote(champion_dir: Path, stage: str, force: bool):
-    target = ROOT / "project_assets" / "outputs" / f"CHAMPION_HUMAN_V1_{stage}"
+    """Copy the champion run into project_assets/outputs/CHAMPION_HUMAN_V1_<stage>.
+
+    Nothing is ever deleted. With --force an existing package is first MOVED to
+    project_assets/outputs/_superseded/CHAMPION_HUMAN_V1_<stage>_<timestamp>/ (outside the
+    GUI's model list, still in the repo), so an older champion can always be brought back.
+    """
+    outputs = ROOT / "project_assets" / "outputs"
+    target = outputs / f"CHAMPION_HUMAN_V1_{stage}"
     if target.name in PROTECTED:
         raise SystemExit(f"refusing to write protected directory {target}")
     if target.exists():
         if not force:
-            print(f"[promote] {target} exists; use --force to replace it")
+            print(f"[promote] {target} exists; use --force to supersede it (the old one is kept)")
             return
-        shutil.rmtree(target)
+        keep = outputs / "_superseded" / f"{target.name}_{time.strftime('%Y%m%d-%H%M')}"
+        keep.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(target), str(keep))
+        print(f"[promote] previous {target.name} moved to {keep}")
     ignore = shutil.ignore_patterns("replay_buffer.pkl", "checkpoints", "stdout.log", "*.npz")
     shutil.copytree(champion_dir, target, ignore=ignore)
     print(f"[promote] champion package copied to {target} (replay buffer and checkpoints left in {champion_dir})")
@@ -218,7 +266,7 @@ def main():
                 print(f"  seed {seed}: {'ok' if rc == 0 else f'FAILED rc={rc}'} ({note})", flush=True)
         print(f"campaign wall time {(time.perf_counter() - t0) / 60:.0f} min", flush=True)
     champion = report(base, seeds, args)
-    if champion is not None and (args.promote or not args.report):
+    if champion is not None and not args.no_promote and (args.promote or not args.report):
         promote(run_dir_for(base, champion[0], args.suffix), args.stage + args.suffix, args.force)
 
 

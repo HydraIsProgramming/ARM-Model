@@ -63,6 +63,9 @@ def main():
     p.add_argument("--src", default=None, help="run folder to continue from (default stage<S>)")
     p.add_argument("--dst", default=None, help="run folder to write (default stage<S>_cont)")
     p.add_argument("--total", type=int, default=None, help="total steps per seed (default: the stage's length)")
+    p.add_argument("--replace-champion", action="store_true",
+                   help="supersede an existing CHAMPION_HUMAN_V1_<stage> (it is moved to outputs/_superseded, "
+                        "never deleted); default: leave it alone")
     a = p.parse_args()
     seeds = [int(s) for s in a.seeds.split(",")]
     src_name = a.src or f"stage{a.stage}"
@@ -77,7 +80,8 @@ def main():
                 seed, rc, note = f.result()
                 print(f"seed {seed}: {'ok' if rc == 0 else f'FAILED rc={rc}'} ({note})", flush=True)
     subprocess.call([sys.executable, str(ROOT / "run_campaign.py"), "--stage", a.stage, "--report", "--promote",
-                     "--force", "--out", str(RUNS / dst_name), "--seeds", a.seeds], cwd=str(ROOT))
+                     "--out", str(RUNS / dst_name), "--seeds", a.seeds]
+                    + (["--force"] if a.replace_champion else []), cwd=str(ROOT))
 
 
 if __name__ == "__main__":

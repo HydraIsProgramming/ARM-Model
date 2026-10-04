@@ -491,7 +491,11 @@ def load_package(
     versions = manifest.get("versions", {})
     _warn_version_drift(versions)
     algo = str(manifest.get("algorithm", "SAC")).upper()
-    cls = {"SAC": SAC, "PPO": PPO, "A2C": A2C}.get(algo, SAC)
+    classes = {"SAC": SAC, "PPO": PPO, "A2C": A2C}
+    if algo == "TQC":
+        from sb3_contrib import TQC          # optional dependency, only needed for TQC packages
+        classes["TQC"] = TQC
+    cls = classes.get(algo, SAC)
     model = cls.load(str(model_path), env=env, device=device)
     if tuple(model.observation_space.shape) != tuple(env.observation_space.shape):
         raise ValueError(

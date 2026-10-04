@@ -177,3 +177,31 @@ def test_green_area_is_the_loaded_models_own_region(gui, tmp_path):
         gui._load_model(str(R3))
         assert gui._feasibility_env().joint_margin_deg is None
         assert len(gui._feasible_cloud_points()) == 744
+
+
+def test_a_torque_model_shows_actuators_not_muscles(gui, tmp_path):
+    """R8-style package: the muscle card becomes a 2-bar actuator card and the plot is joint torque."""
+    import json
+    from stable_baselines3 import SAC
+    from rl_armMotion.two_d.environments.task_env import ArmTaskEnv
+    env = ArmTaskEnv(actuation_mode="torque", prev_action_obs=True, random_waypoints=3,
+                     joint_margin_deg=5.0, reach_margin=0.0)
+    SAC("MlpPolicy", env, policy_kwargs={"net_arch": [16, 16]}, learning_starts=0, device="cpu").save(
+        tmp_path / "sac_model_best")
+    (tmp_path / "run_manifest.json").write_text(json.dumps({"algorithm": "SAC", "env": env.describe()}))
+    gui._load_model(str(tmp_path / "sac_model_best.zip"))
+    assert gui._muscle_card_title.cget("text") == "Actuator torque"
+    assert gui.torque_ax.get_title(loc="left") == "Joint torque (N·m)"
+    assert "actuators" in gui._subtitle.cget("text")
+    gui._wp_choice_var.set("3 waypoints")
+    gui._on_waypoint_choice()
+    gui._start_simulation()
+    for _ in range(20):
+        gui._simulation_step()
+    gui._update_readouts()
+    tau = gui.sim_last_info["actuator_torque"]
+    assert gui._muscle_rows[0][2].cget("text") == f"{100 * tau[0] / 25.0:+.0f}%"
+    gui._stop_simulation()
+    if R3.exists():                                           # a muscle model switches it back
+        gui._load_model(str(R3))
+        assert gui._muscle_card_title.cget("text") == "Muscle activation"

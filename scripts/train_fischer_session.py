@@ -48,7 +48,7 @@ def parse_args(argv=None) -> argparse.Namespace:
                    help="Existing package to continue (model + replay buffer + curriculum); writes a NEW package.")
     p.add_argument("--drop-buffer", action="store_true",
                    help="With --continue-from: keep the weights only (warm start on a new task), refill the buffer.")
-    p.add_argument("--algorithm", type=str, default="SAC", choices=["SAC", "PPO", "A2C"])
+    p.add_argument("--algorithm", type=str, default="SAC", choices=["SAC", "TQC", "PPO", "A2C"])
     # Task
     p.add_argument("--preset", type=str, default="2dof_human_right")
     p.add_argument("--actuation-mode", type=str, default="muscle", choices=["muscle", "torque"])
@@ -97,6 +97,18 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--learning-rate", type=float, default=None)
     p.add_argument("--device", type=str, default="cpu", help="cpu (the GPU measured 3.5-5x slower for this SAC).")
     p.add_argument("--n-envs", type=int, default=1, help="DummyVecEnv workers; diversifies the buffer, no speed-up.")
+    p.add_argument("--n-steps", type=int, default=None,
+                   help="n-step returns for SAC/TQC (SB3 built-in; default 1).")
+    p.add_argument("--train-max-steps", type=int, default=None,
+                   help="Length of TRAINING episodes in control steps (default 500 = 10 s). Evaluation always "
+                        "uses the production standard's 500.")
+    p.add_argument("--prev-action-obs", action="store_true",
+                   help="Append the previous action to the observation (torque actuators have no activation "
+                        "state; needed for a Markov action-rate penalty).")
+    p.add_argument("--probe-episodes", type=int, default=10,
+                   help="Fresh production-standard episodes per round, used for T80 (steps to sustained 80%%).")
+    p.add_argument("--stop-after-t80", type=int, default=None,
+                   help="End the run this many steps after T80 is reached (screening runs).")
     # Validators
     p.add_argument("--skip-validators", action="store_true")
     p.add_argument("--fitts-trials", type=int, default=8)
@@ -175,12 +187,19 @@ def main(argv=None) -> int:
         waypoint_region=_parse_floats(args.waypoint_region) if args.waypoint_region else None,
         reach_margin=args.reach_margin,
         joint_margin_deg=args.joint_margin_deg,
+        prev_action_obs=args.prev_action_obs,
     )
     if args.random_waypoints:
         waypoints = None
     tolerance_ladder = _parse_floats(args.tolerance_ladder)
     hold_ladder = [int(x) for x in _parse_floats(args.hold_ladder)]
     env = make_env(waypoints=waypoints, tolerance=tolerance_ladder[0], hold_steps=hold_ladder[0], **env_kwargs)
+    if args.train_max_steps is not None:
+        # Shorter TRAINING episodes: a successful episode finishes in ~130 steps and spends the
+        # rest holding, so fewer steps per episode means more fresh targets per million steps.
+        # The time limit is truncation (bootstrapped) and the observation has no clock, so the
+        # optimal policy is unchanged; evaluation stays at the production standard's length.
+        env.max_episode_steps = int(args.train_max_steps)
     if args.hold_decrement is not None:
         env.set_hold_decrement(args.hold_decrement)
     if args.intermediate_hold_steps is not None:
@@ -229,6 +248,8 @@ def main(argv=None) -> int:
                 raise ValueError("--utd > 1 must be an integer")
             hyperparams["train_freq"] = 1
             hyperparams["gradient_steps"] = int(round(args.utd))
+    if args.n_steps is not None and args.n_steps > 1:
+        hyperparams["n_steps"] = int(args.n_steps)     # n-step returns (SB3 off-policy, built in)
     gamma_for_env = hyperparams.get("gamma", 0.99)
     env.discount = float(gamma_for_env)
 
@@ -249,6 +270,7 @@ def main(argv=None) -> int:
         continue_drop_buffer=args.drop_buffer,
         advance_consecutive=args.advance_consecutive,
         cooldown_rounds=args.cooldown_rounds,
+        curriculum_kwargs={"probe_episodes": args.probe_episodes, "stop_after_t80": args.stop_after_t80},
         cli_args=vars(args),
     )
     log(f"Resolved hyperparameters: {json.dumps(trainer.trainer.resolved_hyperparams, default=str)}")

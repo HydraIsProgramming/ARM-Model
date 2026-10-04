@@ -76,7 +76,7 @@ def parse_args():
 
 def rollout(model, env, ep_seed):
     obs, info = env.reset(seed=ep_seed)
-    rec = {k: [] for k in ("q", "qd", "tau", "act", "ee", "ee_speed", "end_range", "at_limit",
+    rec = {k: [] for k in ("q", "qd", "tau", "act", "action", "ee", "ee_speed", "end_range", "at_limit",
                            "in_goal", "hold", "reward", "wp_index")}
     order = []
     while True:
@@ -85,7 +85,9 @@ def rollout(model, env, ep_seed):
         rec["q"].append(np.asarray(info["joint_angles"], float))
         rec["qd"].append(np.asarray(info["joint_velocities"], float))
         rec["tau"].append(np.asarray(info["actuator_torque"], float))
-        rec["act"].append(np.asarray(info.get("muscle_activations", []), float))
+        acts = info.get("muscle_activations")     # None for torque actuators
+        rec["act"].append(np.asarray(acts if acts is not None else [], float))
+        rec["action"].append(np.asarray(action, float).reshape(-1))
         rec["ee"].append(np.asarray(info["end_effector_position"], float))
         rec["ee_speed"].append(float(info["ee_speed"]))
         rec["end_range"].append(np.asarray(info["end_range_engagement"], float))
@@ -130,7 +132,8 @@ def main():
     q = np.concatenate([e["q"] for e in eps])
     qd = np.concatenate([e["qd"] for e in eps])
     tau = np.concatenate([e["tau"] for e in eps])
-    act = np.concatenate([e["act"] for e in eps]) if eps[0]["act"].size else np.zeros((1, 1))
+    muscles = base.actuation_mode == "muscle"
+    act = np.concatenate([e["act"] for e in eps]) if (muscles and eps[0]["act"].size) else np.zeros((1, 1))
     rom_lo = float(np.degrees(np.min(q - qmin)))
     rom_hi = float(np.degrees(np.min(qmax - q)))
     checks = [
@@ -140,8 +143,11 @@ def main():
          f"peak {float(np.max(np.abs(qd))):.2f} of {vel_max:.1f} rad/s"),
         ("actuator torque inside the torque limits", bool(np.all(np.abs(tau) <= tau_max + 1e-6)),
          f"peak {np.round(np.max(np.abs(tau), axis=0), 2).tolist()} of {tau_max.tolist()} N.m"),
-        ("muscle activations inside [0, 1]", bool(act.min() >= -1e-9 and act.max() <= 1 + 1e-9),
-         f"range {act.min():.3f}..{act.max():.3f}"),
+        (("muscle activations inside [0, 1]", bool(act.min() >= -1e-9 and act.max() <= 1 + 1e-9),
+          f"range {act.min():.3f}..{act.max():.3f}") if muscles else
+         ("actuator commands inside [-1, 1]",
+          bool(np.all(np.abs(np.concatenate([e["action"] for e in eps])) <= 1 + 1e-9)),
+          "torque actuators: command x limit = torque")),
         ("every state, observation and reward finite", True, "no non-finite step raised"),
     ]
     print("HARD LIMITS (a violation is a model bug, not a training outcome)")
@@ -205,7 +211,13 @@ def main():
     at = np.concatenate([e["at_limit"] for e in eps])
     print(f"  avoids end-range postures              {np.mean(np.any(er > 0, axis=1)):.1%} of steps in a "
           f"passive end-range zone, {np.mean(np.any(at, axis=1)):.2%} resting on a hard stop")
-    if act.shape[1] >= 4:
+    if not muscles:
+        # Actuators have no activation lag, so smoothness has to come from the policy itself.
+        rate = np.concatenate([np.abs(np.diff(e["tau"], axis=0)) for e in eps]) / float(base.dt)
+        print(f"  torque smoothness (no activation lag)  RMS torque rate "
+              f"{np.round(np.sqrt(np.mean(rate ** 2, axis=0)), 1).tolist()} N.m/s, "
+              f"p95 {np.round(np.percentile(rate, 95, axis=0), 1).tolist()} N.m/s")
+    if muscles and act.shape[1] >= 4:
         pairs = act.reshape(act.shape[0], -1, 2)
         cocon = np.min(pairs, axis=2).mean(axis=1)
         moving = np.concatenate([e["ee_speed"] for e in eps]) > 0.2

@@ -14,6 +14,10 @@ from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 from stable_baselines3 import A2C, DQN, PPO, SAC
+try:  # TQC lives in sb3-contrib (optional; pinned to the SB3 version in requirements.txt)
+    from sb3_contrib import TQC
+except ImportError:  # pragma: no cover
+    TQC = None
 
 try:
     from stable_baselines3 import A3C  # type: ignore[attr-defined]
@@ -136,6 +140,8 @@ class RLTrainer(BaseTrainer):
     }
     if A3C is not None:
         ALGORITHM_MAP["A3C"] = A3C
+    if TQC is not None:
+        ALGORITHM_MAP["TQC"] = TQC
 
     def __init__(
         self,
@@ -186,6 +192,7 @@ class RLTrainer(BaseTrainer):
         out: Dict[str, Any] = {"algorithm": self.algorithm}
         for key in ("gamma", "learning_rate", "buffer_size", "learning_starts", "batch_size",
                     "tau", "train_freq", "gradient_steps", "ent_coef", "target_entropy",
+                    "top_quantiles_to_drop_per_net",
                     "n_steps", "n_epochs", "gae_lambda", "clip_range", "seed", "device"):
             if hasattr(m, key):
                 val = getattr(m, key)
@@ -231,6 +238,20 @@ class RLTrainer(BaseTrainer):
                 "ent_coef": "auto",
                 "policy_kwargs": {"net_arch": [256, 256]},
                 "device": "cpu",             # measured 3.5-5x faster than the GPU here
+            },
+            # TQC (sb3-contrib): SAC with a distributional critic - 2 critics x 25 quantiles,
+            # the top 2 per critic dropped against over-estimation. Same budget as SAC.
+            "TQC": {
+                "learning_rate": 3e-4,
+                "buffer_size": 300_000,
+                "batch_size": 256,
+                "learning_starts": 5_000,
+                "gamma": 0.99,
+                "tau": 0.005,
+                "ent_coef": "auto",
+                "top_quantiles_to_drop_per_net": 2,
+                "policy_kwargs": {"net_arch": [256, 256], "n_quantiles": 25, "n_critics": 2},
+                "device": "cpu",
             },
             "A3C": {
                 "learning_rate": 7e-4,
@@ -344,6 +365,8 @@ class RLTrainer(BaseTrainer):
     }
     if A3C is not None:
         ALGORITHM_MAP["A3C"] = A3C
+    if TQC is not None:
+        ALGORITHM_MAP["TQC"] = TQC
 
     def __init__(
         self,
@@ -394,6 +417,7 @@ class RLTrainer(BaseTrainer):
         out: Dict[str, Any] = {"algorithm": self.algorithm}
         for key in ("gamma", "learning_rate", "buffer_size", "learning_starts", "batch_size",
                     "tau", "train_freq", "gradient_steps", "ent_coef", "target_entropy",
+                    "top_quantiles_to_drop_per_net",
                     "n_steps", "n_epochs", "gae_lambda", "clip_range", "seed", "device"):
             if hasattr(m, key):
                 val = getattr(m, key)
@@ -439,6 +463,20 @@ class RLTrainer(BaseTrainer):
                 "ent_coef": "auto",
                 "policy_kwargs": {"net_arch": [256, 256]},
                 "device": "cpu",             # measured 3.5-5x faster than the GPU here
+            },
+            # TQC (sb3-contrib): SAC with a distributional critic - 2 critics x 25 quantiles,
+            # the top 2 per critic dropped against over-estimation. Same budget as SAC.
+            "TQC": {
+                "learning_rate": 3e-4,
+                "buffer_size": 300_000,
+                "batch_size": 256,
+                "learning_starts": 5_000,
+                "gamma": 0.99,
+                "tau": 0.005,
+                "ent_coef": "auto",
+                "top_quantiles_to_drop_per_net": 2,
+                "policy_kwargs": {"net_arch": [256, 256], "n_quantiles": 25, "n_critics": 2},
+                "device": "cpu",
             },
             "A3C": {
                 "learning_rate": 7e-4,

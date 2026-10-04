@@ -221,6 +221,10 @@ class ArmTaskEnv(gym.Env):
     # -W_ACCEL * (|a_hand| / ACCEL_REF)^2, capped. Off by default; the
     # "clean" training stage enables it.
     W_ACCEL: float = 0.0
+    # Change in the commanded action between control steps: -W_ACTION_RATE * ||a_t - a_{t-1}||^2.
+    # For torque actuators this is a torque-rate penalty (smooth actuator profiles); muscles get
+    # the same smoothing for free from their 40/60 ms activation dynamics. Off unless a stage sets it.
+    W_ACTION_RATE: float = 0.0
     ACCEL_REF: float = 10.0    # m/s^2
     ACCEL_PENALTY_CAP: float = 4.0
     R_IN_GOAL: float = 1.0
@@ -231,7 +235,7 @@ class ArmTaskEnv(gym.Env):
     ACTUATION_TORQUE: str = "torque"
     REWARD_WEIGHT_KEYS = ("W_SHAPING", "W_DIST", "W_EFFORT", "W_SMOOTH", "W_LIMIT", "W_SPEED_EXCESS",
                           "EE_SPEED_CAP", "W_SPEED_LINEAR", "SPEED_PENALTY_CAP",
-                          "W_ACCEL", "ACCEL_REF", "ACCEL_PENALTY_CAP",
+                          "W_ACCEL", "ACCEL_REF", "ACCEL_PENALTY_CAP", "W_ACTION_RATE",
                           "R_IN_GOAL", "R_INTERMEDIATE", "R_SUCCESS")
 
     def __init__(
@@ -256,6 +260,7 @@ class ArmTaskEnv(gym.Env):
         hand_load_range: Tuple[float, float] = (0.0, 0.0),
         obs_noise_std: Optional[Tuple[float, float]] = None,
         sensory_delay_steps: int = 0,
+        prev_action_obs: bool = False,
         config: Optional[ArmConfiguration] = None,
         activation_time_constants: Optional[Sequence[float]] = None,
         reward_weights: Optional[Dict[str, float]] = None,
@@ -340,6 +345,10 @@ class ArmTaskEnv(gym.Env):
         self.hand_load_range = (float(hand_load_range[0]), float(hand_load_range[1]))
         self.obs_noise_std = None if obs_noise_std is None else (float(obs_noise_std[0]), float(obs_noise_std[1]))
         self.sensory_delay_steps = int(sensory_delay_steps)
+        # Append the last commanded action to the observation. A torque-actuated arm has no
+        # activation state, so without this the policy cannot see the command it just sent -
+        # and a reward that charges for changing it (W_ACTION_RATE) would not be Markov.
+        self.prev_action_obs = bool(prev_action_obs)
         if self.goal_tolerance > self.max_curriculum_tolerance:
             raise ValueError(
                 f"goal_tolerance {self.goal_tolerance} exceeds max_curriculum_tolerance "
@@ -351,6 +360,12 @@ class ArmTaskEnv(gym.Env):
             self._pairs = [JointMusclePair.from_config(self.config, j) for j in range(self.num_dof)]
         self._act_tau = self.config.activation_time_constants
         self.use_activation_dynamics = self._act_tau is not None
+        if self.use_activation_dynamics and self.actuation_mode != self.ACTUATION_MUSCLE:
+            # Activation dynamics are a muscle property. In torque mode they were silently
+            # ignored by the actuator but still appended four always-zero values to the
+            # observation, so refuse the combination outright.
+            raise ValueError("activation_time_constants (muscle activation dynamics) only apply to "
+                             "actuation_mode='muscle'; torque actuators take the command directly")
         self._torque_limits = (
             np.asarray(self.config.torque_limits, dtype=float)
             if self.config.torque_limits is not None
@@ -390,6 +405,9 @@ class ArmTaskEnv(gym.Env):
         if self.use_activation_dynamics:
             low += [0.0] * (2 * n)
             high += [1.0] * (2 * n)
+        if self.prev_action_obs:
+            low += list(map(float, self.action_space.low))
+            high += list(map(float, self.action_space.high))
         if self.sensory_delay_steps > 0:
             for _ in range(self.sensory_delay_steps):
                 low += list(map(float, self.action_space.low))
@@ -1093,6 +1111,8 @@ class ArmTaskEnv(gym.Env):
             obs = np.concatenate([np.asarray(p, dtype=float).reshape(-1) for p in parts])
             if self.use_activation_dynamics:
                 obs = np.concatenate([obs, np.asarray(self._activation, dtype=float).reshape(-1)])
+            if self.prev_action_obs:
+                obs = np.concatenate([obs, np.asarray(self._last_action, dtype=float).reshape(-1)])
             return obs
         parts.append(np.clip(rel, -2.0, 2.0))
         parts.append([min(dist, 2.0)])
@@ -1100,6 +1120,8 @@ class ArmTaskEnv(gym.Env):
         parts.append([progress, 1.0 if in_goal else 0.0, hold_progress])
         if self.use_activation_dynamics:
             parts.append(self._activation)
+        if self.prev_action_obs:
+            parts.append(self._last_action)
         obs = np.concatenate([np.asarray(p, dtype=float).reshape(-1) for p in parts])
         return obs
 
@@ -1155,6 +1177,7 @@ class ArmTaskEnv(gym.Env):
         if action.shape[0] != self.action_dim:
             raise ValueError(f"action must have shape ({self.action_dim},), got {action.shape}")
         a = action.astype(float)
+        prev_action = self._last_action
         self._last_action = a.copy()
 
         # Potential before the step, on the current goal.
@@ -1284,12 +1307,14 @@ class ArmTaskEnv(gym.Env):
         speed_excess = -(self.W_SPEED_LINEAR * over_cap
                          + self.W_SPEED_EXCESS * min(over_cap ** 2, self.SPEED_PENALTY_CAP))
         accel_term = -self.W_ACCEL * min((ee_accel / self.ACCEL_REF) ** 2, self.ACCEL_PENALTY_CAP)
+        action_rate = -self.W_ACTION_RATE * float(np.sum((a - prev_action) ** 2))
         in_goal_term = self.R_IN_GOAL if (in_goal and self.is_final_waypoint) else 0.0
-        reward = (shaping + dist_term + effort + smooth + limit_term + speed_excess + accel_term
+        reward = (shaping + dist_term + effort + smooth + limit_term + speed_excess + accel_term + action_rate
                   + in_goal_term + intermediate_bonus + success_bonus)
         self._last_reward_terms = {
             "shaping": shaping, "distance": dist_term, "effort": effort, "smoothness": smooth,
             "joint_limit": limit_term, "speed_excess": speed_excess, "hand_accel": accel_term,
+            "action_rate": action_rate,
             "in_goal": in_goal_term, "intermediate": intermediate_bonus, "success": success_bonus,
         }
         if not np.isfinite(reward):
@@ -1408,6 +1433,7 @@ class ArmTaskEnv(gym.Env):
             "hand_load_range": list(self.hand_load_range),
             "obs_noise_std": list(self.obs_noise_std) if self.obs_noise_std is not None else None,
             "sensory_delay_steps": self.sensory_delay_steps,
+            "prev_action_obs": self.prev_action_obs,
             "dt": self.dt,
             "physics_substeps": int(self.config.physics_substeps),
             "activation_time_constants": self.config.activation_time_constants,
@@ -1439,6 +1465,7 @@ class ArmTaskEnv(gym.Env):
         "W_ACCEL": 0.0,                 # no acceleration penalty before B2/B3
         "SPEED_PENALTY_CAP": float("inf"),   # the quadratic was uncapped before R5
         "W_SPEED_LINEAR": 0.0,          # the linear speed term arrived in R6
+        "W_ACTION_RATE": 0.0,           # the action-rate penalty arrived with the R8 variants
     }
 
     @classmethod
@@ -1478,6 +1505,7 @@ class ArmTaskEnv(gym.Env):
             hand_load_range=tuple(desc.get("hand_load_range", (0.0, 0.0))),
             obs_noise_std=tuple(desc["obs_noise_std"]) if desc.get("obs_noise_std") else None,
             sensory_delay_steps=desc.get("sensory_delay_steps", 0),
+            prev_action_obs=bool(desc.get("prev_action_obs", False)),
             config=cfg,
             reward_weights=cls._reward_weights_as_trained(desc.get("reward_weights")),
             random_waypoints=desc.get("random_waypoints"),
