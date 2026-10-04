@@ -160,3 +160,30 @@ def test_a_crashed_run_resumes_from_its_last_checkpoint(tmp_path, monkeypatch):
     second = calls[1]
     assert second[second.index("--continue-from") + 1] == str(tmp_path / "seed_1_crash1")
     assert second[second.index("--timesteps") + 1] == "900000"
+
+
+def test_a_relaunched_campaign_picks_up_runs_a_blue_screen_left_unfinished(tmp_path, monkeypatch):
+    """A blue screen kills the campaign itself, so nothing recovers in-process. Launching the same
+    campaign again must continue each unfinished seed from its checkpoint, not overwrite it."""
+    import sys
+    sys.path.insert(0, str(ROOT))
+    import run_campaign
+    d = tmp_path / "seed_2"
+    d.mkdir()
+    for f in ("sac_model_last.zip", "replay_buffer.pkl", "run_manifest.json"):
+        (d / f).write_text("x")
+    (d / "curriculum_state.json").write_text(json.dumps({"num_timesteps": 300_000}))
+    (tmp_path / "seed_2_crash1").mkdir()                     # an older crash keeps its name
+    calls = []
+
+    def fake_call(cmd, stdout=None, stderr=None, cwd=None):
+        calls.append(list(cmd))
+        (Path(cmd[cmd.index("--save-dir") + 1]) / "final_eval.json").write_text("{}")
+        return 0
+
+    monkeypatch.setattr(run_campaign.subprocess, "call", fake_call)
+    seed, rc, note = run_campaign.train_one((tmp_path, 2, "R8", 1_000_000, 1, "muscle", [], 50_000, 20_000, None, ""))
+    assert rc == 0 and len(calls) == 1 and "resumed from 300,000" in note
+    assert calls[0][calls[0].index("--continue-from") + 1] == str(tmp_path / "seed_2_crash2")
+    assert calls[0][calls[0].index("--timesteps") + 1] == "700000"
+    assert (tmp_path / "seed_2_crash2" / "replay_buffer.pkl").exists()

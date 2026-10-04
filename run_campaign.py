@@ -183,12 +183,28 @@ def _resumable(run_dir: Path) -> bool:
                                                  "run_manifest.json"))
 
 
+def _crash_dir(d: Path) -> Path:
+    """The first unused seed_k_crashN name, so crashes across several campaign launches never collide."""
+    n = 1
+    while d.with_name(f"{d.name}_crash{n}").exists():
+        n += 1
+    return d.with_name(f"{d.name}_crash{n}")
+
+
+def _continue_cmd(base, timesteps, crashed: Path):
+    with open(crashed / "curriculum_state.json", encoding="utf-8") as fh:
+        done = int(json.load(fh).get("num_timesteps", 0))
+    return base + ["--timesteps", str(max(1, timesteps - done)), "--continue-from", str(crashed)], done
+
+
 def train_one(args_tuple):
     """Train one seed. A run that dies (on this machine: native access violations from a CPU that
     logs corrected machine-check errors) is recovered automatically: the crashed folder is kept as
     seed_k_crashN, and the run continues from its last checkpoint (model + replay buffer +
     curriculum state, written every `ckpt` steps) into seed_k - or restarts if it died before its
-    first checkpoint. The final seed_k folder carries the whole curriculum history and its lineage."""
+    first checkpoint. The final seed_k folder carries the whole curriculum history and its lineage.
+    A run left unfinished by a campaign that died with the machine (a blue screen) is picked up the
+    same way when the campaign is launched again with the same arguments."""
     out, seed, stage, timesteps, threads, actuation, extra, ckpt, evalf, warm, suffix = args_tuple
     d = run_dir_for(out, seed, suffix)
     if (d / "run_manifest.json").exists() and (d / "final_eval.json").exists():
@@ -204,18 +220,22 @@ def train_one(args_tuple):
             cmd += ["--continue-from", str(src), "--drop-buffer"]
     t0 = time.perf_counter()
     notes = []
+    if _resumable(d):
+        crashed = _crash_dir(d)
+        shutil.move(str(d), str(crashed))
+        cmd, done = _continue_cmd(base, timesteps, crashed)
+        notes.append(f"unfinished run from an earlier launch, resumed from {done:,}")
+        print(f"  seed {seed}: {notes[-1]}", flush=True)
     for attempt in range(MAX_CRASH_RECOVERIES + 1):
         d.mkdir(parents=True, exist_ok=True)
         with open(d / "stdout.log", "w", encoding="utf-8") as f:
             rc = subprocess.call(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=str(ROOT))
         if rc == 0 or attempt == MAX_CRASH_RECOVERIES:
             break
-        crashed = d.with_name(f"{d.name}_crash{attempt + 1}")
+        crashed = _crash_dir(d)
         shutil.move(str(d), str(crashed))
         if _resumable(crashed):
-            with open(crashed / "curriculum_state.json", encoding="utf-8") as fh:
-                done = int(json.load(fh).get("num_timesteps", 0))
-            cmd = base + ["--timesteps", str(max(1, timesteps - done)), "--continue-from", str(crashed)]
+            cmd, done = _continue_cmd(base, timesteps, crashed)
             notes.append(f"crash rc={rc}, resumed from {done:,}")
         else:
             cmd = base + ["--timesteps", str(timesteps)]
