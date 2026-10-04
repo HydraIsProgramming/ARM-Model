@@ -1,0 +1,13 @@
+[2026-09-24T14:44:26] Run: SAC 1,000,000 steps, seed 5, threads 4, device cpu, preset 2dof_human_right, actuation muscle, waypoints none
+[2026-09-24T14:44:26] Package dir: C:\arm-model-runs\stageR6\seed_5
+[2026-09-24T14:44:26] Random waypoints: 3 per episode from 744 feasible grid points (x 0.71..1.45, y -0.45..0.45)
+[2026-09-24T14:44:26] Env: obs_dim 18, action_dim 4, dt 0.02, train tol 0.15 m, hold 10, decrement 5, activation dynamics [0.04, 0.06], reward weights {'W_SHAPING': 2.0, 'W_DIST': 0.5, 'W_EFFORT': 0.02, 'W_SMOOTH': 0.05, 'W_LIMIT': 0.1, 'W_SPEED_EXCESS': 5.0, 'EE_SPEED_CAP': 1.2, 'W_SPEED_LINEAR': 3.0, 'SPEED_PENALTY_CAP': 2.25, 'W_ACCEL': 0.02, 'ACCEL_REF': 10.0, 'ACCEL_PENALTY_CAP': 4.0, 'R_IN_GOAL': 1.0, 'R_INTERMEDIATE': 10.0, 'R_SUCCESS': 50.0}
+[2026-09-24T14:44:26] Resolved hyperparameters: {"algorithm": "SAC", "gamma": 0.99, "learning_rate": 0.0003, "buffer_size": 300000, "learning_starts": 5000, "batch_size": 256, "tau": 0.005, "train_freq": [1, "step"], "gradient_steps": 1, "ent_coef": "auto", "target_entropy": -4.0, "n_steps": 1, "seed": 5, "device": "cpu", "net_arch": [256, 256], "n_envs": 1, "policy_kwargs": {"net_arch": [256, 256], "use_sde": false}}
+[2026-09-24T19:53:06] Training complete in 18520.3s (1,000,000 total steps)
+[2026-09-24T19:53:06] Episodes: 2,000; mean reward (100 ep): 271.04
+[2026-09-24T19:53:06] Curriculum: tolerance 0.05 m, hold 25, best score [1.0, 4.0, -0.028876, -181.5] at step 980000
+[2026-09-24T19:53:07] Saved package: {'model': 'C:\\arm-model-runs\\stageR6\\seed_5\\sac_model', 'history': 'C:\\arm-model-runs\\stageR6\\seed_5\\training_history.csv', 'stats': 'C:\\arm-model-runs\\stageR6\\seed_5\\training_stats.json', 'manifest': 'C:\\arm-model-runs\\stageR6\\seed_5\\run_manifest.json'}
+[2026-09-24T19:53:18] FINAL (best checkpoint, 20 episodes): 14/20 success, wp 2.40, hold 0.71, dist 0.083 m, steps 163
+[2026-09-24T19:53:18] Human-likeness: straightness 1.21, symmetry 0.47, submovements 2.4, jerk 64
+[2026-09-24T19:53:18] Validators skipped (--skip-validators).
+[2026-09-24T19:53:18] ============================================================

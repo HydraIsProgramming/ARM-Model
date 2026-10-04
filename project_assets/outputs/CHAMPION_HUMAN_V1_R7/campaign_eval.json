@@ -1,0 +1,1041 @@
+{
+  "summary": {
+    "n_episodes": 20,
+    "successes": 19,
+    "success_rate": 0.95,
+    "mean_waypoints_reached": 2.9,
+    "sd_waypoints_reached": 0.44721359549995804,
+    "mean_max_hold_progress": 0.95,
+    "mean_min_final_distance": 0.053647622981050594,
+    "mean_steps_to_success": 134.10526315789474,
+    "mean_return": 54.258640467915974,
+    "sd_return": 28.174740067421432,
+    "score": [
+      0.95,
+      3.85,
+      -0.053648,
+      -134.105263
+    ],
+    "human_likeness": {
+      "straightness": 1.1500977236758474,
+      "symmetry": 0.5150363787411064,
+      "submovements": 1.5166666666666666,
+      "dimensionless_jerk": 823.4677737889302,
+      "movement_time": 0.7333333333333334,
+      "peak_speed": 2.131225003811131
+    }
+  },
+  "standard": {
+    "n_episodes": 20,
+    "seed": 20261821,
+    "max_steps": 500,
+    "deterministic": true,
+    "tolerance": 0.05,
+    "hold_steps": 25,
+    "hold_decrement": 5,
+    "ee_speed_tolerance": 0.1
+  },
+  "env": {
+    "obs_version": 2,
+    "obs_dim": 18,
+    "action_dim": 4,
+    "preset": "2dof_human_right",
+    "config": {
+      "dof": 2,
+      "name": "2DOF_Human_Right",
+      "initial_angles": [
+        -1.5707963267948966,
+        0.17453292519943295
+      ],
+      "link_lengths": [
+        0.3,
+        0.35
+      ],
+      "masses": [
+        2.1,
+        1.65
+      ],
+      "inertias": [
+        0.0196,
+        0.0237
+      ],
+      "damping": 0.3,
+      "joint_damping": [
+        0.3,
+        0.3
+      ],
+      "joint_limits_min": [
+        -2.6179938779914944,
+        0.0
+      ],
+      "joint_limits_max": [
+        1.5707963267948966,
+        2.530727415391778
+      ],
+      "dt": 0.02,
+      "velocity_limits": 8.0,
+      "physics_substeps": 4,
+      "max_acceleration": 2000.0,
+      "com_offsets": [
+        0.131,
+        0.175
+      ],
+      "gravity": 9.81,
+      "torque_limits": [
+        25.0,
+        12.0
+      ],
+      "passive_limit_stiffness": 20.0,
+      "passive_limit_margin": 0.17453292519943295,
+      "passive_limit_margins_min": [
+        0.17453292519943295,
+        0.17453292519943295
+      ],
+      "passive_limit_margins_max": [
+        0.17453292519943295,
+        0.17453292519943295
+      ],
+      "muscle_moment_arms": [
+        0.04,
+        0.03
+      ],
+      "muscle_f_max": [
+        625.0,
+        400.0
+      ],
+      "muscle_l_opt": [
+        0.2,
+        0.1
+      ],
+      "muscle_v_max": 6.0,
+      "activation_time_constants": [
+        0.04,
+        0.06
+      ],
+      "initial_angle_jitter_min": [
+        -0.08726646259971647,
+        -0.08726646259971647
+      ],
+      "initial_angle_jitter_max": [
+        0.08726646259971647,
+        0.17453292519943295
+      ],
+      "side": "right"
+    },
+    "actuation_mode": "muscle",
+    "goal_direction": "WAYPOINTS",
+    "goal_position": [
+      1.0552595336338575,
+      -0.5913064009231601
+    ],
+    "waypoints": [
+      [
+        1.3886075448104025,
+        0.3419083717825099
+      ],
+      [
+        1.4936748827812696,
+        -0.37477809631820974
+      ],
+      [
+        1.0552595336338575,
+        -0.5913064009231601
+      ]
+    ],
+    "shoulder_base_position": [
+      1.0,
+      0.0
+    ],
+    "goal_tolerance": 0.05,
+    "ee_speed_tolerance": 0.1,
+    "joint_speed_tolerance": 1.0,
+    "hold_steps_required": 25,
+    "hold_decrement": 5,
+    "intermediate_hold_steps": 5,
+    "max_curriculum_tolerance": 0.15,
+    "max_episode_steps": 500,
+    "terminate_on_success": true,
+    "require_orientation": false,
+    "orientation_tolerance_deg": 12.000000000000002,
+    "discount": 0.99,
+    "randomize_initial_state": true,
+    "hand_load_range": [
+      0.0,
+      0.0
+    ],
+    "obs_noise_std": null,
+    "sensory_delay_steps": 0,
+    "dt": 0.02,
+    "physics_substeps": 4,
+    "activation_time_constants": [
+      0.04,
+      0.06
+    ],
+    "reward_weights": {
+      "W_SHAPING": 2.0,
+      "W_DIST": 0.5,
+      "W_EFFORT": 0.02,
+      "W_SMOOTH": 0.05,
+      "W_LIMIT": 0.1,
+      "W_SPEED_EXCESS": 0.5,
+      "EE_SPEED_CAP": 1.5,
+      "W_SPEED_LINEAR": 0.0,
+      "SPEED_PENALTY_CAP": Infinity,
+      "W_ACCEL": 0.02,
+      "ACCEL_REF": 10.0,
+      "ACCEL_PENALTY_CAP": 4.0,
+      "R_IN_GOAL": 1.0,
+      "R_INTERMEDIATE": 10.0,
+      "R_SUCCESS": 50.0
+    },
+    "random_waypoints": 3,
+    "free_order": false,
+    "free_order_slots": 3,
+    "waypoint_region": null,
+    "waypoint_grid": 0.02,
+    "reach_margin": 0.0,
+    "joint_margin_deg": 5.0
+  },
+  "episodes": [
+    {
+      "seed": 20261821,
+      "success": true,
+      "success_step": 150,
+      "waypoints_reached": 3,
+      "num_waypoints": 3,
+      "max_hold_progress": 1.0,
+      "final_distance": 0.016321216752874745,
+      "min_final_distance": 0.012731136646810554,
+      "steps": 150,
+      "episode_return": 83.25682802170482,
+      "hold_steps_after_success": 1,
+      "waypoints": [
+        [
+          1.2939314308403158,
+          0.4744370389813684
+        ],
+        [
+          1.5038646506130293,
+          0.24660531951869125
+        ],
+        [
+          0.7759962377367206,
+          0.5234018272032477
+        ]
+      ],
+      "human_likeness": {
+        "n_segments": 3,
+        "straightness": 1.1238089624990726,
+        "symmetry": 0.4821367521367521,
+        "submovements": 1.0,
+        "dimensionless_jerk": 20.498187466047952,
+        "movement_time": 0.5066666666666667,
+        "peak_speed": 2.043198487411848,
+        "within_human_range": {
+          "straightness": true,
+          "symmetry": true,
+          "submovements": true,
+          "dimensionless_jerk": true
+        }
+      }
+    },
+    {
+      "seed": 20261822,
+      "success": true,
+      "success_step": 172,
+      "waypoints_reached": 3,
+      "num_waypoints": 3,
+      "max_hold_progress": 1.0,
+      "final_distance": 0.03787329273098367,
+      "min_final_distance": 0.03787329273098367,
+      "steps": 172,
+      "episode_return": 55.52984395049765,
+      "hold_steps_after_success": 1,
+      "waypoints": [
+        [
+          0.8710712302825617,
+          0.18470853327095063
+        ],
+        [
+          1.2607551437339115,
+          -0.11040153400012935
+        ],
+        [
+          0.9817488509884608,
+          -0.524326668634499
+        ]
+      ],
+      "human_likeness": {
+        "n_segments": 3,
+        "straightness": 1.3788143398780521,
+        "symmetry": 0.45999999999999996,
+        "submovements": 1.3333333333333333,
+        "dimensionless_jerk": 41.62225247671097,
+        "movement_time": 0.5866666666666666,
+        "peak_speed": 1.9925387745694882,
+        "within_human_range": {
+          "straightness": false,
+          "symmetry": true,
+          "submovements": true,
+          "dimensionless_jerk": true
+        }
+      }
+    },
+    {
+      "seed": 20261823,
+      "success": true,
+      "success_step": 108,
+      "waypoints_reached": 3,
+      "num_waypoints": 3,
+      "max_hold_progress": 1.0,
+      "final_distance": 0.04140426682988014,
+      "min_final_distance": 0.027587929571963918,
+      "steps": 108,
+      "episode_return": 71.07660154813452,
+      "hold_steps_after_success": 1,
+      "waypoints": [
+        [
+          1.3562278282605151,
+          0.08905028226270745
+        ],
+        [
+          1.2716043626076126,
+          -0.20419184081395034
+        ],
+        [
+          1.409746048408629,
+          0.4052419201419732
+        ]
+      ],
+      "human_likeness": {
+        "n_segments": 3,
+        "straightness": 1.086827647913677,
+        "symmetry": 0.5356280193236715,
+        "submovements": 1.0,
+        "dimensionless_jerk": 16.65056954323961,
+        "movement_time": 0.4466666666666667,
+        "peak_speed": 1.8708933063434443,
+        "within_human_range": {
+          "straightness": true,
+          "symmetry": true,
+          "submovements": true,
+          "dimensionless_jerk": true
+        }
+      }
+    },
+    {
+      "seed": 20261824,
+      "success": true,
+      "success_step": 115,
+      "waypoints_reached": 3,
+      "num_waypoints": 3,
+      "max_hold_progress": 1.0,
+      "final_distance": 0.04196956744833928,
+      "min_final_distance": 0.03674597624823216,
+      "steps": 115,
+      "episode_return": 75.58776082213227,
+      "hold_steps_after_success": 1,
+      "waypoints": [
+        [
+          1.3361832911198255,
+          -0.28519625766147433
+        ],
+        [
+          1.4125185751032763,
+          0.09366685852921254
+        ],
+        [
+          0.856127252448484,
+          0.33067340264203704
+        ]
+      ],
+      "human_likeness": {
+        "n_segments": 3,
+        "straightness": 1.0876467747122525,
+        "symmetry": 0.48253968253968244,
+        "submovements": 1.3333333333333333,
+        "dimensionless_jerk": 15.266636061980405,
+        "movement_time": 0.3666666666666667,
+        "peak_speed": 1.9249694873657759,
+        "within_human_range": {
+          "straightness": true,
+          "symmetry": true,
+          "submovements": true,
+          "dimensionless_jerk": true
+        }
+      }
+    },
+    {
+      "seed": 20261825,
+      "success": false,
+      "success_step": null,
+      "waypoints_reached": 1,
+      "num_waypoints": 3,
+      "max_hold_progress": 0.0,
+      "final_distance": 1.0771164482628963,
+      "min_final_distance": 0.5567184992129262,
+      "steps": 500,
+      "episode_return": -52.089335034899534,
+      "hold_steps_after_success": 0,
+      "waypoints": [
+        [
+          1.4295041963236301,
+          0.32060656052329994
+        ],
+        [
+          0.7441110610396721,
+          -0.5317410122665372
+        ],
+        [
+          0.9304806510547246,
+          0.5094174720775239
+        ]
+      ],
+      "human_likeness": {
+        "n_segments": 2,
+        "straightness": 1.6088737021014778,
+        "symmetry": 0.31264076576576577,
+        "submovements": 2.0,
+        "dimensionless_jerk": 15964.148670832414,
+        "movement_time": 4.760000000000001,
+        "peak_speed": 2.4001878869633986,
+        "within_human_range": {
+          "straightness": false,
+          "symmetry": false,
+          "submovements": true,
+          "dimensionless_jerk": false
+        }
+      }
+    },
+    {
+      "seed": 20261826,
+      "success": true,
+      "success_step": 142,
+      "waypoints_reached": 3,
+      "num_waypoints": 3,
+      "max_hold_progress": 1.0,
+      "final_distance": 0.035125505105416704,
+      "min_final_distance": 0.031815144431675664,
+      "steps": 142,
+      "episode_return": 52.9238338847785,
+      "hold_steps_after_success": 1,
+      "waypoints": [
+        [
+          0.9192538027729237,
+          0.43882940389463077
+        ],
+        [
+          1.6300368915804473,
+          -0.08423005791411212
+        ],
+        [
+          1.3039652025196853,
+          -0.014654394112939149
+        ]
+      ],
+      "human_likeness": {
+        "n_segments": 3,
+        "straightness": 1.1406921040796154,
+        "symmetry": 0.5951700957820909,
+        "submovements": 1.6666666666666667,
+        "dimensionless_jerk": 34.54088369933603,
+        "movement_time": 0.5533333333333333,
+        "peak_speed": 2.3772600410183995,
+        "within_human_range": {
+          "straightness": true,
+          "symmetry": false,
+          "submovements": true,
+          "dimensionless_jerk": true
+        }
+      }
+    },
+    {
+      "seed": 20261827,
+      "success": true,
+      "success_step": 155,
+      "waypoints_reached": 3,
+      "num_waypoints": 3,
+      "max_hold_progress": 1.0,
+      "final_distance": 0.01899520833121204,
+      "min_final_distance": 0.01899520833121204,
+      "steps": 155,
+      "episode_return": 69.04627946868297,
+      "hold_steps_after_success": 1,
+      "waypoints": [
+        [
+          1.0164760344344101,
+          0.46053035603625886
+        ],
+        [
+          1.4010504977839822,
+          0.433760776266466
+        ],
+        [
+          1.1851272128722496,
+          -0.4670303446621957
+        ]
+      ],
+      "human_likeness": {
+        "n_segments": 3,
+        "straightness": 1.0812662743205235,
+        "symmetry": 0.5331457160725454,
+        "submovements": 1.6666666666666667,
+        "dimensionless_jerk": 21.779783428426118,
+        "movement_time": 0.5466666666666667,
+        "peak_speed": 2.1780540928079186,
+        "within_human_range": {
+          "straightness": true,
+          "symmetry": true,
+          "submovements": true,
+          "dimensionless_jerk": true
+        }
+      }
+    },
+    {
+      "seed": 20261828,
+      "success": true,
+      "success_step": 175,
+      "waypoints_reached": 3,
+      "num_waypoints": 3,
+      "max_hold_progress": 1.0,
+      "final_distance": 0.029645500448846812,
+      "min_final_distance": 0.017400912725835466,
+      "steps": 175,
+      "episode_return": 37.92926578375887,
+      "hold_steps_after_success": 1,
+      "waypoints": [
+        [
+          1.0533208069520312,
+          0.5579777894278538
+        ],
+        [
+          1.5178488291197796,
+          0.37633106946114886
+        ],
+        [
+          0.7988706374050503,
+          -0.5271880654651493
+        ]
+      ],
+      "human_likeness": {
+        "n_segments": 3,
+        "straightness": 1.1138264443166894,
+        "symmetry": 0.5254601840736294,
+        "submovements": 1.6666666666666667,
+        "dimensionless_jerk": 31.39124346519384,
+        "movement_time": 0.66,
+        "peak_speed": 2.221201564868379,
+        "within_human_range": {
+          "straightness": true,
+          "symmetry": true,
+          "submovements": true,
+          "dimensionless_jerk": true
+        }
+      }
+    },
+    {
+      "seed": 20261829,
+      "success": true,
+      "success_step": 112,
+      "waypoints_reached": 3,
+      "num_waypoints": 3,
+      "max_hold_progress": 1.0,
+      "final_distance": 0.033077965885827613,
+      "min_final_distance": 0.0324354142774382,
+      "steps": 112,
+      "episode_return": 68.26099189983557,
+      "hold_steps_after_success": 1,
+      "waypoints": [
+        [
+          1.4632059310179624,
+          0.06390323231449588
+        ],
+        [
+          0.9100175343893749,
+          0.5452899089957465
+        ],
+        [
+          0.7080192089487697,
+          0.23016823438218187
+        ]
+      ],
+      "human_likeness": {
+        "n_segments": 3,
+        "straightness": 1.051025296650609,
+        "symmetry": 0.4842436974789916,
+        "submovements": 1.0,
+        "dimensionless_jerk": 17.66222532115993,
+        "movement_time": 0.46,
+        "peak_speed": 2.053239730586574,
+        "within_human_range": {
+          "straightness": true,
+          "symmetry": true,
+          "submovements": true,
+          "dimensionless_jerk": true
+        }
+      }
+    },
+    {
+      "seed": 20261830,
+      "success": true,
+      "success_step": 129,
+      "waypoints_reached": 3,
+      "num_waypoints": 3,
+      "max_hold_progress": 1.0,
+      "final_distance": 0.03379274641121394,
+      "min_final_distance": 0.029063047393720575,
+      "steps": 129,
+      "episode_return": 61.72565725330106,
+      "hold_steps_after_success": 1,
+      "waypoints": [
+        [
+          1.2630219845390191,
+          -0.2612544436271416
+        ],
+        [
+          0.6966194413897548,
+          0.24737842230752793
+        ],
+        [
+          1.2716218531259817,
+          0.18157462456188958
+        ]
+      ],
+      "human_likeness": {
+        "n_segments": 3,
+        "straightness": 1.152421922606307,
+        "symmetry": 0.5932330827067669,
+        "submovements": 2.3333333333333335,
+        "dimensionless_jerk": 30.710367557330766,
+        "movement_time": 0.5133333333333333,
+        "peak_speed": 1.7760328352226988,
+        "within_human_range": {
+          "straightness": false,
+          "symmetry": false,
+          "submovements": false,
+          "dimensionless_jerk": true
+        }
+      }
+    },
+    {
+      "seed": 20261831,
+      "success": true,
+      "success_step": 204,
+      "waypoints_reached": 3,
+      "num_waypoints": 3,
+      "max_hold_progress": 1.0,
+      "final_distance": 0.025692552883376213,
+      "min_final_distance": 0.02258867419888686,
+      "steps": 204,
+      "episode_return": 42.64103330707242,
+      "hold_steps_after_success": 1,
+      "waypoints": [
+        [
+          1.2366075359711086,
+          0.32000607390895563
+        ],
+        [
+          0.7976488695067234,
+          -0.5841268965197308
+        ],
+        [
+          0.7025251663785026,
+          0.43683797523352264
+        ]
+      ],
+      "human_likeness": {
+        "n_segments": 3,
+        "straightness": 1.296070972685947,
+        "symmetry": 0.5279381317744489,
+        "submovements": 2.0,
+        "dimensionless_jerk": 43.184321105350655,
+        "movement_time": 0.7666666666666667,
+        "peak_speed": 2.273741480467299,
+        "within_human_range": {
+          "straightness": false,
+          "symmetry": true,
+          "submovements": true,
+          "dimensionless_jerk": true
+        }
+      }
+    },
+    {
+      "seed": 20261832,
+      "success": true,
+      "success_step": 123,
+      "waypoints_reached": 3,
+      "num_waypoints": 3,
+      "max_hold_progress": 1.0,
+      "final_distance": 0.04110200314311919,
+      "min_final_distance": 0.033718959719393295,
+      "steps": 123,
+      "episode_return": 75.09584004741612,
+      "hold_steps_after_success": 1,
+      "waypoints": [
+        [
+          1.4236865730270611,
+          -0.19683089552484967
+        ],
+        [
+          1.2562955948250683,
+          -0.49581030979530333
+        ],
+        [
+          1.0736466830200766,
+          0.5336140074686079
+        ]
+      ],
+      "human_likeness": {
+        "n_segments": 3,
+        "straightness": 1.0755406196413901,
+        "symmetry": 0.4657088122605364,
+        "submovements": 1.0,
+        "dimensionless_jerk": 16.079133894772927,
+        "movement_time": 0.4266666666666666,
+        "peak_speed": 2.0469632042536023,
+        "within_human_range": {
+          "straightness": true,
+          "symmetry": true,
+          "submovements": true,
+          "dimensionless_jerk": true
+        }
+      }
+    },
+    {
+      "seed": 20261833,
+      "success": true,
+      "success_step": 112,
+      "waypoints_reached": 3,
+      "num_waypoints": 3,
+      "max_hold_progress": 1.0,
+      "final_distance": 0.030997943526887294,
+      "min_final_distance": 0.027390831173928317,
+      "steps": 112,
+      "episode_return": 63.81814562477694,
+      "hold_steps_after_success": 1,
+      "waypoints": [
+        [
+          1.1693869170331233,
+          -0.2064623094204685
+        ],
+        [
+          1.226769654484869,
+          0.45886059402462664
+        ],
+        [
+          1.4656444811995197,
+          -0.38677700782070573
+        ]
+      ],
+      "human_likeness": {
+        "n_segments": 3,
+        "straightness": 1.0693844648329776,
+        "symmetry": 0.591304347826087,
+        "submovements": 2.0,
+        "dimensionless_jerk": 23.345456376230022,
+        "movement_time": 0.47333333333333333,
+        "peak_speed": 1.8765807772442675,
+        "within_human_range": {
+          "straightness": true,
+          "symmetry": false,
+          "submovements": true,
+          "dimensionless_jerk": true
+        }
+      }
+    },
+    {
+      "seed": 20261834,
+      "success": true,
+      "success_step": 119,
+      "waypoints_reached": 3,
+      "num_waypoints": 3,
+      "max_hold_progress": 1.0,
+      "final_distance": 0.04243716930824704,
+      "min_final_distance": 0.02454740171541942,
+      "steps": 119,
+      "episode_return": 58.68318187569673,
+      "hold_steps_after_success": 1,
+      "waypoints": [
+        [
+          1.3243681673315268,
+          -0.0012385168456671546
+        ],
+        [
+          1.4355352962224739,
+          -0.47905851917914866
+        ],
+        [
+          1.3010174749718875,
+          0.46599473649379
+        ]
+      ],
+      "human_likeness": {
+        "n_segments": 3,
+        "straightness": 1.1041734821632359,
+        "symmetry": 0.6767715043577113,
+        "submovements": 1.3333333333333333,
+        "dimensionless_jerk": 21.449216870793673,
+        "movement_time": 0.45999999999999996,
+        "peak_speed": 2.305004945821795,
+        "within_human_range": {
+          "straightness": true,
+          "symmetry": false,
+          "submovements": true,
+          "dimensionless_jerk": true
+        }
+      }
+    },
+    {
+      "seed": 20261835,
+      "success": true,
+      "success_step": 108,
+      "waypoints_reached": 3,
+      "num_waypoints": 3,
+      "max_hold_progress": 1.0,
+      "final_distance": 0.0361466877076155,
+      "min_final_distance": 0.028839456078932617,
+      "steps": 108,
+      "episode_return": 64.00891907781096,
+      "hold_steps_after_success": 1,
+      "waypoints": [
+        [
+          1.378940013695064,
+          -0.00971421523909815
+        ],
+        [
+          1.2403925951722785,
+          -0.3083040472552386
+        ],
+        [
+          0.7739928581089476,
+          0.21103319696929115
+        ]
+      ],
+      "human_likeness": {
+        "n_segments": 3,
+        "straightness": 1.16622114086785,
+        "symmetry": 0.5074955908289241,
+        "submovements": 1.0,
+        "dimensionless_jerk": 21.501434702897313,
+        "movement_time": 0.46,
+        "peak_speed": 2.079990576410783,
+        "within_human_range": {
+          "straightness": false,
+          "symmetry": true,
+          "submovements": true,
+          "dimensionless_jerk": true
+        }
+      }
+    },
+    {
+      "seed": 20261836,
+      "success": true,
+      "success_step": 138,
+      "waypoints_reached": 3,
+      "num_waypoints": 3,
+      "max_hold_progress": 1.0,
+      "final_distance": 0.029172678287809343,
+      "min_final_distance": 0.029172678287809343,
+      "steps": 138,
+      "episode_return": 41.804050968216146,
+      "hold_steps_after_success": 1,
+      "waypoints": [
+        [
+          1.6196408196848469,
+          -0.07987646879065803
+        ],
+        [
+          0.793565867321351,
+          0.5523409872570852
+        ],
+        [
+          1.3125332479612761,
+          -0.20353996545623654
+        ]
+      ],
+      "human_likeness": {
+        "n_segments": 3,
+        "straightness": 1.067674271322686,
+        "symmetry": 0.4623015873015872,
+        "submovements": 1.6666666666666667,
+        "dimensionless_jerk": 27.914336337922162,
+        "movement_time": 0.5866666666666667,
+        "peak_speed": 2.3502075316198536,
+        "within_human_range": {
+          "straightness": true,
+          "symmetry": true,
+          "submovements": true,
+          "dimensionless_jerk": true
+        }
+      }
+    },
+    {
+      "seed": 20261837,
+      "success": true,
+      "success_step": 102,
+      "waypoints_reached": 3,
+      "num_waypoints": 3,
+      "max_hold_progress": 1.0,
+      "final_distance": 0.03370472253559011,
+      "min_final_distance": 0.03186875455072154,
+      "steps": 102,
+      "episode_return": 67.97178938554592,
+      "hold_steps_after_success": 1,
+      "waypoints": [
+        [
+          1.304615651153985,
+          0.27938325178010964
+        ],
+        [
+          1.480326258346899,
+          0.0025016156426981183
+        ],
+        [
+          1.1627401913513786,
+          -0.3108538520297568
+        ]
+      ],
+      "human_likeness": {
+        "n_segments": 3,
+        "straightness": 1.0596195774037471,
+        "symmetry": 0.461489898989899,
+        "submovements": 1.0,
+        "dimensionless_jerk": 17.794824982547656,
+        "movement_time": 0.42,
+        "peak_speed": 2.182867814647089,
+        "within_human_range": {
+          "straightness": true,
+          "symmetry": true,
+          "submovements": true,
+          "dimensionless_jerk": true
+        }
+      }
+    },
+    {
+      "seed": 20261838,
+      "success": true,
+      "success_step": 131,
+      "waypoints_reached": 3,
+      "num_waypoints": 3,
+      "max_hold_progress": 1.0,
+      "final_distance": 0.03794931806679218,
+      "min_final_distance": 0.009619522634883818,
+      "steps": 131,
+      "episode_return": 52.20418122990186,
+      "hold_steps_after_success": 1,
+      "waypoints": [
+        [
+          1.0317325524692462,
+          0.41904554740738703
+        ],
+        [
+          1.2112186082378547,
+          -0.3027752276245673
+        ],
+        [
+          1.3243481966553947,
+          0.15197709997891443
+        ]
+      ],
+      "human_likeness": {
+        "n_segments": 3,
+        "straightness": 1.1329081088636925,
+        "symmetry": 0.5572649572649574,
+        "submovements": 1.3333333333333333,
+        "dimensionless_jerk": 26.556812419065892,
+        "movement_time": 0.5333333333333333,
+        "peak_speed": 2.13309943294183,
+        "within_human_range": {
+          "straightness": true,
+          "symmetry": false,
+          "submovements": true,
+          "dimensionless_jerk": true
+        }
+      }
+    },
+    {
+      "seed": 20261839,
+      "success": true,
+      "success_step": 143,
+      "waypoints_reached": 3,
+      "num_waypoints": 3,
+      "max_hold_progress": 1.0,
+      "final_distance": 0.03534876175568634,
+      "min_final_distance": 0.03534876175568634,
+      "steps": 143,
+      "episode_return": 36.69870346363642,
+      "hold_steps_after_success": 1,
+      "waypoints": [
+        [
+          0.9384724729650382,
+          0.6323230175339979
+        ],
+        [
+          1.1110133168431342,
+          -0.4761398894120146
+        ],
+        [
+          1.4509631919962631,
+          -0.19497121085736996
+        ]
+      ],
+      "human_likeness": {
+        "n_segments": 3,
+        "straightness": 1.1266477148834564,
+        "symmetry": 0.4150047483380817,
+        "submovements": 2.6666666666666665,
+        "dimensionless_jerk": 53.85273395567015,
+        "movement_time": 0.6866666666666666,
+        "peak_speed": 2.077239210863338,
+        "within_human_range": {
+          "straightness": true,
+          "symmetry": true,
+          "submovements": false,
+          "dimensionless_jerk": true
+        }
+      }
+    },
+    {
+      "seed": 20261840,
+      "success": true,
+      "success_step": 110,
+      "waypoints_reached": 3,
+      "num_waypoints": 3,
+      "max_hold_progress": 1.0,
+      "final_distance": 0.03549209136533645,
+      "min_final_distance": 0.02849085793455206,
+      "steps": 110,
+      "episode_return": 58.99923678031928,
+      "hold_steps_after_success": 1,
+      "waypoints": [
+        [
+          1.3886075448104025,
+          0.3419083717825099
+        ],
+        [
+          1.4936748827812696,
+          -0.37477809631820974
+        ],
+        [
+          1.0552595336338575,
+          -0.5913064009231601
+        ]
+      ],
+      "human_likeness": {
+        "n_segments": 3,
+        "straightness": 1.0785106517736873,
+        "symmetry": 0.63125,
+        "submovements": 1.3333333333333333,
+        "dimensionless_jerk": 23.40638528151211,
+        "movement_time": 0.45333333333333337,
+        "peak_speed": 2.461228894794837,
+        "within_human_range": {
+          "straightness": true,
+          "symmetry": false,
+          "submovements": true,
+          "dimensionless_jerk": true
+        }
+      }
+    }
+  ]
+}
