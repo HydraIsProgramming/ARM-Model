@@ -132,3 +132,31 @@ def test_tqc_package_round_trips_with_standard_file_names(tmp_path):
     assert type(model).__name__ == "TQC" and manifest["algorithm"] == "TQC"
     hist = json.loads((tmp_path / "curriculum_state.json").read_text())["history"]
     assert all("probe_success_rate" in h for h in hist)
+
+
+def test_a_crashed_run_resumes_from_its_last_checkpoint(tmp_path, monkeypatch):
+    """Native crashes (access violations) must not end a seed: the crashed folder is kept and the
+    run continues from its last checkpoint with the remaining steps."""
+    import sys
+    sys.path.insert(0, str(ROOT))
+    import run_campaign
+    calls = []
+
+    def fake_call(cmd, stdout=None, stderr=None, cwd=None):
+        calls.append(list(cmd))
+        d = Path(cmd[cmd.index("--save-dir") + 1])
+        if len(calls) == 1:                                   # dies after its 100K checkpoint
+            for f in ("sac_model_last.zip", "replay_buffer.pkl", "run_manifest.json"):
+                (d / f).write_text("x")
+            (d / "curriculum_state.json").write_text(json.dumps({"num_timesteps": 100_000}))
+            return 3221225477
+        (d / "final_eval.json").write_text("{}")
+        return 0
+
+    monkeypatch.setattr(run_campaign.subprocess, "call", fake_call)
+    seed, rc, note = run_campaign.train_one((tmp_path, 1, "R8", 1_000_000, 2, "muscle", [], 50_000, 20_000, None, ""))
+    assert rc == 0 and "resumed from 100,000" in note
+    assert (tmp_path / "seed_1_crash1" / "replay_buffer.pkl").exists()
+    second = calls[1]
+    assert second[second.index("--continue-from") + 1] == str(tmp_path / "seed_1_crash1")
+    assert second[second.index("--timesteps") + 1] == "900000"

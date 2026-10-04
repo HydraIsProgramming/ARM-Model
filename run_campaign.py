@@ -141,31 +141,87 @@ def parse_args():
                    help="stage directory whose seed_<k> packages seed the same-numbered runs (weights only)")
     p.add_argument("--suffix", default="", help="run-dir suffix, e.g. _warm")
     p.add_argument("--extra", default="", help="extra CLI flags for every run, e.g. \"--net-arch 128,128\"")
+    p.add_argument("--cpu-exclude", default="",
+                   help="logical processors to keep training off, e.g. \"12-15\" (Windows; every run inherits it)")
     return p.parse_args()
+
+
+def exclude_cpus(spec: str) -> None:
+    """Keep this process - and every training run it starts, which inherit the mask - off the given
+    logical processors. Used to avoid CPU cores that log corrected machine-check errors."""
+    if not spec or os.name != "nt":
+        return
+    import ctypes
+    bad = set()
+    for part in spec.split(","):
+        lo, _, hi = part.strip().partition("-")
+        bad.update(range(int(lo), int(hi or lo) + 1))
+    n = os.cpu_count() or 1
+    mask = sum(1 << i for i in range(n) if i not in bad)
+    if not mask:
+        raise SystemExit("--cpu-exclude leaves no processors")
+    from ctypes import wintypes
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.GetCurrentProcess.restype = wintypes.HANDLE          # a 64-bit pseudo-handle; the default int truncates it
+    k32.SetProcessAffinityMask.argtypes = [wintypes.HANDLE, ctypes.c_size_t]
+    k32.SetProcessAffinityMask.restype = wintypes.BOOL
+    if not k32.SetProcessAffinityMask(k32.GetCurrentProcess(), mask):
+        raise SystemExit(f"could not set the processor affinity (error {ctypes.get_last_error()})")
+    print(f"[cpu] training kept off logical processors {sorted(bad)} (affinity mask {mask:#x})", flush=True)
 
 
 def run_dir_for(out: Path, seed: int, suffix: str = "") -> Path:
     return out / f"seed_{seed}{suffix}"
 
 
+MAX_CRASH_RECOVERIES = 6
+
+
+def _resumable(run_dir: Path) -> bool:
+    """A crashed run can continue if a checkpoint left its model, replay buffer and curriculum state."""
+    return all((run_dir / f).exists() for f in ("sac_model_last.zip", "replay_buffer.pkl", "curriculum_state.json",
+                                                 "run_manifest.json"))
+
+
 def train_one(args_tuple):
+    """Train one seed. A run that dies (on this machine: native access violations from a CPU that
+    logs corrected machine-check errors) is recovered automatically: the crashed folder is kept as
+    seed_k_crashN, and the run continues from its last checkpoint (model + replay buffer +
+    curriculum state, written every `ckpt` steps) into seed_k - or restarts if it died before its
+    first checkpoint. The final seed_k folder carries the whole curriculum history and its lineage."""
     out, seed, stage, timesteps, threads, actuation, extra, ckpt, evalf, warm, suffix = args_tuple
     d = run_dir_for(out, seed, suffix)
     if (d / "run_manifest.json").exists() and (d / "final_eval.json").exists():
         return seed, 0, "already finished"
-    d.mkdir(parents=True, exist_ok=True)
-    cmd = [PY, str(SCRIPT), "--timesteps", str(timesteps), "--seed", str(seed), "--num-threads", str(threads),
-           "--waypoints", STAGES[stage]["waypoints"], "--actuation-mode", actuation, "--save-dir", str(d),
-           "--skip-validators", "--overwrite", "--checkpoint-every", str(ckpt), "--eval-freq", str(evalf),
-           ] + list(STAGES[stage].get("extra", [])) + extra
+    base = [PY, str(SCRIPT), "--seed", str(seed), "--num-threads", str(threads),
+            "--waypoints", STAGES[stage]["waypoints"], "--actuation-mode", actuation, "--save-dir", str(d),
+            "--skip-validators", "--overwrite", "--checkpoint-every", str(ckpt), "--eval-freq", str(evalf),
+            ] + list(STAGES[stage].get("extra", [])) + extra
+    cmd = base + ["--timesteps", str(timesteps)]
     if warm:
         src = Path(warm) / f"seed_{seed}"
         if (src / "run_manifest.json").exists():
             cmd += ["--continue-from", str(src), "--drop-buffer"]
     t0 = time.perf_counter()
-    with open(d / "stdout.log", "w", encoding="utf-8") as f:
-        rc = subprocess.call(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=str(ROOT))
-    return seed, rc, f"{(time.perf_counter() - t0) / 60:.1f} min"
+    notes = []
+    for attempt in range(MAX_CRASH_RECOVERIES + 1):
+        d.mkdir(parents=True, exist_ok=True)
+        with open(d / "stdout.log", "w", encoding="utf-8") as f:
+            rc = subprocess.call(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=str(ROOT))
+        if rc == 0 or attempt == MAX_CRASH_RECOVERIES:
+            break
+        crashed = d.with_name(f"{d.name}_crash{attempt + 1}")
+        shutil.move(str(d), str(crashed))
+        if _resumable(crashed):
+            with open(crashed / "curriculum_state.json", encoding="utf-8") as fh:
+                done = int(json.load(fh).get("num_timesteps", 0))
+            cmd = base + ["--timesteps", str(max(1, timesteps - done)), "--continue-from", str(crashed)]
+            notes.append(f"crash rc={rc}, resumed from {done:,}")
+        else:
+            cmd = base + ["--timesteps", str(timesteps)]
+            notes.append(f"crash rc={rc} before the first checkpoint, restarted")
+        print(f"  seed {seed}: {notes[-1]}", flush=True)
+    return seed, rc, f"{(time.perf_counter() - t0) / 60:.1f} min" + (f"; {'; '.join(notes)}" if notes else "")
 
 
 def evaluate_package(d: Path, n_episodes: int = 20):
@@ -248,6 +304,7 @@ def promote(champion_dir: Path, stage: str, force: bool):
 
 def main():
     args = parse_args()
+    exclude_cpus(args.cpu_exclude)
     seeds = [int(s) for s in args.seeds.split(",") if s.strip()]
     base = Path(args.out) if args.out else Path(os.environ.get("ARM_MODEL_OUTPUT_DIR", "C:/arm-model-runs")) / f"stage{args.stage}"
     base.mkdir(parents=True, exist_ok=True)
