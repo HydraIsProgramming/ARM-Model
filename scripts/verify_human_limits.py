@@ -205,6 +205,18 @@ def main():
     if drift:
         print(f"  holds a pose against gravity           drift {np.median(drift) * 1000:.0f} mm, "
               f"hand speed {np.median(hold_speed):.3f} m/s while holding")
+    # How long the hand takes to settle once it first reaches the last target: the time beyond the
+    # required hold spent drifting or jittering in and out of the target.
+    settle, need = [], int(base.hold_steps_required)
+    for e in eps:
+        if not e["success"] or base.free_order:
+            continue
+        idx = np.flatnonzero((e["wp_index"] == e["n_waypoints"] - 1) & e["in_goal"])
+        if idx.size:
+            settle.append(max(0, len(e["in_goal"]) - int(idx[0]) - need) * float(base.dt))
+    if settle:
+        print(f"  settles into the final hold            {np.median(settle):.2f} s median beyond the "
+              f"{need * float(base.dt):.1f} s hold (p90 {np.percentile(settle, 90):.2f} s)")
     print(f"  stays sub-maximal in torque            peak "
           f"{np.round(100 * np.max(np.abs(tau), axis=0) / tau_max, 0).tolist()} % of the limits")
     er = np.concatenate([e["end_range"] for e in eps])
@@ -245,6 +257,8 @@ def main():
             "steps_on_hard_stop": float(np.mean(np.any(at, axis=1))),
             "hold_drift_mm": float(np.median(drift) * 1000) if drift else None,
             "waypoints_visited": float(reached),
+            "final_hold_extra_s": float(np.median(settle)) if settle else None,
+            "final_hold_extra_p90_s": float(np.percentile(settle, 90)) if settle else None,
         }
         if not muscles:
             extra["rms_torque_rate"] = np.sqrt(np.mean(rate ** 2, axis=0)).tolist()

@@ -178,7 +178,7 @@ def main():
                     for k in ("train_tolerance", "train_hold_steps", "train_success_rate",
                               "train_mean_waypoints", "train_streak", "prod_success_rate",
                               "prod_mean_waypoints", "prod_mean_max_hold", "prod_mean_final_distance",
-                              "advanced", "improved"):
+                              "advanced", "improved", "probe_success_rate", "t80_step"):
                         row[k] = r.get(k)
                     score = r.get("prod_score") or []
                     for i, name in enumerate(("score_success", "score_progress",
