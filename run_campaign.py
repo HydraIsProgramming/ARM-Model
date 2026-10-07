@@ -5,6 +5,16 @@ Staged training campaign on the human-arm waypoint task.
     python run_campaign.py --stage B                # 3 waypoints, 5 seeds, 600K steps each
     python run_campaign.py --stage A --report       # re-read the packages, print the table, promote
 
+On the training PC (its CPU logs hardware errors and has blue-screened under load), train gently and
+alongside the watchdog - several stages through one pool, E-cores only, efficiency mode, staggered:
+
+    python scripts/hw_watchdog.py
+    python run_campaign.py --queue "R8:1-5;R8E:1-3;R8N:1-3" --parallel 8 --threads 1 --cpus 16-23 \\
+        --efficiency --stagger 90
+
+Checkpoints are written crash-safely; after a crash or reboot, the same command resumes every
+unfinished run from its last intact checkpoint.
+
 Pass criterion per stage: >= 3 of 5 seeds reach >= 80% success at the
 evaluation standard (20 randomised episodes, tolerance 0.05 m, 0.5 s hold).
 If a stage fails, the fix goes into the environment / reward / curriculum,
@@ -121,7 +131,10 @@ PROTECTED = {"CHAMPION", "fischer_waypoints_v2_500k", "CHAMPION_V2"}
 
 def parse_args():
     p = argparse.ArgumentParser(description="staged training campaign")
-    p.add_argument("--stage", required=True, choices=sorted(STAGES))
+    p.add_argument("--stage", choices=sorted(STAGES), help="the stage to train (or use --queue)")
+    p.add_argument("--queue", default="",
+                   help=("several stages through ONE pool of --parallel runs, e.g. \"R8:1-5;R8E:1-3;R8N:1-3\". "
+                         "Each stage is reported at the end; nothing is promoted (use --stage X --report --promote)."))
     p.add_argument("--seeds", default=",".join(map(str, DEFAULT_SEEDS)))
     p.add_argument("--timesteps", type=int, default=None)
     p.add_argument("--parallel", type=int, default=5)
@@ -143,7 +156,51 @@ def parse_args():
     p.add_argument("--extra", default="", help="extra CLI flags for every run, e.g. \"--net-arch 128,128\"")
     p.add_argument("--cpu-exclude", default="",
                    help="logical processors to keep training off, e.g. \"12-15\" (Windows; every run inherits it)")
-    return p.parse_args()
+    p.add_argument("--cpus", default="",
+                   help="logical processors training may use, e.g. \"16-23\" for the E-cores only (Windows)")
+    p.add_argument("--efficiency", action="store_true",
+                   help="Windows efficiency mode for every run: EcoQoS (efficient clocks) + below-normal priority")
+    p.add_argument("--stagger", type=float, default=0.0,
+                   help="seconds between starting runs, so their checkpoints are not all written at once")
+    args = p.parse_args()
+    if not args.stage and not args.queue:
+        p.error("give --stage or --queue")
+    return args
+
+
+def parse_queue(spec: str):
+    """"R8:1-5;R8E:1-3" -> [("R8", [1, 2, 3, 4, 5]), ("R8E", [1, 2, 3])]"""
+    out = []
+    for item in spec.split(";"):
+        if not item.strip():
+            continue
+        stage, _, seeds = item.partition(":")
+        stage = stage.strip()
+        if stage not in STAGES:
+            raise SystemExit(f"unknown stage {stage!r} in --queue")
+        nums = []
+        for part in (seeds or ",".join(map(str, DEFAULT_SEEDS))).split(","):
+            lo, _, hi = part.strip().partition("-")
+            nums += list(range(int(lo), int(hi or lo) + 1))
+        out.append((stage, nums))
+    return out
+
+
+def gentle_cpu(args) -> None:
+    """--cpus / --efficiency: applied to this process; every run it starts inherits the processor set
+    and the priority, and turns on EcoQoS for itself (train_fischer_session reads the env flag)."""
+    if not (args.cpus or args.efficiency):
+        return
+    sys.path.insert(0, str(ROOT / "src"))
+    from rl_armMotion.two_d.training.process_control import ECO_ENV, efficiency_mode, parse_cpus, set_cpus
+    if args.cpus:
+        cpus = parse_cpus(args.cpus)
+        mask = set_cpus(cpus)
+        print(f"[cpu] training only on logical processors {cpus} (affinity mask {mask:#x})", flush=True)
+    if args.efficiency:
+        os.environ[ECO_ENV] = "1"
+        efficiency_mode()
+        print("[cpu] efficiency mode: EcoQoS + below-normal priority for every run", flush=True)
 
 
 def exclude_cpus(spec: str) -> None:
@@ -178,9 +235,30 @@ MAX_CRASH_RECOVERIES = 6
 
 
 def _resumable(run_dir: Path) -> bool:
-    """A crashed run can continue if a checkpoint left its model, replay buffer and curriculum state."""
-    return all((run_dir / f).exists() for f in ("sac_model_last.zip", "replay_buffer.pkl", "curriculum_state.json",
-                                                 "run_manifest.json"))
+    """A crashed run can continue if a checkpoint left its model, replay buffer and curriculum state -
+    and they are intact: before checkpoints were written crash-safely, a blue screen left the files
+    being written at that moment full of zeros."""
+    files = ("sac_model_last.zip", "replay_buffer.pkl", "curriculum_state.json", "run_manifest.json")
+    return all((run_dir / f).exists() for f in files) and _intact(run_dir)
+
+
+def _intact(run_dir: Path) -> bool:
+    import zipfile
+    try:
+        with zipfile.ZipFile(run_dir / "sac_model_last.zip") as z:
+            if z.testzip() is not None:
+                return False
+        for f in ("curriculum_state.json", "run_manifest.json"):
+            json.loads((run_dir / f).read_text(encoding="utf-8"))
+        with open(run_dir / "replay_buffer.pkl", "rb") as fh:       # a pickle starts with PROTO, ends with STOP
+            if fh.read(1) != b"\x80":
+                return False
+            fh.seek(-1, os.SEEK_END)
+            if fh.read(1) != b".":
+                return False
+    except (OSError, ValueError, zipfile.BadZipFile):
+        return False
+    return True
 
 
 def _crash_dir(d: Path) -> Path:
@@ -205,10 +283,13 @@ def train_one(args_tuple):
     first checkpoint. The final seed_k folder carries the whole curriculum history and its lineage.
     A run left unfinished by a campaign that died with the machine (a blue screen) is picked up the
     same way when the campaign is launched again with the same arguments."""
-    out, seed, stage, timesteps, threads, actuation, extra, ckpt, evalf, warm, suffix = args_tuple
+    out, seed, stage, timesteps, threads, actuation, extra, ckpt, evalf, warm, suffix = args_tuple[:11]
+    delay = args_tuple[11] if len(args_tuple) > 11 else 0.0
     d = run_dir_for(out, seed, suffix)
     if (d / "run_manifest.json").exists() and (d / "final_eval.json").exists():
         return seed, 0, "already finished"
+    if delay:
+        time.sleep(delay)
     base = [PY, str(SCRIPT), "--seed", str(seed), "--num-threads", str(threads),
             "--waypoints", STAGES[stage]["waypoints"], "--actuation-mode", actuation, "--save-dir", str(d),
             "--skip-validators", "--overwrite", "--checkpoint-every", str(ckpt), "--eval-freq", str(evalf),
@@ -225,6 +306,12 @@ def train_one(args_tuple):
         shutil.move(str(d), str(crashed))
         cmd, done = _continue_cmd(base, timesteps, crashed)
         notes.append(f"unfinished run from an earlier launch, resumed from {done:,}")
+        print(f"  seed {seed}: {notes[-1]}", flush=True)
+    elif (d / "run_manifest.json").exists():
+        crashed = _crash_dir(d)                    # unfinished, nothing intact to resume: keep it, start over
+        shutil.move(str(d), str(crashed))
+        notes.append(f"unfinished run from an earlier launch had no intact checkpoint (kept as {crashed.name}); "
+                     f"restarted")
         print(f"  seed {seed}: {notes[-1]}", flush=True)
     for attempt in range(MAX_CRASH_RECOVERIES + 1):
         d.mkdir(parents=True, exist_ok=True)
@@ -322,9 +409,43 @@ def promote(champion_dir: Path, stage: str, force: bool):
     print(f"[promote] champion package copied to {target} (replay buffer and checkpoints left in {champion_dir})")
 
 
+def run_queue(args) -> None:
+    """Several stages through one pool, so the number of runs at once is capped across all of them."""
+    plan = parse_queue(args.queue)
+    root = Path(args.out) if args.out else Path(os.environ.get("ARM_MODEL_OUTPUT_DIR", "C:/arm-model-runs"))
+    extra = args.extra.split() if args.extra else []
+    jobs = []
+    for stage, seeds in plan:
+        base = root / f"stage{stage}"
+        base.mkdir(parents=True, exist_ok=True)
+        steps = args.timesteps or STAGES[stage]["timesteps"]
+        jobs += [(base, s, stage, steps, args.threads, args.actuation_mode, extra, args.checkpoint_every,
+                  args.eval_freq, args.warm_start_from, args.suffix) for s in seeds]
+    jobs = [j + (args.stagger * i if i < args.parallel else 0.0,) for i, j in enumerate(jobs)]
+    print(f"Queue: {', '.join(f'{st} seeds {sd}' for st, sd in plan)} -> {len(jobs)} runs, {args.parallel} at a time, "
+          f"{args.threads} threads each, started {args.stagger:g} s apart -> {root}", flush=True)
+    t0 = time.perf_counter()
+    with ProcessPoolExecutor(max_workers=max(1, args.parallel)) as ex:
+        futs = {ex.submit(train_one, j): (j[2], j[1]) for j in jobs}
+        for f in as_completed(futs):
+            stage, seed = futs[f]
+            try:
+                _, rc, note = f.result()
+            except Exception as exc:                     # a worker lost with the machine: report, keep going
+                rc, note = -1, f"worker error: {exc}"
+            print(f"  {stage} seed {seed}: {'ok' if rc == 0 else f'FAILED rc={rc}'} ({note})", flush=True)
+    print(f"queue wall time {(time.perf_counter() - t0) / 60:.0f} min", flush=True)
+    for stage, seeds in plan:
+        args.stage = stage
+        report(root / f"stage{stage}", seeds, args)
+
+
 def main():
     args = parse_args()
     exclude_cpus(args.cpu_exclude)
+    gentle_cpu(args)
+    if args.queue:
+        return run_queue(args)
     seeds = [int(s) for s in args.seeds.split(",") if s.strip()]
     base = Path(args.out) if args.out else Path(os.environ.get("ARM_MODEL_OUTPUT_DIR", "C:/arm-model-runs")) / f"stage{args.stage}"
     base.mkdir(parents=True, exist_ok=True)
@@ -335,7 +456,8 @@ def main():
               f"{args.threads} threads each -> {base}", flush=True)
         t0 = time.perf_counter()
         jobs = [(base, s, args.stage, timesteps, args.threads, args.actuation_mode, extra,
-                 args.checkpoint_every, args.eval_freq, args.warm_start_from, args.suffix) for s in seeds]
+                 args.checkpoint_every, args.eval_freq, args.warm_start_from, args.suffix,
+                 args.stagger * i if i < args.parallel else 0.0) for i, s in enumerate(seeds)]
         with ProcessPoolExecutor(max_workers=max(1, args.parallel)) as ex:
             futs = {ex.submit(train_one, j): j[1] for j in jobs}
             for f in as_completed(futs):

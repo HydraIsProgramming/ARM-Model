@@ -35,6 +35,9 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
+from rl_armMotion.two_d.training.process_control import apply_from_env  # noqa: E402
+apply_from_env()      # Windows efficiency mode, when the campaign launcher asked for it (--efficiency)
+
 
 def parse_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="SAC training run on the human-arm waypoint task")

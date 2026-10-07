@@ -54,7 +54,9 @@ class OraclePolicy:
         return a.astype(np.float32), None
 
     def save(self, path):
-        Path(str(path) + ".zip").write_bytes(b"oracle")
+        # Like Stable-Baselines3: ".zip" is added only to a name without an extension.
+        path = Path(path)
+        (path if path.suffix else Path(str(path) + ".zip")).write_bytes(b"oracle")
 
 
 

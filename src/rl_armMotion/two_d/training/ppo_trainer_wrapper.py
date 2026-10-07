@@ -21,6 +21,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence
 import numpy as np
 
 from rl_armMotion.two_d.environments.task_env import ArmTaskEnv
+from rl_armMotion.two_d.training.durable import durable_write
 from rl_armMotion.two_d.evaluation import EVAL_STANDARD, PACKAGE_FILES, EvalStandard, read_manifest
 from rl_armMotion.two_d.models.callbacks import GUICallback
 from rl_armMotion.two_d.models.trainers import RLTrainer
@@ -494,7 +495,8 @@ class RLTrainerWithMetrics:
         self.trainer.save(model_path)
         if hasattr(self.trainer.model, "save_replay_buffer"):
             try:
-                self.trainer.model.save_replay_buffer(str(save_path / PACKAGE_FILES["replay_buffer"]))
+                durable_write(save_path / PACKAGE_FILES["replay_buffer"],
+                              lambda p: self.trainer.model.save_replay_buffer(str(p)))
             except Exception:
                 pass
         if self.eval_checkpoint_callback is not None:

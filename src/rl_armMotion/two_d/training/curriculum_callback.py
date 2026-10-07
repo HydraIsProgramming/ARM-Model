@@ -28,6 +28,7 @@ import numpy as np
 from stable_baselines3.common.callbacks import BaseCallback
 
 from rl_armMotion.two_d.evaluation import EVAL_STANDARD, PACKAGE_FILES, EvalStandard, evaluate_policy
+from rl_armMotion.two_d.training.durable import durable_text, durable_write
 
 __all__ = ["EvalCheckpointCurriculumCallback", "_apply_env_setting"]
 
@@ -220,14 +221,14 @@ class EvalCheckpointCurriculumCallback(BaseCallback):
             if (self.t80_step is None and len(recent) == self.t80_window
                     and sum(recent) / len(recent) >= self.t80_threshold):
                 self.t80_step = int(self.num_timesteps)
-                self.model.save(str(self.run_dir / self.model_stem) + "_t80")
+                self._save_model(self.run_dir / f"{self.model_stem}_t80.zip")
 
         improved = self.best_score is None or score > list(self.best_score)
         if improved:
             self.best_score = score
             self.best_saved_at = int(self.num_timesteps)
-            self.model.save(str(self.run_dir / self.model_stem) + "_best")
-            prod_res.save(self.run_dir / PACKAGE_FILES["best_eval"])
+            self._save_model(self.run_dir / f"{self.model_stem}_best.zip")
+            durable_write(self.run_dir / PACKAGE_FILES["best_eval"], prod_res.save)
         self._save_last(with_buffer=False)
 
         # 3. curriculum advance (one ladder per round, cooldown one round)
@@ -278,12 +279,18 @@ class EvalCheckpointCurriculumCallback(BaseCallback):
                   + (f" | {advanced}" if advanced else ""), flush=True)
 
     # ------------------------------------------------------------------ #
+    # Every write below goes through durable_write: written to a temporary file, forced to disk,
+    # then swapped in, so a machine crash mid-write cannot leave a zero-filled checkpoint.
+    def _save_model(self, path: Path) -> None:
+        durable_write(path, lambda p: self.model.save(str(p)))
+
     def _save_last(self, with_buffer: bool) -> None:
         self.run_dir.mkdir(parents=True, exist_ok=True)
-        self.model.save(str(self.run_dir / self.model_stem) + "_last")
+        self._save_model(self.run_dir / f"{self.model_stem}_last.zip")
         if with_buffer and self.save_replay_buffer and hasattr(self.model, "save_replay_buffer"):
             try:
-                self.model.save_replay_buffer(str(self.run_dir / PACKAGE_FILES["replay_buffer"]))
+                durable_write(self.run_dir / PACKAGE_FILES["replay_buffer"],
+                              lambda p: self.model.save_replay_buffer(str(p)))
             except Exception as exc:  # pragma: no cover
                 if self.verbose:
                     print(f"[Curriculum] replay buffer not saved: {exc}")
@@ -291,7 +298,7 @@ class EvalCheckpointCurriculumCallback(BaseCallback):
     def _save_checkpoint(self) -> None:
         ck = self.run_dir / PACKAGE_FILES["checkpoints"]
         ck.mkdir(parents=True, exist_ok=True)
-        self.model.save(str(ck / f"step_{int(self.num_timesteps):07d}"))
+        self._save_model(ck / f"step_{int(self.num_timesteps):07d}.zip")
         self._save_last(with_buffer=True)
         self._write_state()
 
@@ -316,9 +323,7 @@ class EvalCheckpointCurriculumCallback(BaseCallback):
         }
 
     def _write_state(self) -> None:
-        self.run_dir.mkdir(parents=True, exist_ok=True)
-        with open(self.run_dir / PACKAGE_FILES["curriculum"], "w", encoding="utf-8") as f:
-            json.dump(self.state_dict(), f, indent=2)
+        durable_text(self.run_dir / PACKAGE_FILES["curriculum"], json.dumps(self.state_dict(), indent=2))
 
     def _load_state(self, st: Dict[str, Any]) -> None:
         self.tolerance_idx = int(st.get("tolerance_idx", 0))

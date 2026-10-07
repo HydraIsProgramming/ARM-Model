@@ -134,6 +134,16 @@ def test_tqc_package_round_trips_with_standard_file_names(tmp_path):
     assert all("probe_success_rate" in h for h in hist)
 
 
+def _write_checkpoint(d, steps):
+    """The files a resume reads, intact (resume refuses zero-filled ones)."""
+    import zipfile
+    with zipfile.ZipFile(d / "sac_model_last.zip", "w") as z:
+        z.writestr("data", "weights")
+    (d / "replay_buffer.pkl").write_bytes(bytes([0x80, 0x05]) + b" buffer .")
+    (d / "run_manifest.json").write_text("{}")
+    (d / "curriculum_state.json").write_text(json.dumps({"num_timesteps": steps}))
+
+
 def test_a_crashed_run_resumes_from_its_last_checkpoint(tmp_path, monkeypatch):
     """Native crashes (access violations) must not end a seed: the crashed folder is kept and the
     run continues from its last checkpoint with the remaining steps."""
@@ -146,9 +156,7 @@ def test_a_crashed_run_resumes_from_its_last_checkpoint(tmp_path, monkeypatch):
         calls.append(list(cmd))
         d = Path(cmd[cmd.index("--save-dir") + 1])
         if len(calls) == 1:                                   # dies after its 100K checkpoint
-            for f in ("sac_model_last.zip", "replay_buffer.pkl", "run_manifest.json"):
-                (d / f).write_text("x")
-            (d / "curriculum_state.json").write_text(json.dumps({"num_timesteps": 100_000}))
+            _write_checkpoint(d, 100_000)
             return 3221225477
         (d / "final_eval.json").write_text("{}")
         return 0
@@ -170,9 +178,7 @@ def test_a_relaunched_campaign_picks_up_runs_a_blue_screen_left_unfinished(tmp_p
     import run_campaign
     d = tmp_path / "seed_2"
     d.mkdir()
-    for f in ("sac_model_last.zip", "replay_buffer.pkl", "run_manifest.json"):
-        (d / f).write_text("x")
-    (d / "curriculum_state.json").write_text(json.dumps({"num_timesteps": 300_000}))
+    _write_checkpoint(d, 300_000)
     (tmp_path / "seed_2_crash1").mkdir()                     # an older crash keeps its name
     calls = []
 
