@@ -1,0 +1,17 @@
+{
+  "package": "C:\\Users\\ranjo\\OneDrive\\Desktop\\ARM-Model\\project_assets\\outputs\\CHAMPION_HUMAN_V1_R5",
+  "trials": 80,
+  "points": 3,
+  "anywhere": true,
+  "all_reached": 66,
+  "success_rate": 0.825,
+  "wilson95": [
+    0.7274225612441251,
+    0.8927946101839012
+  ],
+  "points_reached_fraction": 0.8833333333333332,
+  "median_time_s": 3.22,
+  "median_worst_miss_m": 0.10726549865323216,
+  "clicks_moved_fraction": 0.8208333333333333,
+  "median_move_m": 0.24882383960777735
+}

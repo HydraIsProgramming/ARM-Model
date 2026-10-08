@@ -1,0 +1,15 @@
+C:\Users\ranjo\OneDrive\Desktop\ARM-Model\src\rl_armMotion\two_d\environments\task_env.py:1532: RuntimeWarning: waypoint 0 [1.45, 0.15] is not robustly feasible: radius 0.474 m is within 0.180 m of the reach circle (0.650 m): a straight-arm rest would count as in-goal at the coarse curriculum tolerance
+  env.set_waypoints(waypoints)
+C:\Users\ranjo\OneDrive\Desktop\ARM-Model\src\rl_armMotion\two_d\environments\task_env.py:1532: RuntimeWarning: waypoint 1 [1.5, -0.25] is not robustly feasible: radius 0.559 m is within 0.180 m of the reach circle (0.650 m): a straight-arm rest would count as in-goal at the coarse curriculum tolerance
+  env.set_waypoints(waypoints)
+Wrapping the env with a `Monitor` wrapper
+Wrapping the env in a DummyVecEnv.
+package C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\CHAMPION_HUMAN_V1_A (best)
+80 trials of 3 clicked points, anywhere in reach; tolerance 0.05 m, hold 25 steps
+
+reached every clicked point : 0/80 = 0%  (95% 0%-5%)
+points reached per trial    : 2%
+worst point when it fails   : median 0.743 m from the target (tolerance 0.05)
+clicks honoured             : 240/240 = 100.0%
+clicks moved to a holdable point: 197 of 240 (82%), median 25 cm, p90 57 cm
+  (the panel draws the point you asked for and a dotted line to the one used)

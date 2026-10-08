@@ -1,0 +1,11 @@
+Wrapping the env with a `Monitor` wrapper
+Wrapping the env in a DummyVecEnv.
+
+CHAMPION_HUMAN_V1_R5: all three targets + hold in 9% of 200 episodes
+  all targets   194/376  =   52%   (95% CI 47%-57%)
+  old area      133/135  =   99%   (95% CI 95%-100%)
+  outer ring     35/208  =   17%   (95% CI 12%-23%)
+  overhead        6/56   =   11%   (95% CI 5%-21%)
+  behind body    33/56   =   59%   (95% CI 46%-71%)
+  hanging low     1/48   =    2%   (95% CI 0%-11%)
+  close in       36/42   =   86%   (95% CI 72%-93%)

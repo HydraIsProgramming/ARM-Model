@@ -1,0 +1,12 @@
+Wrapping the env with a `Monitor` wrapper
+Wrapping the env in a DummyVecEnv.
+package C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\CHAMPION_HUMAN_V1_R4 (best)
+80 trials of 3 clicked points, anywhere in reach; tolerance 0.05 m, hold 25 steps
+
+reached every clicked point : 78/80 = 98%  (95% 91%-99%)
+points reached per trial    : 99%
+time when it succeeds       : median 2.3 s of 10 s
+worst point when it fails   : median 0.030 m from the target (tolerance 0.05)
+clicks honoured             : 240/240 = 100.0%
+clicks moved to a holdable point: 197 of 240 (82%), median 25 cm, p90 57 cm
+  (the panel draws the point you asked for and a dotted line to the one used)

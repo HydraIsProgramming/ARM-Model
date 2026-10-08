@@ -1,0 +1,42 @@
+C:\Users\ranjo\OneDrive\Desktop\ARM-Model\src\rl_armMotion\two_d\environments\task_env.py:1532: RuntimeWarning: waypoint 0 [1.45, 0.15] is not robustly feasible: radius 0.474 m is within 0.180 m of the reach circle (0.650 m): a straight-arm rest would count as in-goal at the coarse curriculum tolerance
+  env.set_waypoints(waypoints)
+C:\Users\ranjo\OneDrive\Desktop\ARM-Model\src\rl_armMotion\two_d\environments\task_env.py:1532: RuntimeWarning: waypoint 1 [1.25, 0.45] is not robustly feasible: radius 0.515 m is within 0.180 m of the reach circle (0.650 m): a straight-arm rest would count as in-goal at the coarse curriculum tolerance
+  env.set_waypoints(waypoints)
+C:\Users\ranjo\OneDrive\Desktop\ARM-Model\src\rl_armMotion\two_d\environments\task_env.py:1532: RuntimeWarning: waypoint 2 [1.5, -0.25] is not robustly feasible: radius 0.559 m is within 0.180 m of the reach circle (0.650 m): a straight-arm rest would count as in-goal at the coarse curriculum tolerance
+  env.set_waypoints(waypoints)
+Wrapping the env with a `Monitor` wrapper
+Wrapping the env in a DummyVecEnv.
+package C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\CHAMPION_HUMAN_V1_B (best)
+preset 2dof_human_right, muscle actuation, ordered, 30 episodes
+
+HARD LIMITS (a violation is a model bug, not a training outcome)
+  [PASS] joint angles inside the range of motion          closest approach: 0.24 deg of margin
+  [PASS] joint speeds inside the velocity limit           peak 8.00 of 8.0 rad/s
+  [PASS] actuator torque inside the torque limits         peak [21.53, 9.18] of [25.0, 12.0] N.m
+  [PASS] muscle activations inside [0, 1]                 range 0.001..0.968
+  [PASS] every state, observation and reward finite       no non-finite step raised
+
+HUMAN-LIKENESS (reference ranges from the motor-control literature)
+  metric                           measured      human range   verdict
+  straightness                 1.07 (p90  1.08)        1.00-1.15   in band
+  symmetry                     0.27 (p90  0.27)        0.35-0.55   OUTSIDE
+  submovements                 1.67 (p90  2.00)        1.00-2.00   in band
+  dimensionless_jerk          17.58 (p90 20.20)       0.00-60.00   in band
+  peak_speed                   1.78 (p90  1.84)        0.00-1.50   OUTSIDE
+  movement_time                0.46 (p90  0.47)        0.40-1.20   in band
+
+  hand-speed cost: cap 1.50 m/s, peak 2.55 m/s, 42.6% of steps above the cap (does NOT bind: the policy pays and speeds anyway)
+
+CAPABILITIES (each measured, not asserted)
+  reaches arbitrary feasible points      30/30 episodes complete, 100% of waypoints visited
+  holds a pose against gravity           drift 0 mm, hand speed 0.046 m/s while holding
+  settles into the final hold            0.00 s median beyond the 0.5 s hold (p90 0.00 s)
+  stays sub-maximal in torque            peak [86.0, 76.0] % of the limits
+  avoids end-range postures              2.1% of steps in a passive end-range zone, 0.00% resting on a hard stop
+  stiffens by co-contraction to hold     co-contraction 0.114 while holding vs 0.270 while moving
+
+ALL HARD LIMITS RESPECTED; 2 human-likeness metric(s) outside the reference band
+   - symmetry 0.27 vs 0.35-0.55 (time to peak speed / movement time)
+   - peak_speed 1.78 vs 0.00-1.50 (m/s, human point-to-point reaching)
+
+report -> C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\report\study\B_limits.json

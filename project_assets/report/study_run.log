@@ -1,0 +1,23 @@
+B     limits   ok
+B     clicks   ok
+B3    regions  ok
+B3    limits   ok
+B3    clicks   ok
+F2    regions  FAILED rc=1
+F2    limits   ok
+F2    clicks   FAILED rc=1
+R3    regions  ok
+R3    limits   ok
+R3    clicks   ok
+R4    regions  ok
+R4    limits   ok
+R4    clicks   ok
+R5    regions  ok
+R5    limits   ok
+R5    clicks   ok
+R6    regions  ok
+R6    limits   ok
+R6    clicks   ok
+R7    regions  ok
+R7    limits   ok
+R7    clicks   ok

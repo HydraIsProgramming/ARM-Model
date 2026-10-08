@@ -1,0 +1,35 @@
+{
+  "CHAMPION_HUMAN_V1_A": {
+    "episode_success": 0.0,
+    "regions": {
+      "old area": {
+        "completed": 6,
+        "attempted": 92
+      },
+      "all targets": {
+        "completed": 18,
+        "attempted": 218
+      },
+      "outer ring": {
+        "completed": 12,
+        "attempted": 101
+      },
+      "overhead": {
+        "completed": 0,
+        "attempted": 29
+      },
+      "behind body": {
+        "completed": 0,
+        "attempted": 31
+      },
+      "close in": {
+        "completed": 0,
+        "attempted": 33
+      },
+      "hanging low": {
+        "completed": 0,
+        "attempted": 12
+      }
+    }
+  }
+}

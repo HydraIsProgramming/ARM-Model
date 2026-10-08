@@ -1,0 +1,16 @@
+Wrapping the env with a `Monitor` wrapper
+Wrapping the env in a DummyVecEnv.
+package C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\CHAMPION_HUMAN_V1_F2 (best)
+80 trials of 3 clicked points, anywhere in reach; tolerance 0.05 m, hold 25 steps
+
+Traceback (most recent call last):
+  File "C:\Users\ranjo\OneDrive\Desktop\ARM-Model\scripts\test_click_points.py", line 168, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "C:\Users\ranjo\OneDrive\Desktop\ARM-Model\scripts\test_click_points.py", line 118, in main
+    base.set_waypoints(pts)
+  File "C:\Users\ranjo\OneDrive\Desktop\ARM-Model\src\rl_armMotion\two_d\environments\task_env.py", line 612, in set_waypoints
+    self._reset_visits()
+  File "C:\Users\ranjo\OneDrive\Desktop\ARM-Model\src\rl_armMotion\two_d\environments\task_env.py", line 966, in _reset_visits
+    raise ValueError(
+ValueError: this free-order env has 2 waypoint slots, got 3

@@ -1,0 +1,39 @@
+{
+  "package": "C:\\Users\\ranjo\\OneDrive\\Desktop\\ARM-Model\\project_assets\\outputs\\CHAMPION_HUMAN_V1_R7",
+  "episodes": 30,
+  "hard_limits": {
+    "joint angles inside the range of motion": true,
+    "joint speeds inside the velocity limit": true,
+    "actuator torque inside the torque limits": true,
+    "muscle activations inside [0, 1]": true,
+    "every state, observation and reward finite": true
+  },
+  "human_likeness": {
+    "n_segments": 3.0,
+    "straightness": 1.124834375599276,
+    "symmetry": 0.5157775390858097,
+    "submovements": 1.6666666666666667,
+    "dimensionless_jerk": 27.49305428527603,
+    "movement_time": 0.54,
+    "peak_speed": 2.0659187161712875
+  },
+  "flagged": [
+    "peak_speed"
+  ],
+  "success_rate": 0.9,
+  "actuation": "muscle",
+  "peak_hand_speed": 3.4096996748306463,
+  "steps_above_speed_cap": 0.2401245378478303,
+  "peak_torque_pct": [
+    82.08843492707783,
+    90.14878909832754
+  ],
+  "steps_in_end_range": 0.04125316209379257,
+  "steps_on_hard_stop": 0.0031134461957579296,
+  "hold_drift_mm": 0.0,
+  "waypoints_visited": 0.9666666666666667,
+  "final_hold_extra_s": 0.0,
+  "final_hold_extra_p90_s": 0.24800000000000005,
+  "cocontraction_hold": 0.4696221387555682,
+  "cocontraction_move": 0.2199519201637453
+}

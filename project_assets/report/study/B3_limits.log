@@ -1,0 +1,37 @@
+Wrapping the env with a `Monitor` wrapper
+Wrapping the env in a DummyVecEnv.
+package C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\outputs\CHAMPION_HUMAN_V1_B3 (best)
+preset 2dof_human_right, muscle actuation, ordered, 30 episodes
+
+HARD LIMITS (a violation is a model bug, not a training outcome)
+  [PASS] joint angles inside the range of motion          closest approach: 5.76 deg of margin
+  [PASS] joint speeds inside the velocity limit           peak 8.00 of 8.0 rad/s
+  [PASS] actuator torque inside the torque limits         peak [17.08, 7.13] of [25.0, 12.0] N.m
+  [PASS] muscle activations inside [0, 1]                 range 0.010..0.993
+  [PASS] every state, observation and reward finite       no non-finite step raised
+
+HUMAN-LIKENESS (reference ranges from the motor-control literature)
+  metric                           measured      human range   verdict
+  straightness                 1.18 (p90  1.19)        1.00-1.15   OUTSIDE
+  symmetry                     0.58 (p90  0.59)        0.35-0.55   OUTSIDE
+  submovements                 1.33 (p90  1.33)        1.00-2.00   in band
+  dimensionless_jerk          17.63 (p90 18.90)       0.00-60.00   in band
+  peak_speed                   1.99 (p90  2.01)        0.00-1.50   OUTSIDE
+  movement_time                0.43 (p90  0.45)        0.40-1.20   in band
+
+  hand-speed cost: cap 1.50 m/s, peak 2.72 m/s, 14.0% of steps above the cap (does NOT bind: the policy pays and speeds anyway)
+
+CAPABILITIES (each measured, not asserted)
+  reaches arbitrary feasible points      30/30 episodes complete, 100% of waypoints visited
+  holds a pose against gravity           drift 0 mm, hand speed 0.083 m/s while holding
+  settles into the final hold            2.28 s median beyond the 0.5 s hold (p90 2.28 s)
+  stays sub-maximal in torque            peak [68.0, 59.0] % of the limits
+  avoids end-range postures              0.3% of steps in a passive end-range zone, 0.00% resting on a hard stop
+  stiffens by co-contraction to hold     co-contraction 0.384 while holding vs 0.194 while moving
+
+ALL HARD LIMITS RESPECTED; 3 human-likeness metric(s) outside the reference band
+   - straightness 1.18 vs 1.00-1.15 (path length / straight-line distance)
+   - symmetry 0.58 vs 0.35-0.55 (time to peak speed / movement time)
+   - peak_speed 1.99 vs 0.00-1.50 (m/s, human point-to-point reaching)
+
+report -> C:\Users\ranjo\OneDrive\Desktop\ARM-Model\project_assets\report\study\B3_limits.json
